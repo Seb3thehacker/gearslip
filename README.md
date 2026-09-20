@@ -4,36 +4,33 @@
 
 Bring any app to your car screen.
 
-## What this is
+## What Gearslip is
 
-Gearslip is a phone-side Android Auto client. It speaks the Android Auto protocol directly
-to a car head unit over USB and acts as a **Car App Library host**: apps that ship an
-Android Auto car UI (navigation and media apps) hand Gearslip a template, and Gearslip
-renders it natively on the car screen, full quality, no phone-screen mirroring. A separate
-screen-sharing mode is included for apps that don't ship a car UI at all.
+Gearslip is an Android Auto client for the phone. It speaks the Android Auto protocol
+directly to a car head unit over USB, with no Google software in the path. Gearslip acts
+as a Car App Library host: an app that ships a car interface hands Gearslip a template,
+and Gearslip renders that template natively on the car screen. Nothing is mirrored from
+the phone. For apps without a car interface, Gearslip offers a separate screen-sharing
+mode.
 
-Built by reverse-engineering the protocol for interoperability - getting a non-Google client
-talking to a car head unit that only expects Google's own app.
+The author reverse-engineered the protocol for interoperability, so that a client other
+than Google's own can talk to a car head unit.
 
 ## Status
 
-Real progress, with one hard limit that's worth knowing before you build on this:
-
-- **Templated app hosting works.** All 16 template types the Car App Library defines are
-  rendered, including a keyboard Gearslip draws itself for search and sign-in. Verified
-  against several real navigation and media apps.
-- **Media playback works.** Car-enabled media apps are browsable and controllable from the
-  car UI, with lyrics and playback state, over the same host connection.
-- **The connection to a real head unit needs a certificate Google controls, and Gearslip
-  doesn't ship one.** A head unit only accepts a phone identity that chains to Google's
-  Automotive Link certificate authority - something only Google issues. Without one, Gearslip
-  still runs and renders everything correctly against a debug harness, but a real car will
-  reject the connection outright. See [docs/SPIKE_FINDINGS.md](docs/SPIKE_FINDINGS.md) for what was
-  tested, including one publicly-known leaked certificate that works on some older head
-  units and is rejected by newer firmware and by Google's own reference tooling.
-- **No adb, root, or Shizuku is required to run it.** Every feature is gated on an ordinary
-  Android permission or an on-device consent dialog - nothing needs privileged access, on
-  the phone or in the car.
+- **Templated apps work.** Gearslip renders all 16 template types that the Car App
+  Library defines, and it draws its own keyboard for search and sign-in. It has been
+  tested against several real navigation and media apps.
+- **Media playback works.** Gearslip lets you browse and control car-enabled media apps
+  from the car screen, with lyrics and playback state, over the same host connection.
+- **A real head unit needs a certificate that Google controls.** A head unit accepts only
+  a phone identity that chains to Google's Automotive Link certificate authority, and
+  Google alone issues those certificates. Gearslip does not ship one. Without it,
+  Gearslip runs and renders correctly against a debug harness, but a real car rejects the
+  connection. A leaked certificate exists that older head units accept; newer firmware
+  and Google's reference tooling reject it.
+- **Gearslip needs no adb, root, or Shizuku.** Every feature relies on an ordinary
+  Android permission or an on-device consent dialog.
 
 ## Building
 
@@ -43,16 +40,17 @@ Real progress, with one hard limit that's worth knowing before you build on this
 
 The APK lands at `build/Gearslip-debug.apk`.
 
-## Further reading
+A release build needs a signing key. Copy `keystore.properties.example` to
+`keystore.properties`, fill in your own values, and run
+`./gradlew :gearslip:assembleRelease`. Git ignores both the properties file and the
+keystore. Without them, the debug build still works.
 
-- [docs/BUILDING_APPS.md](docs/BUILDING_APPS.md) - how to write apps Gearslip can render:
-  templated apps, media apps, and the Gearslip app protocol.
-- [docs/SPIKE_FINDINGS.md](docs/SPIKE_FINDINGS.md) - the certificate investigation in full: what was
-  tried, what a real head unit does and doesn't accept, and why.
-- [docs/CUSTOM_HEADUNIT_SCOPING.md](docs/CUSTOM_HEADUNIT_SCOPING.md) - the original scoping of what a
-  custom head unit client would need.
+## Writing apps for Gearslip
+
+[docs/BUILDING_APPS.md](docs/BUILDING_APPS.md) specifies how to write apps that Gearslip
+can render: templated apps, media apps, and the Gearslip app protocol.
 
 ## License
 
-AGPL-3.0 - see [LICENSE](LICENSE). A separate commercial license is available for private
-use outside the AGPL's terms; see [NOTICE.md](NOTICE.md).
+Gearslip is licensed under AGPL-3.0; see [LICENSE](LICENSE). The author offers a separate
+commercial license for private use outside the AGPL's terms; see [NOTICE.md](NOTICE.md).
