@@ -1,0 +1,18 @@
+*.iml
+.gradle/
+.idea/
+.DS_Store
+.kotlin
+/build
+local.properties
+
+# Reference checkouts only - never referenced by the build; safe to delete entirely.
+/cloned-repos
+
+# The head unit certificate. Never committed or shared beyond who Seb sends it to directly.
+/cert
+
+# Local investigation script; not meant for the public repo.
+/docs/cert-sweep.sh
+archive/
+CLAUDE.md
