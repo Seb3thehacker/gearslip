@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The projected WebView loads real pages; without this every load fails silently. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Phone mirroring. Android refuses to hand over a MediaProjection unless a foreground
+      service of this type is already running, so MirrorService exists purely to satisfy that
+      and to give the driver a way to stop the capture from the notification shade.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Capturing a media app's playback (to send to the car) is gated on this by the platform. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
+      Declared, not just requested. Templated apps decide whether to talk to a host by asking
+      whether it holds this permission (HostValidator.isValidHost checks it before falling back
+      to a signature allow-list containing Android Auto's). It is defined by the car framework
+      on Android Automotive, which does not exist on a phone, so nothing else defines it here
+      and Gearslip has to define it to be able to hold it.
+    -->
+    <permission
+        android:name="android.car.permission.TEMPLATE_RENDERER"
+        android:protectionLevel="normal" />
+    <uses-permission android:name="android.car.permission.TEMPLATE_RENDERER" />
+
+    <uses-feature android:name="android.hardware.usb.accessory" android:required="true" />
+
+    <queries>
+    <intent>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+    </intent>
+    <!-- Templated apps are invisible to us without this, and the catalog comes back empty. -->
+    <intent>
+        <action android:name="androidx.car.app.CarAppService" />
+    </intent>
+    <!-- Media apps for the car: found by their browser service. -->
+    <intent>
+        <action android:name="android.media.browse.MediaBrowserService" />
+    </intent>
+</queries>
+
+<application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="Gearslip"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Gearslip">
+
+        <!--
+          singleTop: the head unit can re-attach while we are already foregrounded, which
+          arrives via onNewIntent rather than a fresh instance.
+        -->
+        <activity
+            android:name=".GearslipActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|locale|layoutDirection|fontScale">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
+                android:resource="@xml/accessory_filter" />
+        </activity>
+
+        <service
+            android:name=".mirror.MirrorService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <service
+            android:name=".host.LocationKeepAlive"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- Holds the capture session that carries a media app's audio to the car. -->
+        <service
+            android:name=".audio.AudioCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!--
+          Touch on the car screen is replayed onto the phone through this service.
+          dispatchGesture is the only public way for an app to inject input into another app,
+          and it is unavailable until the user enables Gearslip under Settings > Accessibility.
+        -->
+        <service
+            android:name=".mirror.TouchRelayService"
+            android:exported="true"
+            android:label="Gearslip car touch"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/touch_relay" />
+        </service>
+
+        <!--
+          Reads the phone's notifications so the car can show and answer them. Inert until the
+          user grants Notification access to Gearslip in the phone's settings.
+        -->
+        <service
+            android:name=".notify.GearslipNotificationListener"
+            android:exported="true"
+            android:label="Gearslip notifications"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

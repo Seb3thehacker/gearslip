@@ -1,0 +1,564 @@
+package app.seb3thehacker.gearslip.host
+
+import app.seb3thehacker.gearslip.car.CarEnvironment
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.content.res.Configuration
+import android.graphics.Rect
+import android.location.Location
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.view.Surface
+import androidx.car.app.CarAppService
+import androidx.car.app.CarContext
+import androidx.car.app.HandshakeInfo
+import androidx.car.app.IAppHost
+import androidx.car.app.IAppManager
+import androidx.car.app.ICarApp
+import androidx.car.app.ICarHost
+import androidx.car.app.IOnDoneCallback
+import androidx.car.app.model.Template
+import androidx.car.app.model.TemplateWrapper
+import androidx.car.app.ISurfaceCallback
+import androidx.car.app.SurfaceContainer
+import androidx.car.app.AppInfo
+import androidx.car.app.constraints.ConstraintManager
+import androidx.car.app.constraints.IConstraintHost
+import androidx.car.app.suggestion.ISuggestionHost
+import androidx.car.app.hardware.ICarHardwareHost
+import androidx.car.app.hardware.ICarHardwareResult
+import androidx.car.app.navigation.INavigationHost
+import androidx.car.app.serialization.Bundleable
+import androidx.car.app.versioning.CarAppApiLevels
+import app.seb3thehacker.gearslip.GearslipLog
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * Speaks the Car App Library's host half, so a templated app can be rendered by Gearslip.
+ *
+ * This is the opposite end of the interface an app implements: the app exports a
+ * CarAppService and describes a screen as a template, and whichever host it is bound to
+ * decides how that template looks. Android Auto is one such host. So is this.
+ *
+ * Whether an app will talk to us at all is decided by its HostValidator, which accepts a host
+ * that either holds android.car.permission.TEMPLATE_RENDERER or is signed by a key on its
+ * allow-list. Gearslip declares that permission in its manifest, which is the whole reason
+ * this can work from an ordinary app - see AndroidManifest.xml.
+ *
+ * Every binder callback lands on a binder thread and is hopped to the main thread, because
+ * the state here feeds Compose.
+ */
+class CarAppConnection(private val context: Context) {
+
+    enum class Phase { IDLE, BINDING, HANDSHAKE, RUNNING, REJECTED, FAILED }
+
+    data class Status(
+        val phase: Phase = Phase.IDLE,
+        val app: String? = null,
+        val detail: String? = null,
+        val apiLevel: Int = 0,
+        val template: String? = null,
+        val surfaceRequested: Boolean = false,
+        val surfaceAttached: Boolean = false,
+    )
+
+    /** The Surface lent to the app, plus the size the app should draw at. */
+    private data class Lent(val surface: Surface, val width: Int, val height: Int, val dpi: Int)
+
+    private val _status = MutableStateFlow(Status())
+    val status: StateFlow<Status> = _status.asStateFlow()
+
+    /** The app's current screen, as it described it. Null until the first one arrives. */
+    private val _template = MutableStateFlow<Template?>(null)
+    val template: StateFlow<Template?> = _template.asStateFlow()
+
+    private val main = Handler(Looper.getMainLooper())
+
+    private var carApp: ICarApp? = null
+    private var appManager: IAppManager? = null
+    /** Main thread only, both of these - the handoff is a race between them either way round. */
+    private var surfaceCallback: ISurfaceCallback? = null
+    private var lent: Lent? = null
+
+    private var binding: ServiceConnection? = null
+    private var component: ComponentName? = null
+
+    private var frameWidth = 800
+    private var frameHeight = 480
+    private var frameDensity = 160
+
+    // --- connection ---------------------------------------------------------------------
+
+    fun connect(app: TemplateApp, width: Int, height: Int, densityDpi: Int) {
+        disconnect()
+        frameWidth = width
+        frameHeight = height
+        frameDensity = densityDpi
+        component = app.component
+        update { Status(phase = Phase.BINDING, app = app.label) }
+
+        val intent = Intent(CarAppService.SERVICE_INTERFACE).setComponent(app.component)
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, service: IBinder) {
+                main.post { onBound(service) }
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) {
+                main.post { fail(Phase.FAILED, "the app's service disconnected") }
+            }
+
+            override fun onNullBinding(name: ComponentName) {
+                // A templated app that refuses a host returns no binder at all.
+                main.post { fail(Phase.REJECTED, "the app refused to bind - host not accepted") }
+            }
+        }
+        binding = connection
+
+        LocationKeepAlive.start(context)
+        val bound = runCatching {
+            context.bindService(intent, connection, Context.BIND_AUTO_CREATE or LocationKeepAlive.BIND_INCLUDE_CAPABILITIES)
+        }.getOrElse {
+            GearslipLog.e("bindService threw for ${app.component}", it)
+            false
+        }
+        if (!bound) {
+            binding = null
+            fail(Phase.FAILED, "bindService refused")
+        } else {
+            GearslipLog.i("host: binding to ${app.component.flattenToShortString()}")
+        }
+    }
+
+    fun disconnect() {
+        lent?.let { sendSurfaceDestroyed(it) }
+        lent = null
+        val carApp = this.carApp
+        if (carApp != null) {
+            runCatching { carApp.onAppPause(noop("onAppPause")) }
+            runCatching { carApp.onAppStop(noop("onAppStop")) }
+        }
+        LocationKeepAlive.stop(context)
+        binding?.let { runCatching { context.unbindService(it) } }
+        binding = null
+        this.carApp = null
+        appManager = null
+        surfaceCallback = null
+        component = null
+        _template.value = null
+        update { Status() }
+    }
+
+    // --- handshake ---------------------------------------------------------------------
+
+    private fun onBound(service: IBinder) {
+        val app = ICarApp.Stub.asInterface(service)
+        carApp = app
+        update { it.copy(phase = Phase.HANDSHAKE, detail = "bound, asking for app info") }
+        GearslipLog.i("host: bound; requesting app info")
+
+        call("getAppInfo", onValue = { value ->
+            val info = value as? AppInfo ?: return@call fail(Phase.FAILED, "app info was ${value?.javaClass?.simpleName}")
+            onAppInfo(info)
+        }) { app.getAppInfo(it) }
+    }
+
+    /**
+     * Picks the newest API level both sides understand. An app that needs more than this host
+     * offers cannot be rendered correctly, so it is refused here rather than half-drawn.
+     */
+    private fun onAppInfo(info: AppInfo) {
+        val negotiated = minOf(HOST_API_LEVEL, info.latestCarAppApiLevel)
+        GearslipLog.i(
+            "host: app api ${info.minCarAppApiLevel}..${info.latestCarAppApiLevel} " +
+                "(library ${info.libraryDisplayVersion}), host $HOST_API_LEVEL -> $negotiated"
+        )
+        if (negotiated < info.minCarAppApiLevel) {
+            fail(Phase.FAILED, "app needs car api ${info.minCarAppApiLevel}, host offers $HOST_API_LEVEL")
+            return
+        }
+        val app = carApp ?: return
+        update { it.copy(apiLevel = negotiated, detail = "handshake") }
+
+        val handshake = runCatching { Bundleable.create(HandshakeInfo(context.packageName, negotiated)) }
+            .getOrElse { return fail(Phase.FAILED, "could not bundle the handshake: ${it.message}") }
+
+        call("onHandshakeCompleted", onValue = { onHandshakeAccepted() }) {
+            app.onHandshakeCompleted(handshake, it)
+        }
+    }
+
+    private fun onHandshakeAccepted() {
+        val app = carApp ?: return
+        GearslipLog.i("host: handshake accepted; creating the app")
+        val intent = Intent(Intent.ACTION_MAIN).setComponent(component)
+        call("onAppCreate", onValue = { onCreated() }) {
+            app.onAppCreate(carHost, intent, carConfiguration(), it)
+        }
+    }
+
+    private fun onCreated() {
+        val app = carApp ?: return
+        GearslipLog.i("host: created; starting")
+        call("onAppStart", onValue = {
+            call("onAppResume", onValue = { onRunning() }) { app.onAppResume(it) }
+        }) { app.onAppStart(it) }
+    }
+
+    private fun onRunning() {
+        val app = carApp ?: return
+        update { it.copy(phase = Phase.RUNNING, detail = "connected") }
+        GearslipLog.verdict(
+            "${component?.packageName} accepted Gearslip as a template host",
+            "Handshake completed at car API level ${_status.value.apiLevel}.",
+        )
+
+        call("getManager(app)", onValue = { value ->
+            appManager = when (value) {
+                is IAppManager -> value
+                is IBinder -> IAppManager.Stub.asInterface(value)
+                else -> null
+            }
+            if (appManager == null) GearslipLog.e("host: app manager was ${value?.javaClass?.name}")
+            requestTemplate()
+        }) { app.getManager(CarContext.APP_SERVICE, it) }
+    }
+
+    /** The app describes its current screen; this is what the host draws. */
+    private fun requestTemplate() {
+        val manager = appManager ?: return
+        call("getTemplate", onValue = { value ->
+            // TemplateWrapper carries the template plus the id the host echoes back on refresh.
+            val template = (value as? TemplateWrapper)?.template ?: value as? Template
+            if (template == null) {
+                GearslipLog.w("host: getTemplate returned ${value?.javaClass?.name}")
+                return@call
+            }
+            GearslipLog.i("host: template = ${template.javaClass.simpleName}")
+            _template.value = template
+            update { it.copy(template = template.javaClass.simpleName) }
+        }) { manager.getTemplate(it) }
+    }
+
+    // --- the surface the app draws its map into -------------------------------------------
+
+    /**
+     * Lends the app a Surface to draw into.
+     *
+     * Navigation apps render their own map rather than describing it as a template, so the host
+     * has to give them somewhere to draw. Gearslip's car UI already lives in a Presentation on a
+     * VirtualDisplay backed by the encoder, so the Surface handed over here belongs to a
+     * SurfaceView in that Presentation: the app draws straight into the car's picture and
+     * SurfaceFlinger composites it under our chrome, with no readback or GL on our side.
+     *
+     * Safe to call before the app has asked for a surface - whichever of the two arrives second
+     * completes the handoff.
+     */
+    fun attachSurface(surface: Surface, width: Int, height: Int, dpi: Int) {
+        main.post {
+            val current = lent
+            if (current != null &&
+                current.surface == surface &&
+                current.width == width &&
+                current.height == height
+            ) {
+                return@post
+            }
+            current?.let { sendSurfaceDestroyed(it) }
+            lent = Lent(surface, width, height, dpi)
+            sendSurfaceAvailable()
+        }
+    }
+
+    /** Takes the Surface back, e.g. when the SurfaceView goes away. */
+    fun detachSurface() {
+        main.post {
+            val current = lent ?: return@post
+            lent = null
+            sendSurfaceDestroyed(current)
+            update { it.copy(surfaceAttached = false) }
+        }
+    }
+
+    private fun sendSurfaceAvailable() {
+        val callback = surfaceCallback ?: return
+        val surface = lent ?: return
+        if (!surface.surface.isValid) {
+            GearslipLog.w("host: not lending an invalid surface")
+            return
+        }
+
+        val container = runCatching {
+            Bundleable.create(
+                SurfaceContainer(surface.surface, surface.width, surface.height, surface.dpi)
+            )
+        }.getOrElse {
+            GearslipLog.e("host: could not bundle the surface", it)
+            return
+        }
+
+        val sent = runCatching { callback.onSurfaceAvailable(container, noop("onSurfaceAvailable")) }
+        if (sent.isFailure) {
+            GearslipLog.e("host: onSurfaceAvailable threw", sent.exceptionOrNull())
+            return
+        }
+
+        // The app draws for the whole surface; the visible area is what isn't covered by host
+        // chrome, and the stable area is the part that never gets covered. We keep our chrome
+        // to a top bar, so both are the surface minus that bar - reported by the UI via
+        // [reportAreas] once it has measured. Until then the whole surface is fair game.
+        val whole = Rect(0, 0, surface.width, surface.height)
+        reportAreas(whole, whole)
+
+        GearslipLog.i(
+            "host: lent the app a ${surface.width}x${surface.height} @${surface.dpi}dpi surface"
+        )
+        update { it.copy(surfaceAttached = true) }
+    }
+
+    private fun sendSurfaceDestroyed(surface: Lent) {
+        val callback = surfaceCallback ?: return
+        val container = runCatching {
+            Bundleable.create(
+                SurfaceContainer(surface.surface, surface.width, surface.height, surface.dpi)
+            )
+        }.getOrNull() ?: return
+        runCatching { callback.onSurfaceDestroyed(container, noop("onSurfaceDestroyed")) }
+        GearslipLog.i("host: took the surface back")
+    }
+
+    /** Tells the app which part of its surface the driver can actually see. */
+    fun reportAreas(visible: Rect, stable: Rect) {
+        val callback = surfaceCallback ?: return
+        runCatching { callback.onStableAreaChanged(stable, noop("onStableAreaChanged")) }
+        runCatching { callback.onVisibleAreaChanged(visible, noop("onVisibleAreaChanged")) }
+    }
+
+    // --- gestures on the app's surface -----------------------------------------------------
+    //
+    // These are the map interactions a host forwards: the app never sees raw touches, only
+    // these four. Coordinates are in surface pixels. Scroll distances follow GestureDetector's
+    // convention (previous minus current), which is the opposite sign to a Compose drag.
+
+    fun surfaceClick(x: Float, y: Float) = onSurface("onClick") { it.onClick(x, y) }
+
+    fun surfaceScroll(distanceX: Float, distanceY: Float) =
+        onSurface("onScroll") { it.onScroll(distanceX, distanceY) }
+
+    fun surfaceFling(velocityX: Float, velocityY: Float) =
+        onSurface("onFling") { it.onFling(velocityX, velocityY) }
+
+    fun surfaceScale(focusX: Float, focusY: Float, scaleFactor: Float) =
+        onSurface("onScale") { it.onScale(focusX, focusY, scaleFactor) }
+
+    private inline fun onSurface(name: String, send: (ISurfaceCallback) -> Unit) {
+        val callback = surfaceCallback ?: return
+        runCatching { send(callback) }.onFailure { GearslipLog.w("host: $name failed: ${it.message}") }
+    }
+
+    // --- host interfaces the app calls back into -----------------------------------------
+
+    private val appHost = object : IAppHost.Stub() {
+        override fun invalidate() {
+            GearslipLog.i("host: app invalidated its template")
+            main.post { requestTemplate() }
+        }
+
+        override fun showToast(text: CharSequence?, duration: Int) {
+            GearslipLog.i("host: toast \"$text\"")
+        }
+
+        /**
+         * Navigation apps draw their own map, so the host lends them a Surface. Receiving this
+         * is the signal that the app is ready to render into the car's picture.
+         */
+        override fun setSurfaceCallback(callback: ISurfaceCallback?) {
+            GearslipLog.i("host: app asked for a surface (callback=${callback != null})")
+            main.post {
+                surfaceCallback = callback
+                update { it.copy(surfaceRequested = callback != null) }
+                if (callback != null) sendSurfaceAvailable()
+            }
+        }
+
+        override fun sendLocation(location: Location?) = Unit
+        override fun showAlert(alert: Bundleable?) = Unit
+        override fun dismissAlert(alertId: Int) = Unit
+        override fun openMicrophone(request: Bundleable?): Bundleable? = null
+    }
+
+    private val navigationHost = object : INavigationHost.Stub() {
+        override fun navigationStarted() = GearslipLog.i("host: navigation started")
+        override fun navigationEnded() = GearslipLog.i("host: navigation ended")
+        override fun updateTrip(trip: Bundleable?) = Unit
+    }
+
+    /**
+     * Answers car-hardware questions with "this car doesn't have that".
+     *
+     * A phone knows nothing about a car's sensors, so every answer here is "unsupported" - but
+     * it has to be an actual answer. Returning no binder for this service at all is what made
+     * Organic Maps crash in onAppStart: its CarSensorsManager assumes a host that offers the
+     * service, and the library's own "unsupported" path only runs once a reply arrives.
+     *
+     * The reply's Bundleable is ignored by the library whenever isSupported is false, but the
+     * IBinder must be a real IOnDoneCallback - the app dispatches the reply through it.
+     */
+    private val hardwareHost = object : ICarHardwareHost.Stub() {
+        override fun getCarHardwareResult(
+            type: Int,
+            params: Bundleable?,
+            result: ICarHardwareResult?,
+        ) = unsupported(type, result)
+
+        override fun subscribeCarHardwareResult(
+            type: Int,
+            params: Bundleable?,
+            result: ICarHardwareResult?,
+        ) = unsupported(type, result)
+
+        override fun unsubscribeCarHardwareResult(type: Int, params: Bundleable?) = Unit
+
+        private fun unsupported(type: Int, result: ICarHardwareResult?) {
+            val target = result ?: return
+            runCatching {
+                target.onCarHardwareResult(type, false, null, noop("carHardwareResult").asBinder())
+            }.onFailure { GearslipLog.w("host: could not answer hardware result $type") }
+        }
+    }
+
+    /**
+     * Tells apps how much content this screen can take.
+     *
+     * These are safety limits in a real car - how many rows a driver may be shown at once -
+     * and the app trims its own lists to them. Gearslip's numbers match what the Car App
+     * Library documents for a projected head unit; they are about the screen, not about us.
+     */
+    private val constraintHost = object : IConstraintHost.Stub() {
+        override fun getContentLimit(type: Int): Int = when (type) {
+            ConstraintManager.CONTENT_LIMIT_TYPE_GRID -> 12
+            ConstraintManager.CONTENT_LIMIT_TYPE_PANE -> 4
+            ConstraintManager.CONTENT_LIMIT_TYPE_ROUTE_LIST -> 3
+            else -> 12
+        }
+
+        /** The app may refresh its own template without the driver touching anything. */
+        override fun isAppDrivenRefreshEnabled(): Boolean = true
+    }
+
+    /**
+     * Accepts the shortcuts an app offers for a car launcher.
+     *
+     * Gearslip has nowhere to show these yet, but accepting and dropping them is right: an app
+     * that pushes suggestions shouldn't fail because its host doesn't surface them.
+     */
+    private val suggestionHost = object : ISuggestionHost.Stub() {
+        override fun updateSuggestions(suggestions: Bundleable?) = Unit
+    }
+
+    private val carHost = object : ICarHost.Stub() {
+        override fun getHost(type: String?): IBinder? = when (type) {
+            CarContext.APP_SERVICE -> appHost.asBinder()
+            CarContext.NAVIGATION_SERVICE -> navigationHost.asBinder()
+            CarContext.HARDWARE_SERVICE -> hardwareHost.asBinder()
+            CarContext.CONSTRAINT_SERVICE -> constraintHost.asBinder()
+            CarContext.SUGGESTION_SERVICE -> suggestionHost.asBinder()
+            else -> {
+                GearslipLog.i("host: app asked for an unsupported service \"$type\"")
+                null
+            }
+        }
+
+        override fun startCarApp(intent: Intent?) {
+            GearslipLog.i("host: app wants to start $intent")
+        }
+
+        override fun finish() {
+            GearslipLog.i("host: app finished")
+            main.post { disconnect() }
+        }
+    }
+
+    // --- plumbing ------------------------------------------------------------------------
+
+    /**
+     * Every call in this protocol is one-way plus an IOnDoneCallback, so this pairs them back
+     * up and funnels a remote failure into the visible status rather than losing it.
+     */
+    private fun call(name: String, onValue: (Any?) -> Unit, send: (IOnDoneCallback) -> Unit) {
+        val callback = object : IOnDoneCallback.Stub() {
+            override fun onSuccess(response: Bundleable?) {
+                val value = response?.let { runCatching { it.get() }.getOrNull() }
+                main.post { onValue(value) }
+            }
+
+            override fun onFailure(response: Bundleable?) {
+                val value = response?.let { runCatching { it.get() }.getOrNull() }
+                main.post { fail(Phase.FAILED, "$name failed: $value") }
+            }
+        }
+        runCatching { send(callback) }
+            .onFailure { fail(Phase.REJECTED, "$name threw: ${it.javaClass.simpleName} ${it.message}") }
+    }
+
+    private fun noop(name: String) = object : IOnDoneCallback.Stub() {
+        override fun onSuccess(response: Bundleable?) = Unit
+        override fun onFailure(response: Bundleable?) = GearslipLog.w("host: $name failed")
+    }
+
+    /**
+     * The app lays itself out for this, so it describes the car screen rather than the phone,
+     * including UI_MODE_TYPE_CAR - templated apps branch on that.
+     */
+    /** The day/night value last handed to the app, so a change is only pushed when it is one. */
+    private var sentNight: Boolean? = null
+
+    /**
+     * Tells a running app that the car's light changed. Templated apps take their map style from
+     * the configuration the host reports, so this is what turns the map to day or night.
+     */
+    fun pushConfiguration() {
+        val app = carApp ?: return
+        if (_status.value.phase != Phase.RUNNING) return
+        if (CarEnvironment.darkOutside.value == sentNight) return
+        val configuration = carConfiguration()
+        call("onConfigurationChanged", onValue = { }) { app.onConfigurationChanged(configuration, it) }
+    }
+
+    private fun carConfiguration(): Configuration {
+        val configuration = Configuration(context.resources.configuration)
+        val night = CarEnvironment.darkOutside.value
+        sentNight = night
+        configuration.uiMode = (configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
+            if (night) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
+        configuration.densityDpi = frameDensity
+        configuration.screenWidthDp = frameWidth * 160 / frameDensity
+        configuration.screenHeightDp = frameHeight * 160 / frameDensity
+        configuration.smallestScreenWidthDp =
+            minOf(configuration.screenWidthDp, configuration.screenHeightDp)
+        configuration.orientation =
+            if (frameWidth >= frameHeight) Configuration.ORIENTATION_LANDSCAPE
+            else Configuration.ORIENTATION_PORTRAIT
+        configuration.uiMode = (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK.inv()) or
+            Configuration.UI_MODE_TYPE_CAR
+        return configuration
+    }
+
+    private fun fail(phase: Phase, detail: String) {
+        GearslipLog.e("host: $detail")
+        update { it.copy(phase = phase, detail = detail) }
+    }
+
+    private fun update(block: (Status) -> Status) {
+        _status.value = block(_status.value)
+    }
+
+    private companion object {
+        /** The newest template API this host claims to understand. */
+        const val HOST_API_LEVEL = CarAppApiLevels.LEVEL_8
+    }
+}
