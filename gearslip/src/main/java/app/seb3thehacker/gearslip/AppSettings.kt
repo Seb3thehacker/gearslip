@@ -7,6 +7,7 @@ object AppSettings {
 
     private const val PREFS = "gearslip_settings"
     private const val KEY_STARTUP_URL = "startup_url"
+    private const val KEY_SEEN_COMPAT_WARNING = "seen_compat_warning"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -24,5 +25,13 @@ object AppSettings {
 
     fun setStartupUrl(context: Context, value: String) {
         prefs(context).edit().putString(KEY_STARTUP_URL, value.trim()).apply()
+    }
+
+    /** Whether the newer-car compatibility warning has already been shown and dismissed once. */
+    fun hasSeenCompatWarning(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SEEN_COMPAT_WARNING, false)
+
+    fun setSeenCompatWarning(context: Context) {
+        prefs(context).edit().putBoolean(KEY_SEEN_COMPAT_WARNING, true).apply()
     }
 }

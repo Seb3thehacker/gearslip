@@ -10,6 +10,9 @@ sealed interface CarScreen {
     data object Settings : CarScreen
     data object Apps : CarScreen
 
+    /** Opened from the clock: the day's calendar and the weather, nothing that needs a keyboard. */
+    data object Dashboard : CarScreen
+
     /** The current media app, full size: browse, lyrics and controls. */
     data object Media : CarScreen
 
@@ -39,6 +42,8 @@ class CarNavigator(startId: String) {
     fun apps() { current = CarScreen.Apps }
 
     fun settings() { current = CarScreen.Settings }
+
+    fun dashboard() { current = CarScreen.Dashboard }
 
     fun notifications(replyTo: String? = null) { current = CarScreen.Notifications(replyTo) }
 

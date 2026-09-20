@@ -26,14 +26,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.ui.CertSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Settings that make sense while sitting in the car. Anything that needs a keyboard (the
- * startup URL, certificates) lives on the phone, not here.
+ * Settings that make sense while sitting in the car. The web page URL is edited here, with the
+ * car's own on-screen keyboard ([CarKeyboard]); certificate management still needs a real
+ * keyboard and file picker, so it stays on the phone's Settings screen.
  */
 @Composable
 fun CarSettingsScreen() {
@@ -102,6 +105,8 @@ fun CarSettingsScreen() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        WebPageSetting()
+
         ScreenFit(vehicle)
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -138,6 +143,48 @@ private fun <T> ChoiceRow(title: String, options: List<Pair<T, String>>, selecte
                     }
                 }
             }
+        }
+    }
+}
+
+/** The URL (or raw HTML) the Web app shows. Edited with [CarKeyboard] - no phone in hand needed. */
+@Composable
+private fun WebPageSetting() {
+    val context = LocalContext.current
+    var editing by remember { mutableStateOf(false) }
+    var url by remember { mutableStateOf(AppSettings.startupUrl(context)) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Web page", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        Surface(
+            onClick = { editing = !editing },
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                url.ifEmpty { "Built-in test page - tap to set a URL" },
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (url.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            )
+        }
+        Text(
+            "Shown by the Web app on the launcher. Applies on the next connection.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (editing) {
+            CarKeyboard(
+                url,
+                onTextChange = {
+                    url = it
+                    AppSettings.setStartupUrl(context, it)
+                },
+                onSubmit = { editing = false },
+            )
         }
     }
 }

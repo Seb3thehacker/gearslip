@@ -35,7 +35,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import android.content.Context
 import app.seb3thehacker.gearslip.host.CarAppCatalog
+import app.seb3thehacker.gearslip.host.TemplateApp
+import app.seb3thehacker.gearslip.media.MediaApp
 import app.seb3thehacker.gearslip.media.MediaCatalog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -48,6 +51,38 @@ private class Tile(
     val onClick: () -> Unit,
 )
 
+/** A launcher app's data, kept apart from [Tile] so it can be cached without capturing click state. */
+private class Entry(
+    val label: String,
+    val icon: ImageBitmap?,
+    val template: TemplateApp? = null,
+    val media: MediaApp? = null,
+)
+
+/**
+ * The installed car and media apps with their icons. Scanning the package manager and decoding
+ * icons is slow, so it happens once per car session; [invalidate] is called when one starts, which
+ * is the only time new installs are picked up.
+ */
+private object LauncherCache {
+    @Volatile var entries: List<Entry>? = null
+
+    fun invalidate() { entries = null }
+
+    fun load(context: Context): List<Entry> {
+        fun iconOf(pkg: String) = runCatching {
+            context.packageManager.getApplicationIcon(pkg).toBitmap(128, 128).asImageBitmap()
+        }.getOrNull()
+
+        val nav = CarAppCatalog.installed(context).map { Entry(it.label, iconOf(it.component.packageName), template = it) }
+        val media = MediaCatalog.installed(context).map { Entry(it.label, iconOf(it.component.packageName), media = it) }
+        return (nav + media).sortedBy { it.label.lowercase() }.also { entries = it }
+    }
+}
+
+/** Forgets the scanned apps so the next launcher open rescans; call at the start of a car session. */
+fun invalidateLauncherApps() = LauncherCache.invalidate()
+
 /** The app launcher: Web and Screen sharing, every car app the phone has, then Settings, as an icon grid. */
 @Composable
 fun CarLauncher() {
@@ -55,32 +90,20 @@ fun CarLauncher() {
     val navigator = LocalCarNavigator.current
     val frame by CarEnvironment.frame.collectAsState()
 
-    val installed by produceState(initialValue = emptyList<Tile>(), context, frame) {
-        value = withContext(Dispatchers.IO) {
-            fun iconOf(pkg: String) = runCatching {
-                context.packageManager.getApplicationIcon(pkg).toBitmap(128, 128).asImageBitmap()
-            }.getOrNull()
-
-            val nav = CarAppCatalog.installed(context).map { app ->
-                Tile(app.label, iconOf(app.component.packageName)) {
-                    CarServices.connectNav(app, frame)
-                    navigator.home()
-                }
-            }
-            val media = MediaCatalog.installed(context).map { app ->
-                Tile(app.label, iconOf(app.component.packageName)) {
-                    CarServices.openMedia(app)
-                    navigator.media()
-                }
-            }
-            (nav + media).sortedBy { it.label.lowercase() }
-        }
+    // Scanned once per car session (see LauncherCache), not every time the launcher opens.
+    val installed by produceState(initialValue = LauncherCache.entries ?: emptyList(), context) {
+        value = LauncherCache.entries ?: withContext(Dispatchers.IO) { LauncherCache.load(context) }
     }
 
     val tiles = listOf(
         Tile("Web", glyph = Icons.Filled.Search) { navigator.open("web") },
         Tile("Screen sharing", glyph = Icons.Filled.Share) { navigator.open("phone") },
-    ) + installed + listOf(
+    ) + installed.map { entry ->
+        Tile(entry.label, entry.icon) {
+            entry.template?.let { CarServices.connectNav(it, frame); navigator.home() }
+            entry.media?.let { CarServices.openMedia(it); navigator.media() }
+        }
+    } + listOf(
         Tile("Settings", glyph = Icons.Filled.Settings) { navigator.settings() },
     )
 

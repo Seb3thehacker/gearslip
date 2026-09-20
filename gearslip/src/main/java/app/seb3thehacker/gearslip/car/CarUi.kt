@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.car
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,11 +19,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,7 +42,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import app.seb3thehacker.gearslip.media.CarMedia
+import app.seb3thehacker.gearslip.media.MediaArt
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -74,7 +81,7 @@ fun CarUi() {
     val base = LocalDensity.current
     val insets by CarEnvironment.insets.collectAsState()
     val navigator = remember { CarNavigator(CarSettings.openOnConnect.value) }
-    remember(appContext) { CarServices.init(appContext) }
+    remember(appContext) { invalidateLauncherApps(); CarServices.init(appContext) }
     DisposableEffect(Unit) { onDispose { CarServices.shutdown() } }
     // The map follows the light outside, whatever the app's own theme is set to.
     LaunchedEffect(darkOutside) { CarServices.nav.pushConfiguration() }
@@ -105,6 +112,7 @@ fun CarUi() {
                                 CarScreen.Apps -> CarLauncher()
                                 CarScreen.Media -> mediaApp?.let { MediaScreen(it) { navigator.home() } }
                                 CarScreen.Settings -> CarSettingsScreen()
+                                CarScreen.Dashboard -> CarDashboardScreen()
                                 is CarScreen.Notifications -> NotificationsScreen(screen.replyTo)
                                 is CarScreen.App -> CarApps.find(screen.id)?.content?.invoke()
                             }
@@ -121,67 +129,75 @@ fun CarUi() {
     }
 }
 
-/** Back, Home and Apps on the left; clock, phone battery and the darkness signal on the right. */
+/**
+ * Home and Apps on the left; now-playing pill in the middle; clock (tap for calendar and weather), phone battery and the
+ * darkness signal on the right. Icon-only: a driver reads a glyph faster than a label, and it
+ * keeps the bar short enough to leave the app underneath more room.
+ */
 @Composable
 private fun CarNavBar(navigator: CarNavigator) {
     val battery by CarEnvironment.battery.collectAsState()
     val darkOutside by CarEnvironment.darkOutside.collectAsState()
     val now by rememberNow()
 
+    // The home and media screens already show what's playing; everywhere else it lives in the
+    // middle of this bar so it stays one tap away.
+    val showNowPlaying = navigator.current != CarScreen.Home && navigator.current != CarScreen.Media
+
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(80.dp)
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            NavItem(Icons.AutoMirrored.Filled.ArrowBack, "Back", selected = false) { navigator.back() }
-            Spacer(Modifier.width(8.dp))
-            NavItem(Icons.Filled.Home, "Home", navigator.current == CarScreen.Home) { navigator.home() }
-            Spacer(Modifier.width(8.dp))
-            NavItem(Icons.Filled.Menu, "Apps", navigator.current == CarScreen.Apps) { navigator.apps() }
+        Box(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 10.dp)) {
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                NavItem(Icons.Filled.Home, navigator.current == CarScreen.Home) { navigator.home() }
+                Spacer(Modifier.width(6.dp))
+                NavItem(MediaIcons.Apps, navigator.current == CarScreen.Apps) { navigator.apps() }
 
-            Spacer(Modifier.weight(1f))
+                Spacer(Modifier.weight(1f))
 
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(now)),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                val phone = if (battery.percent >= 0) "${battery.percent}%${if (battery.charging) " charging" else ""}" else ""
-                val light = if (darkOutside) "Night" else "Day"
-                Text(
-                    listOf(phone, light).filter { it.isNotEmpty() }.joinToString("  ·  "),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { navigator.dashboard() }
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(now)),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    val phone = if (battery.percent >= 0) "${battery.percent}%${if (battery.charging) " charging" else ""}" else ""
+                    val light = if (darkOutside) "Night" else "Day"
+                    Text(
+                        listOf(phone, light).filter { it.isNotEmpty() }.joinToString("  ·  "),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                NavItem(
+                    Icons.Filled.Notifications, navigator.current is CarScreen.Notifications,
+                ) { navigator.notifications() }
             }
-            Spacer(Modifier.width(16.dp))
-            NavItem(
-                Icons.Filled.Notifications, null, navigator.current is CarScreen.Notifications,
-            ) { navigator.notifications() }
+
+            if (showNowPlaying) {
+                NavNowPlaying(navigator, Modifier.align(Alignment.Center))
+            }
         }
     }
 }
 
 @Composable
-private fun NavItem(icon: ImageVector, label: String?, selected: Boolean, onClick: () -> Unit) {
+private fun NavItem(icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    Column(
+    Box(
         Modifier
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(if (selected) scheme.secondaryContainer else scheme.surfaceContainer)
             .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .padding(12.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Box {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(32.dp))
-        }
-        if (label != null) Text(label, style = MaterialTheme.typography.labelLarge)
+        Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
     }
 }
 
@@ -191,5 +207,58 @@ internal fun rememberNow(): State<Long> = produceState(System.currentTimeMillis(
     while (true) {
         value = System.currentTimeMillis()
         delay(60_000 - value % 60_000)
+    }
+}
+
+/** Art, title and play/pause in the nav bar; tapping the art or title opens the full media screen. */
+@Composable
+private fun NavNowPlaying(navigator: CarNavigator, modifier: Modifier) {
+    val media = CarServices.media
+    val phase by media.phase.collectAsState()
+    val now by media.now.collectAsState()
+    if (phase != CarMedia.Phase.READY || !now.hasTrack) return
+    val context = LocalContext.current
+    val art by produceState(now.art, now.art, now.artUri) { value = now.art ?: MediaArt.load(context, now.artUri) }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+    Row(
+        Modifier.padding(start = 6.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable { navigator.media() },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                art?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            }
+            Text(
+                now.title.ifEmpty { "Nothing playing" }.let { if (it.length > 15) it.take(15) + "…" else it },
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        FilledIconButton(onClick = media::togglePlay, modifier = Modifier.size(44.dp)) {
+            Icon(
+                if (now.playing) MediaIcons.Pause else Icons.Filled.PlayArrow,
+                if (now.playing) "Pause" else "Play",
+                Modifier.size(26.dp),
+            )
+        }
+        IconButton(onClick = { media.next() }, modifier = Modifier.size(44.dp)) {
+            Icon(MediaIcons.Next, "Next", Modifier.size(28.dp))
+        }
+    }
     }
 }
