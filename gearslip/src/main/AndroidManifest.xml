@@ -17,6 +17,9 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
+    <!-- The dashboard opened from the car clock: today's agenda and current weather. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
     <!-- Capturing a media app's playback (to send to the car) is gated on this by the platform. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 

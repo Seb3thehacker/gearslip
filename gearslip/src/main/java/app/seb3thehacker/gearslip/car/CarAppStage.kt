@@ -164,7 +164,7 @@ private fun ChromeBar(
 }
 
 /** Corner radius of the home screen's map pane and player. */
-val EMBEDDED_RADIUS = 8.dp
+val EMBEDDED_RADIUS = 18.dp
 
 /**
  * Rounds the corners of a SurfaceView, which Compose cannot clip: the app draws into its own

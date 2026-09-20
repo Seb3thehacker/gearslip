@@ -98,11 +98,19 @@ class GearslipActivity : ComponentActivity(), Projection {
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
     ) { }
 
+    /** The car dashboard's agenda card; declined just leaves it empty rather than asking again. */
+    private val calendarPermission = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) locationPermission.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        if (checkSelfPermission(android.Manifest.permission.READ_CALENDAR) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) calendarPermission.launch(android.Manifest.permission.READ_CALENDAR)
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 

@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -65,7 +66,7 @@ fun CarHome() {
     Row(Modifier.fillMaxSize().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
             Modifier
-                .weight(if (showPlayer) 1.8f else 1f)
+                .weight(if (showPlayer) 2.1f else 1f)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(EMBEDDED_RADIUS)),
         ) {
@@ -117,7 +118,7 @@ private fun MapPane(status: CarAppConnection.Status, frame: CarEnvironment.Frame
     }
 }
 
-/** Play/pause and a seek bar, and nothing else: the full controls are in the media screen. */
+/** Previous, play/pause, next and a seek bar, and nothing else: the full controls are in the media screen. */
 @Composable
 private fun MiniPlayer(modifier: Modifier) {
     val media = CarServices.media
@@ -141,11 +142,11 @@ private fun MiniPlayer(modifier: Modifier) {
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Column(
-            Modifier.fillMaxSize().padding(10.dp),
+            Modifier.fillMaxSize().padding(18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Box(Modifier.size(120.dp).clip(RoundedCornerShape(EMBEDDED_RADIUS))) {
+            Box(Modifier.size(140.dp).clip(RoundedCornerShape(EMBEDDED_RADIUS))) {
                 art?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             }
             Spacer(Modifier.height(10.dp))
@@ -171,12 +172,23 @@ private fun MiniPlayer(modifier: Modifier) {
                 Spacer(Modifier.height(16.dp))
             }
 
-            FilledIconButton(onClick = media::togglePlay, modifier = Modifier.size(64.dp)) {
-                Icon(
-                    if (now.playing) MediaIcons.Pause else Icons.Filled.PlayArrow,
-                    if (now.playing) "Pause" else "Play",
-                    Modifier.size(38.dp),
-                )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { media.previous() }, modifier = Modifier.size(48.dp)) {
+                    Icon(MediaIcons.Previous, "Previous", Modifier.size(30.dp))
+                }
+                FilledIconButton(onClick = media::togglePlay, modifier = Modifier.size(60.dp)) {
+                    Icon(
+                        if (now.playing) MediaIcons.Pause else Icons.Filled.PlayArrow,
+                        if (now.playing) "Pause" else "Play",
+                        Modifier.size(36.dp),
+                    )
+                }
+                IconButton(onClick = { media.next() }, modifier = Modifier.size(48.dp)) {
+                    Icon(MediaIcons.Next, "Next", Modifier.size(30.dp))
+                }
             }
         }
     }

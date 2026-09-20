@@ -328,6 +328,8 @@ private fun EntryRow(entry: MediaEntry, media: CarMedia) {
 internal object MediaIcons {
     val Pause = icon("Pause", "M6,19h4L10,5L6,5v14zM14,5v14h4L18,5h-4z")
     val Next = icon("SkipNext", "M6,18l8.5,-6L6,6v12zM16,6v12h2V6h-2z")
+    /** The 3x3 app grid; not in material-icons-core. */
+    val Apps = icon("Apps", "M4,8h4L8,4L4,4v4zM10,20h4v-4h-4v4zM4,20h4v-4L4,16v4zM4,14h4v-4L4,10v4zM10,14h4v-4h-4v4zM16,4v4h4L20,4h-4zM10,8h4L14,4h-4v4zM16,14h4v-4h-4v4zM16,20h4v-4h-4v4z")
     val Previous = icon("SkipPrevious", "M6,6h2v12L6,18zM9.5,12l8.5,6V6z")
 
     private fun icon(name: String, path: String) = ImageVector.Builder(

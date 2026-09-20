@@ -42,7 +42,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.CertProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -73,7 +72,6 @@ fun SettingsScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(32.dp),
         ) {
             Spacer(Modifier.height(0.dp))
-            StartupSection()
             CertificateSection()
             Spacer(Modifier.height(16.dp))
         }
@@ -88,31 +86,6 @@ private fun SectionTitle(text: String) {
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.primary,
     )
-}
-
-@Composable
-private fun StartupSection() {
-    val context = LocalContext.current
-    var url by remember { mutableStateOf(AppSettings.startupUrl(context)) }
-
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionTitle("Startup URL")
-        OutlinedTextField(
-            value = url,
-            onValueChange = {
-                url = it
-                AppSettings.setStartupUrl(context, it)
-            },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("URL") },
-            placeholder = { Text("https://example.com") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            supportingText = {
-                Text("Shown on the car screen. Leave empty for the built-in test page. Applies on the next connection.")
-            },
-        )
-    }
 }
 
 @Composable

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import android.content.Context
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -21,18 +22,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.SessionStatus
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Composable
 fun HomeScreen(
@@ -62,10 +58,13 @@ fun HomeScreen(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
+                Text(
+                    "v${LocalContext.current.appVersionName()}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Spacer(Modifier.height(16.dp))
                 StatusCard(status)
-                Spacer(Modifier.height(24.dp))
-                SetupSummary()
                 Spacer(Modifier.height(16.dp))
             }
 
@@ -141,32 +140,7 @@ private fun StatusCard(status: SessionStatus.Snapshot) {
     }
 }
 
-/** A read-only recap of what a connection will use, so setup problems are visible before the car. */
-@Composable
-private fun SetupSummary() {
-    val context = LocalContext.current
-    val cert by produceState<CertSummary?>(null) {
-        value = withContext(Dispatchers.Default) { CertSummary.read(context) }
-    }
-    val startup = AppSettings.startupUrl(context)
-
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SummaryRow("Certificate", cert?.headline ?: "Checking…")
-        SummaryRow("Car screen shows", startup.ifEmpty { "Built-in test page" })
-    }
-}
-
-@Composable
-private fun SummaryRow(label: String, value: String) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
+/** The version shown on screen, straight from the manifest - one place to bump per release. */
+private fun Context.appVersionName(): String =
+    runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
 

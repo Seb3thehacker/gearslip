@@ -21,8 +21,8 @@ android {
         applicationId = "app.seb3thehacker.gearslip"
         minSdk = 35
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 2
+        versionName = "0.0.02-pre"
     }
 
     // Keeps build output out of the module folder: <root>/build/gearslip/... instead of
