@@ -28,7 +28,7 @@ Real progress, with one hard limit that's worth knowing before you build on this
   doesn't ship one.** A head unit only accepts a phone identity that chains to Google's
   Automotive Link certificate authority - something only Google issues. Without one, Gearslip
   still runs and renders everything correctly against a debug harness, but a real car will
-  reject the connection outright. See [SPIKE_FINDINGS.md](SPIKE_FINDINGS.md) for what was
+  reject the connection outright. See [docs/SPIKE_FINDINGS.md](docs/SPIKE_FINDINGS.md) for what was
   tested, including one publicly-known leaked certificate that works on some older head
   units and is rejected by newer firmware and by Google's own reference tooling.
 - **No adb, root, or Shizuku is required to run it.** Every feature is gated on an ordinary
@@ -45,9 +45,11 @@ The APK lands at `build/Gearslip-debug.apk`.
 
 ## Further reading
 
-- [SPIKE_FINDINGS.md](SPIKE_FINDINGS.md) - the certificate investigation in full: what was
+- [docs/BUILDING_APPS.md](docs/BUILDING_APPS.md) - how to write apps Gearslip can render:
+  templated apps, media apps, and the Gearslip app protocol.
+- [docs/SPIKE_FINDINGS.md](docs/SPIKE_FINDINGS.md) - the certificate investigation in full: what was
   tried, what a real head unit does and doesn't accept, and why.
-- [CUSTOM_HEADUNIT_SCOPING.md](CUSTOM_HEADUNIT_SCOPING.md) - the original scoping of what a
+- [docs/CUSTOM_HEADUNIT_SCOPING.md](docs/CUSTOM_HEADUNIT_SCOPING.md) - the original scoping of what a
   custom head unit client would need.
 
 ## License

@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
@@ -13,6 +14,16 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// The release signing key, read from an untracked keystore.properties beside this file or at the
+// repository root. Third-party apps allowlist Gearslip by the SHA-256 of this certificate, so the
+// key must stay the same for the life of the project - and must never be committed.
+val keystoreProperties = Properties().apply {
+    listOf(
+        rootProject.file("keystore.properties"),
+        project.file("keystore.properties"),
+    ).firstOrNull { it.exists() }?.inputStream()?.use { load(it) }
+}
+
 android {
     namespace = "app.seb3thehacker.gearslip"
     compileSdk = 37
@@ -23,6 +34,25 @@ android {
         targetSdk = 37
         versionCode = 2
         versionName = "0.0.02-pre"
+    }
+
+    signingConfigs {
+        // Declared only when the properties file is present, so a clone without the key still
+        // builds debug; assembleRelease then falls back to unsigned rather than failing here.
+        if (keystoreProperties.getProperty("storeFile") != null) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.findByName("release")
+        }
     }
 
     // Keeps build output out of the module folder: <root>/build/gearslip/... instead of

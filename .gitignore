@@ -12,7 +12,14 @@ local.properties
 # The head unit certificate. Never committed or shared beyond who Seb sends it to directly.
 /cert
 
+# The release signing key and its passwords. Losing these breaks app updates; leaking them
+# lets anyone sign an APK as Gearslip.
+*.jks
+*.keystore
+keystore.properties
+
 # Local investigation script; not meant for the public repo.
 /docs/cert-sweep.sh
 archive/
 CLAUDE.md
+*.pdf
