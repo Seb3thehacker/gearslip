@@ -50,6 +50,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seb3thehacker.gearslip.GearslipLog
 import app.seb3thehacker.gearslip.ScreenProjector
+import app.seb3thehacker.gearslip.TouchPoint
 import app.seb3thehacker.gearslip.car.CarEnvironment
 import app.seb3thehacker.gearslip.car.CarUi
 
@@ -122,8 +123,14 @@ fun CarPreviewScreen(onBack: () -> Unit) {
                     if (viewWidth > 0 && viewHeight > 0) {
                         projector.dispatchTouch(
                             event.actionMasked.toCarAction(),
-                            event.x * width / viewWidth,
-                            event.y * height / viewHeight,
+                            event.actionIndex,
+                            List(event.pointerCount) { i ->
+                                TouchPoint(
+                                    event.getPointerId(i),
+                                    event.getX(i) * width / viewWidth,
+                                    event.getY(i) * height / viewHeight,
+                                )
+                            },
                         )
                     }
                     true
@@ -230,10 +237,11 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     else -> null
 }
 
-/** Only the four actions [ScreenProjector.dispatchTouch] understands reach the car UI. */
+/** The actions [ScreenProjector.dispatchTouch] understands reach the car UI, second fingers included. */
 private fun Int.toCarAction(): Int = when (this) {
     MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE,
     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL,
+    MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP,
     -> this
     else -> MotionEvent.ACTION_CANCEL
 }

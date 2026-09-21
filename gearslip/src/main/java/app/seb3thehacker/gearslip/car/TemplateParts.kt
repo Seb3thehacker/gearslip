@@ -30,6 +30,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import app.seb3thehacker.gearslip.host.selected
+import app.seb3thehacker.gearslip.host.checkedChanged
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
+import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.alpha
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -74,9 +89,11 @@ internal fun ChromeSurface(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(16.dp),
     alpha: Float = 1f,
+    shadowElevation: androidx.compose.ui.unit.Dp = 0.dp,
     content: @Composable () -> Unit,
 ) {
     Surface(
+        shadowElevation = shadowElevation,
         color = MaterialTheme.colorScheme.surface.copy(alpha = alpha),
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = shape,
@@ -109,7 +126,12 @@ internal fun HeaderBar(
     endActions: List<Action> = emptyList(),
     actionStrip: ActionStrip? = null,
 ) {
-    val end = (endActions + actionStrip?.actions.orEmpty()).filter { it.isDrawable() }
+    // Beside a map the action strip already sits at the right edge, so the header must not repeat it;
+    // and an app that lists the same action in two places should still see it once.
+    val onMap = LocalMapEdgeActions.current
+    val end = (endActions + if (onMap != null) emptyList() else actionStrip?.actions.orEmpty())
+        .filter { it.isDrawable() && (onMap == null || it.identity() !in onMap) }
+        .distinctBy { it.identity() }
     if (title.isEmpty() && startAction == null && end.isEmpty()) return
 
     Row(
@@ -120,14 +142,31 @@ internal fun HeaderBar(
         startAction?.takeIf { it.isDrawable() }?.let { ActionButton(it) }
         Text(
             title,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         end.forEach { ActionButton(it) }
     }
+}
+
+/**
+ * Set inside the card beside a map to what the map's right edge already shows: the action strip is
+ * drawn there rather than in the header, and the header leaves out anything the edge repeats.
+ * Null anywhere else.
+ */
+internal val LocalMapEdgeActions = androidx.compose.runtime.compositionLocalOf<Set<String>?> { null }
+
+/** What makes two actions the same button: what they do and what they look like. */
+internal fun Action.identity(): String {
+    val icon = icon?.icon
+    val image = if (icon != null && icon.type == androidx.core.graphics.drawable.IconCompat.TYPE_RESOURCE) {
+        "${icon.resPackage}:${icon.resId}"
+    } else icon?.toString().orEmpty()
+    return "$type|${title.text()}|$image"
 }
 
 /** Reads a header whichever way the template carries it. */
@@ -150,8 +189,35 @@ internal fun RightEdgeControls(
     val actions = actionStrip?.actions.orEmpty().filter { it.isDrawable() }
     val mapActions = mapActionStrip?.actions.orEmpty().filter { it.isDrawable() }
     if (actions.isEmpty() && mapActions.isEmpty()) return
+    // A template that stops offering Pan must not leave the screen stuck in pan mode.
+    val hasPan = (actions + mapActions).any { it.type == Action.TYPE_PAN }
+    androidx.compose.runtime.LaunchedEffect(hasPan) { if (!hasPan) CarServices.nav.setPanMode(false) }
 
-    Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Faded out when the screen has been left alone; then they are only a memory of buttons, so
+    // the first touch on one wakes them rather than pressing it.
+    val awake = LocalMapControlsWake.current.awake
+    val pan by CarServices.nav.panMode.collectAsState()
+    val visible = awake || pan
+    val alpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(if (visible) 150 else 500),
+        label = "mapControls",
+    )
+    Column(
+        modifier
+            .alpha(alpha)
+            .let { base ->
+                if (visible) base else base.pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                        }
+                    }
+                }
+            },
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         if (actions.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 actions.forEach { ActionButton(it) }
@@ -161,41 +227,102 @@ internal fun RightEdgeControls(
     }
 }
 
+/** [large] is the pane's main call to action: it shares the card's full width, taller, in bigger type. */
 @Composable
-internal fun ActionRow(actions: List<Action>, modifier: Modifier = Modifier) {
+internal fun ActionRow(actions: List<Action>, modifier: Modifier = Modifier, large: Boolean = false) {
     val drawable = actions.filter { it.isDrawable() }
     if (drawable.isEmpty()) return
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        drawable.forEach { ActionButton(it) }
+    Row(if (large) modifier.fillMaxWidth() else modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        drawable.forEach { ActionButton(it, large = large, modifier = if (large) Modifier.weight(1f) else Modifier) }
     }
 }
 
+/** A row with nothing to show: no words, no picture, nothing to tap. */
+private fun CarRow.isBlank(): Boolean =
+    title.text().isBlank() && texts.orEmpty().all { it.text().isBlank() } && image == null &&
+        toggle == null && onClickDelegate == null && actions.orEmpty().isEmpty()
+
+/**
+ * One look everywhere: solid, in the theme's own colors, whether the button sits on a card or over
+ * the map. An app that names a color for its button (a green Start) keeps it.
+ */
 @Composable
-internal fun ActionButton(action: Action) {
+internal fun ActionButton(action: Action, large: Boolean = false, modifier: Modifier = Modifier) {
+    if (action.type == Action.TYPE_APP_ICON) {
+        AppIconBadge()
+        return
+    }
     val dark = MaterialTheme.colorScheme.surface.luminanceIsDark()
     val title = action.title.text()
-    val background = action.backgroundColor.color(dark, Color.Black.copy(alpha = 0.6f))
+    val panOn by CarServices.nav.panMode.collectAsState()
+    val active = action.type == Action.TYPE_PAN && panOn
+    val scheme = MaterialTheme.colorScheme
+    val custom = action.backgroundColor?.type?.let { it != androidx.car.app.model.CarColor.TYPE_DEFAULT } == true
+    val fallback = scheme.surfaceContainerHighest
+    val background = if (active) scheme.primary else action.backgroundColor.color(dark, fallback)
+    val content = when {
+        active -> scheme.onPrimary
+        custom -> Color.White
+        else -> scheme.onSurface
+    }
     val hasGlyph = action.icon != null || action.type != Action.TYPE_CUSTOM
 
     Surface(
         color = background,
-        contentColor = Color.White,
-        shape = RoundedCornerShape(24.dp),
-        modifier = Modifier.clickable(enabled = action.isEnabled) {
-            action.onClickDelegate.click("action")
+        contentColor = content,
+        shape = if (title.isEmpty()) androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(if (large) 28.dp else 24.dp),
+        modifier = modifier.clickable(enabled = action.isEnabled) {
+            if (action.type == Action.TYPE_BACK) CarServices.nav.backPressed()
+            else if (action.type == Action.TYPE_PAN) CarServices.nav.setPanMode(!panOn)
+            else action.onClickDelegate?.click("action")
         },
     ) {
-        Row(
-            Modifier.padding(horizontal = if (title.isEmpty()) 10.dp else 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (hasGlyph) CarGlyph(action.icon, Modifier.size(24.dp), standardFor(action))
-            if (title.isNotEmpty()) {
+        if (large && title.isNotEmpty()) {
+            // The label sits dead centre on the button; the icon hangs off the left edge, so the
+            // pair's uneven visual weight can't pull the words off to one side.
+            androidx.compose.foundation.layout.Box(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (hasGlyph) CarGlyph(action.icon, Modifier.size(30.dp).align(Alignment.CenterStart), standardFor(action))
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+            }
+        } else if (title.isEmpty()) {
+            // Every icon-only button - back, settings, the map's zoom and locate - is the same size.
+            androidx.compose.foundation.layout.Box(Modifier.size(ICON_BUTTON_SIZE), contentAlignment = Alignment.Center) {
+                if (hasGlyph) CarGlyph(action.icon, Modifier.size(ICON_BUTTON_GLYPH), standardFor(action))
+            }
+        } else {
+            Row(
+                Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (hasGlyph) CarGlyph(action.icon, Modifier.size(24.dp), standardFor(action))
                 if (hasGlyph) Spacer(Modifier.width(8.dp))
-                Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
             }
         }
     }
+}
+
+/** The connected app's own launcher icon, which is what the app-icon action stands for. */
+@Composable
+private fun AppIconBadge() {
+    val context = LocalContext.current
+    val pkg = CarServices.nav.appPackage
+    val icon = remember(pkg) {
+        pkg?.let {
+            runCatching {
+                context.packageManager.getApplicationIcon(it).toBitmap(96, 96).asImageBitmap()
+            }.getOrNull()
+        }
+    } ?: return
+    Image(icon, contentDescription = null, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)))
 }
 
 /** A standard Action carries no icon of its own - the host is expected to supply the glyph. */
@@ -270,8 +397,13 @@ internal fun ItemListColumn(
         if (message.isNotEmpty()) Text(message, Modifier.padding(14.dp))
         return
     }
+    // A list the app made selectable is a single-choice list: one option chosen, shown as a radio.
+    val onSelected = single?.onSelectedDelegate
+    val chosen = single?.selectedIndex ?: -1
     LazyColumn(modifier, contentPadding = PaddingValues(bottom = 8.dp)) {
-        items(rows) { RowItem(it) }
+        itemsIndexed(rows) { index, row ->
+            RowItem(row, onSelected?.let { RowSelection(index == chosen) { it.selected(index) } })
+        }
     }
 }
 
@@ -281,9 +413,9 @@ internal fun GridItems(list: ItemList?, modifier: Modifier = Modifier) {
     val items = list?.items?.filterIsInstance<GridItem>().orEmpty()
     if (items.isEmpty()) return
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(96.dp),
+        columns = GridCells.Adaptive(84.dp),
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -319,26 +451,47 @@ internal fun GridItems(list: ItemList?, modifier: Modifier = Modifier) {
 
 @Composable
 internal fun PaneRows(pane: Pane?, modifier: Modifier = Modifier) {
-    val rows = pane?.rows.orEmpty()
+    // Some apps pad a pane with a row of blank strings; drawn, it is just a gap.
+    val rows = pane?.rows.orEmpty().filterNot { it.isBlank() }
     Column(modifier) {
-        rows.forEach { RowItem(it) }
+        rows.forEach { RowItem(it, large = true) }
         ActionRow(
             pane?.actions.orEmpty(),
-            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            large = true,
         )
     }
 }
 
 @Composable
-internal fun RowItem(row: CarRow) {
-    val clickable = row.onClickDelegate != null && row.isEnabled
+internal fun RowItem(row: CarRow, selection: RowSelection? = null, large: Boolean = false) {
+    val toggle = row.toggle
+    // Shown at once and corrected when the app answers with its own template, so the switch
+    // never lags a tap; keyed on what the app last said so its answer wins.
+    var checked by remember(toggle?.isChecked) { mutableStateOf(toggle?.isChecked == true) }
+    val clickable = row.isEnabled && (toggle != null || selection != null || row.onClickDelegate != null)
     Row(
         Modifier
             .fillMaxWidth()
-            .let { if (clickable) it.clickable { row.onClickDelegate.click("row") } else it }
+            .let {
+                if (!clickable) it else it.clickable {
+                    when {
+                        toggle != null -> {
+                            checked = !checked
+                            toggle.onCheckedChangeDelegate.checkedChanged(checked)
+                        }
+                        selection != null -> selection.onPick()
+                        else -> row.onClickDelegate.click("row")
+                    }
+                }
+            }
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selection != null) {
+            RadioButton(selected = selection.selected, onClick = null)
+            Spacer(Modifier.width(12.dp))
+        }
         row.image?.let {
             CarGlyph(it, Modifier.size(28.dp))
             Spacer(Modifier.width(12.dp))
@@ -346,23 +499,31 @@ internal fun RowItem(row: CarRow) {
         Column(Modifier.weight(1f)) {
             Text(
                 row.title.text(),
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
+                style = if (large) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyLarge,
+                fontWeight = if (large) FontWeight.SemiBold else null,
+                maxLines = if (large) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            row.texts.orEmpty().take(2).forEach { line ->
+            row.texts.orEmpty().take(if (large) 3 else 2).forEach { line ->
                 Text(
                     line.text(),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = if (large) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = if (large) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
         ActionRow(row.actions.orEmpty())
+        if (toggle != null) {
+            Spacer(Modifier.width(8.dp))
+            Switch(checked = checked, onCheckedChange = null, enabled = row.isEnabled)
+        }
     }
 }
+
+/** A row's place in a single-choice list: whether it is the chosen one, and what picking it does. */
+internal class RowSelection(val selected: Boolean, val onPick: () -> Unit)
 
 internal fun Color.luminanceIsDark(): Boolean =
     (red * 0.299f + green * 0.587f + blue * 0.114f) < 0.5f
@@ -381,3 +542,6 @@ private fun androidx.compose.ui.graphics.ImageBitmap.isPlainWhite(): Boolean {
     }
     return seen > 0
 }
+
+private val ICON_BUTTON_SIZE = 54.dp
+private val ICON_BUTTON_GLYPH = 30.dp

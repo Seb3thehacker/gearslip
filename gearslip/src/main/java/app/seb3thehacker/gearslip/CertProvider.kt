@@ -27,6 +27,7 @@ import java.security.cert.X509Certificate
  *     SPIKE_FINDINGS.md).
  */
 object CertProvider {
+    private val log = GearslipLog.tagged("CERT")
 
     private const val P12_NAME = "phone.p12"
     private const val PASS_NAME = "phone.pass"
@@ -66,7 +67,7 @@ object CertProvider {
         if (imported.isFile) {
             runCatching {
                 return loadP12(imported, importedPassword(context), "imported certificate", Kind.IMPORTED)
-            }.onFailure { GearslipLog.e("could not load the imported certificate - trying the next source", it) }
+            }.onFailure { log.e("could not load the imported certificate - trying the next source", it) }
         }
 
         val dir = context.getExternalFilesDir(null)
@@ -80,7 +81,7 @@ object CertProvider {
                     DEFAULT_PASSWORD
                 }
                 return loadP12(staged, password, "$P12_NAME staged over adb", Kind.ADB_STAGED)
-            }.onFailure { GearslipLog.e("could not load $P12_NAME - falling back to self-signed", it) }
+            }.onFailure { log.e("could not load $P12_NAME - falling back to self-signed", it) }
         }
         return null
     }
@@ -103,7 +104,7 @@ object CertProvider {
             target.parentFile?.mkdirs()
             staging.copyTo(target, overwrite = true)
             importedFile(context, PASS_NAME).writeText(password)
-            GearslipLog.i("imported a certificate: ${identity.certificate.subjectX500Principal}")
+            log.i("imported a certificate: ${identity.certificate.subjectX500Principal}")
             return identity
         } finally {
             staging.delete()
@@ -116,7 +117,7 @@ object CertProvider {
     fun removeImported(context: Context) {
         importedFile(context, P12_NAME).delete()
         importedFile(context, PASS_NAME).delete()
-        GearslipLog.i("removed the imported certificate")
+        log.i("removed the imported certificate")
     }
 
     // The imported files live in the app's private internal storage (not the external files

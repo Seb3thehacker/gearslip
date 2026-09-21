@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -82,16 +85,17 @@ fun visibleAreaFor(template: Template?, width: Int, height: Int): Rect = when (t
 
 @Composable
 private fun NavigationChrome(template: NavigationTemplate, modifier: Modifier) {
+    val pan by CarServices.nav.panMode.collectAsState()
     Box(modifier.fillMaxWidth()) {
-        (template.navigationInfo as? RoutingInfo)?.let {
+        if (!pan) (template.navigationInfo as? RoutingInfo)?.let {
             RoutingCard(it, Modifier.align(Alignment.TopStart).padding(12.dp).width(320.dp))
         }
         RightEdgeControls(
-            template.actionStrip,
+            if (pan) null else template.actionStrip,
             template.mapActionStrip,
             Modifier.align(Alignment.TopEnd).padding(12.dp),
         )
-        template.destinationTravelEstimate?.let {
+        if (!pan) template.destinationTravelEstimate?.let {
             TravelEstimateBar(it, Modifier.align(Alignment.BottomStart))
         }
     }
@@ -207,25 +211,39 @@ private fun TravelEstimateBar(estimate: TravelEstimate, modifier: Modifier = Mod
 // --- map with a side pane ----------------------------------------------------------------------
 
 /**
- * The shape every remaining map-backed template shares: a pane down the left, the app's map
- * showing through on the right, and both action strips stacked at the right edge.
+ * The shape every remaining map-backed template shares: the app's map across the whole surface,
+ * the template's content in a card floating over its left side, and both action strips stacked at
+ * the right edge. The card is as tall as its content, up to the height of the screen, so a
+ * handful of buttons no longer claim a whole column of the map. [fullHeight] is for content that
+ * needs the room, such as a search field with its keyboard.
  */
 @Composable
 private fun MapPaneLayout(
     modifier: Modifier,
     actionStrip: androidx.car.app.model.ActionStrip?,
     mapActionStrip: androidx.car.app.model.ActionStrip?,
-    pane: @Composable (Modifier) -> Unit,
+    fullHeight: Boolean = false,
+    pane: @Composable () -> Unit,
 ) {
-    Box(modifier.fillMaxWidth()) {
-        pane(
-            Modifier
-                .align(Alignment.CenterStart)
-                .fillMaxHeight()
-                .fillMaxWidth(CONTENT_PANE_FRACTION),
-        )
+    // Pan mode hands the whole screen to the map, leaving only its own controls.
+    val pan by CarServices.nav.panMode.collectAsState()
+    val edgeActions = (actionStrip?.actions.orEmpty() + mapActionStrip?.actions.orEmpty()).map { it.identity() }.toSet()
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
+        if (!pan) {
+            ChromeSurface(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(12.dp)
+                    .width(maxOf(maxWidth * CONTENT_PANE_FRACTION - 12.dp, 232.dp))
+                    .let { if (fullHeight) it.height(maxHeight - 24.dp) else it.heightIn(max = maxHeight - 24.dp) },
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                shadowElevation = 8.dp,
+            ) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalMapEdgeActions provides edgeActions) { pane() }
+            }
+        }
         RightEdgeControls(
-            actionStrip,
+            if (pan) null else actionStrip,
             mapActionStrip,
             Modifier.align(Alignment.TopEnd).padding(12.dp),
         )
@@ -238,8 +256,9 @@ private fun MapWithContentChrome(template: MapWithContentTemplate, modifier: Mod
         modifier,
         template.actionStrip,
         template.mapController?.mapActionStrip,
-    ) { paneModifier ->
-        ContentTemplate(template.contentTemplate, paneModifier)
+        fullHeight = template.contentTemplate.needsFullHeight(),
+    ) {
+        ContentTemplate(template.contentTemplate, Modifier)
     }
 }
 
@@ -249,8 +268,8 @@ private fun MapChrome(template: MapTemplate, modifier: Modifier) {
         modifier,
         template.actionStrip,
         template.mapController?.mapActionStrip,
-    ) { paneModifier ->
-        ChromeSurface(paneModifier, shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp)) {
+    ) {
+        ChromeSurface(Modifier, shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp)) {
             Column {
                 HeaderBar(
                     headerTitle(template.header, ""),
@@ -266,26 +285,26 @@ private fun MapChrome(template: MapTemplate, modifier: Modifier) {
 
 @Composable
 private fun PlaceListNavigationChrome(template: PlaceListNavigationTemplate, modifier: Modifier) {
-    MapPaneLayout(modifier, template.actionStrip, template.mapActionStrip) { paneModifier ->
+    MapPaneLayout(modifier, template.actionStrip, template.mapActionStrip) {
         ListPane(
             headerTitle(template.header, template.title.text()),
             template.header?.startHeaderAction ?: template.headerAction,
             template.isLoading,
             template.itemList,
-            paneModifier,
+            Modifier,
         )
     }
 }
 
 @Composable
 private fun PlaceListMapChrome(template: PlaceListMapTemplate, modifier: Modifier) {
-    MapPaneLayout(modifier, template.actionStrip, null) { paneModifier ->
+    MapPaneLayout(modifier, template.actionStrip, null) {
         ListPane(
             template.title.text(),
             template.headerAction,
             template.isLoading,
             template.itemList,
-            paneModifier,
+            Modifier,
         )
     }
 }
@@ -293,15 +312,15 @@ private fun PlaceListMapChrome(template: PlaceListMapTemplate, modifier: Modifie
 /** Route choices down the side, with the app's "start" action pinned under them. */
 @Composable
 private fun RoutePreviewChrome(template: RoutePreviewNavigationTemplate, modifier: Modifier) {
-    MapPaneLayout(modifier, template.actionStrip, template.mapActionStrip) { paneModifier ->
-        ChromeSurface(paneModifier, shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp)) {
-            Column(Modifier.fillMaxHeight()) {
+    MapPaneLayout(modifier, template.actionStrip, template.mapActionStrip) {
+        ChromeSurface(Modifier, shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp)) {
+            Column {
                 HeaderBar(
                     headerTitle(template.header, template.title.text()),
                     template.header?.startHeaderAction ?: template.headerAction,
                     template.header?.endHeaderActions.orEmpty(),
                 )
-                Box(Modifier.weight(1f)) {
+                Box(Modifier.weight(1f, fill = false)) {
                     if (template.isLoading) {
                         Text("Finding routes…", Modifier.padding(14.dp))
                     } else {
@@ -338,3 +357,8 @@ private const val CONTENT_PANE_FRACTION = 0.42f
 
 /** Fraction of the surface the travel-estimate bar covers along the bottom. */
 private const val ESTIMATE_FRACTION = 0.14f
+
+/** Search, sign-in and the like are laid out for a whole column, so they keep one. */
+private fun Template?.needsFullHeight() =
+    this is androidx.car.app.model.SearchTemplate || this is androidx.car.app.model.signin.SignInTemplate ||
+        this is androidx.car.app.model.TabTemplate || this is androidx.car.app.model.LongMessageTemplate

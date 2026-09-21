@@ -48,8 +48,8 @@ import kotlinx.coroutines.withContext
 @Composable
 fun PhoneAppsScreen() {
     val context = LocalContext.current
-    val apps by produceState(initialValue = emptyList<PhoneApp>(), context) {
-        value = withContext(Dispatchers.IO) { PhoneApps.installed(context) }
+    val apps by produceState(initialValue = PhoneApps.cached() ?: emptyList(), context) {
+        value = PhoneApps.cached() ?: withContext(Dispatchers.IO) { PhoneApps.installed(context).also { PhoneApps.warm(context) } }
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {

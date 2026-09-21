@@ -8,8 +8,7 @@ object ProjectedContent {
 
     /**
      * Precedence: the URL saved in Settings, then a `url.txt` in the external files dir (the
-     * pre-Settings way, still honoured so existing setups keep working), then the built-in
-     * test page.
+     * pre-Settings way, still honoured so existing setups keep working), then [DEFAULT_URL].
      */
     fun resolve(context: Context): String {
         val saved = AppSettings.startupUrl(context)
@@ -26,8 +25,11 @@ object ProjectedContent {
                 return url
             }
         }
-        return TEST_PAGE
+        return DEFAULT_URL
     }
+
+    /** What the Web app opens until a page is chosen in Settings. */
+    const val DEFAULT_URL = "https://duckduckgo.com"
 
     /** A bare "example.com" is a URL the user meant; raw HTML is passed through untouched. */
     private fun normalize(value: String): String =

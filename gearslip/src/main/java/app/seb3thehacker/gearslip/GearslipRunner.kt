@@ -27,6 +27,7 @@ class GearslipRunner(
     private val projection: Projection? = null,
     private val vehicleProfileFor: (ServiceDiscovery.HeadUnitInfo) -> VehicleProfile? = { null },
 ) {
+    private val log = GearslipLog.tagged("PROTO")
 
     private enum class State { WAIT_VERSION, TLS_HANDSHAKE, WAIT_AUTH, WAIT_SDR, DONE }
 
@@ -61,16 +62,18 @@ class GearslipRunner(
     @Volatile private var lastKeyframeSentAt = 0L
 
     fun run() {
-        GearslipLog.i("--- spike run starting ---")
+        SessionReport.begin()
+        log.i("--- session starting ---")
         SessionStatus.connecting("Connected to the head unit")
-        GearslipLog.i("device=${Build.MANUFACTURER} ${Build.MODEL}  android=${Build.VERSION.RELEASE} (sdk ${Build.VERSION.SDK_INT})")
+        log.i("device=${Build.MANUFACTURER} ${Build.MODEL}  android=${Build.VERSION.RELEASE} (sdk ${Build.VERSION.SDK_INT})")
 
         val identity = identityProvider()
         val cert = identity.certificate
-        GearslipLog.i("phone certificate source: ${identity.source}")
-        GearslipLog.i("  subject = ${cert.subjectX500Principal}")
-        GearslipLog.i("  issuer  = ${cert.issuerX500Principal}")
-        GearslipLog.i("  serial  = ${cert.serialNumber}  valid ${cert.notBefore}..${cert.notAfter}")
+        log.i("phone certificate source: ${identity.source}")
+        SessionReport.certificate(identity.source.toString(), cert.issuerX500Principal.toString())
+        log.i("  subject = ${cert.subjectX500Principal}")
+        log.i("  issuer  = ${cert.issuerX500Principal}")
+        log.i("  serial  = ${cert.serialNumber}  valid ${cert.notBefore}..${cert.notAfter}")
         tls = PhoneTls(identity.keyStore, identity.password)
 
         startWatchdog()
@@ -80,7 +83,7 @@ class GearslipRunner(
             while (running) {
                 val read = input.read(chunk)
                 if (read < 0) {
-                    GearslipLog.w("head unit closed the connection (EOF) while in state $state")
+                    log.w("head unit closed the connection (EOF) while in state $state")
                     reportDisconnect()
                     return
                 }
@@ -92,11 +95,12 @@ class GearslipRunner(
                 }
             }
         } catch (t: Throwable) {
-            GearslipLog.e("transport failed in state $state", t)
+            log.e("transport failed in state $state", t)
+            SessionReport.fail(SessionReport.Category.USB, "transport failed", t, state.name)
             reportDisconnect()
         } finally {
             running = false
-            GearslipLog.flush()
+            log.flush()
         }
     }
 
@@ -113,7 +117,7 @@ class GearslipRunner(
     private fun handleFrame(frame: Frames.Frame) {
         val payload = if (frame.encrypted) {
             if (!tls.handshakeComplete) {
-                GearslipLog.w("encrypted frame arrived before the handshake finished - ignoring")
+                log.w("encrypted frame arrived before the handshake finished - ignoring")
                 return
             }
             tls.decrypt(frame.payload)
@@ -123,7 +127,7 @@ class GearslipRunner(
 
         val message = assembler.offer(frame, payload) ?: return
         if (message.size < 2) {
-            GearslipLog.w("runt message on channel ${frame.channel}")
+            log.w("runt message on channel ${frame.channel}")
             return
         }
 
@@ -140,7 +144,7 @@ class GearslipRunner(
             } else if (frame.channel == audioLink?.channelId) {
                 audioLink?.onMessage(messageId, body)
             } else {
-                GearslipLog.i("ignoring message id $messageId on channel ${frame.channel}")
+                log.i("ignoring message id $messageId on channel ${frame.channel}")
             }
             return
         }
@@ -152,18 +156,19 @@ class GearslipRunner(
             MSG_SERVICE_DISCOVERY_RESPONSE -> onServiceDiscoveryResponse(body)
             MSG_PING_REQUEST -> onPingRequest(body)
             AudioLink.MSG_FOCUS_RESPONSE -> audioLink?.onFocus(Protobuf.readInt32Field(body, 1) ?: 0)
-            else -> GearslipLog.i("unhandled control message id=$messageId (${body.size} bytes) - continuing")
+            else -> log.i("unhandled control message id=$messageId (${body.size} bytes) - continuing")
         }
     }
 
     private fun onVersionRequest(body: ByteArray) {
         if (body.size < 4) {
-            GearslipLog.w("VersionRequest too short (${body.size} bytes)")
+            log.w("VersionRequest too short (${body.size} bytes)")
             return
         }
         val major = ((body[0].toInt() and 0xFF) shl 8) or (body[1].toInt() and 0xFF)
         val minor = ((body[2].toInt() and 0xFF) shl 8) or (body[3].toInt() and 0xFF)
-        GearslipLog.i("<- VersionRequest: head unit speaks $major.$minor")
+        log.i("<- VersionRequest: head unit speaks $major.$minor")
+        SessionReport.protocolVersion(major, minor)
 
         // Echo the head unit's own version with STATUS_SUCCESS (0). Echoing rather than
         // asserting 1.6 is the permissive choice: we only need to reach service discovery,
@@ -174,19 +179,20 @@ class GearslipRunner(
             0, 0, // STATUS_SUCCESS
         )
         send(MSG_VERSION_RESPONSE, response, encrypted = false)
-        GearslipLog.i("-> VersionResponse: $major.$minor status=0 (STATUS_SUCCESS)")
+        log.i("-> VersionResponse: $major.$minor status=0 (STATUS_SUCCESS)")
         state = State.TLS_HANDSHAKE
         SessionStatus.connecting("Securing the link")
-        GearslipLog.i("awaiting ClientHello - the head unit is the TLS client, we are the server")
+        log.i("awaiting ClientHello - the head unit is the TLS client, we are the server")
     }
 
     private fun onHandshake(body: ByteArray) {
-        GearslipLog.i("<- EncapsulatedSSL (${body.size} bytes)")
+        log.i("<- EncapsulatedSSL (${body.size} bytes)")
         val replies = try {
             tls.pumpHandshake(body)
         } catch (t: Throwable) {
-            GearslipLog.e("TLS handshake threw", t)
-            GearslipLog.verdict(
+            log.e("TLS handshake threw", t)
+            SessionReport.fail(SessionReport.Category.TLS, "handshake threw", t, state.name)
+            log.verdict(
                 "NOT VIABLE (TLS rejected)",
                 "The head unit aborted the TLS handshake. A bad_certificate / unknown_ca / " +
                     "handshake_failure alert here means it validates the phone's certificate.",
@@ -196,31 +202,34 @@ class GearslipRunner(
                 "The head unit aborted the secure handshake. It validates the phone's certificate.",
             )
             state = State.DONE
+            SessionReport.print()
             return
         }
         replies.forEach {
             send(MSG_ENCAPSULATED_SSL, it, encrypted = false)
-            GearslipLog.i("-> EncapsulatedSSL (${it.size} bytes)")
+            log.i("-> EncapsulatedSSL (${it.size} bytes)")
         }
         if (tls.handshakeComplete && state == State.TLS_HANDSHAKE) {
             state = State.WAIT_AUTH
-            GearslipLog.i("awaiting AuthComplete - this carries the certificate verdict")
+            log.i("awaiting AuthComplete - this carries the certificate verdict")
         }
     }
 
     private fun onAuthComplete(body: ByteArray) {
         val status = Protobuf.readInt32Field(body, 1)
-        GearslipLog.i("<- AuthComplete: status=$status")
+        log.i("<- AuthComplete: status=$status")
+        status?.let { SessionReport.auth(it) }
 
         when (status) {
             0 -> {
-                GearslipLog.i("STATUS_SUCCESS - certificate accepted; confirming with service discovery")
+                log.i("STATUS_SUCCESS - certificate accepted; confirming with service discovery")
                 state = State.WAIT_SDR
                 SessionStatus.connecting("Certificate accepted - discovering services")
                 sendServiceDiscoveryRequest()
             }
             -2 -> {
-                GearslipLog.verdict(
+                SessionReport.fail(SessionReport.Category.CERTIFICATE, "AuthComplete status -2 (certificate error)", state.name)
+                log.verdict(
                     "NOT VIABLE (STATUS_CERTIFICATE_ERROR)",
                     "The head unit explicitly rejected the phone's self-signed certificate. " +
                         "This is a definitive no - it validates the phone against a trust chain " +
@@ -233,7 +242,8 @@ class GearslipRunner(
                 state = State.DONE
             }
             -3 -> {
-                GearslipLog.verdict(
+                SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status -3 (authentication failure)", state.name)
+                log.verdict(
                     "NOT VIABLE (STATUS_AUTHENTICATION_FAILURE)",
                     "Authentication rejected. Broader than a pure certificate error, but the " +
                         "practical answer is the same.",
@@ -245,7 +255,8 @@ class GearslipRunner(
                 state = State.DONE
             }
             else -> {
-                GearslipLog.verdict(
+                SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status $status (unexpected)", state.name)
+                log.verdict(
                     "INCONCLUSIVE (AuthComplete status=$status)",
                     "Unexpected status. Check MessageStatus.proto in aasdk for the meaning " +
                         "before drawing any conclusion.",
@@ -260,13 +271,13 @@ class GearslipRunner(
         val body = Protobuf.stringField(4, "Gearslip") + // label_text
             Protobuf.stringField(5, Build.MODEL)        // device_name
         send(MSG_SERVICE_DISCOVERY_REQUEST, body, encrypted = true)
-        GearslipLog.i("-> ServiceDiscoveryRequest (encrypted)")
+        log.i("-> ServiceDiscoveryRequest (encrypted)")
     }
 
     private fun onServiceDiscoveryResponse(body: ByteArray) {
-        GearslipLog.i("<- ServiceDiscoveryResponse (${body.size} bytes, decrypted successfully)")
-        GearslipLog.i("head unit describes itself as:\n" + Protobuf.describe(body))
-        GearslipLog.verdict(
+        log.i("<- ServiceDiscoveryResponse (${body.size} bytes, decrypted successfully)")
+        log.i("head unit describes itself as:\n" + Protobuf.describe(body))
+        log.verdict(
             "VIABLE",
             "The head unit accepted the presented phone certificate, completed TLS, and is " +
                 "advertising its channels over the encrypted session. A phone-side client is " +
@@ -274,13 +285,15 @@ class GearslipRunner(
         )
         state = State.DONE
         val info = ServiceDiscovery.findHeadUnitInfo(body)
-        GearslipLog.i("head unit: $info")
+        log.i("head unit: $info")
+        SessionReport.headUnit(info.toString())
         vehicleProfile = runCatching { vehicleProfileFor(info) }.getOrNull()
         val profile = vehicleProfile
+        SessionReport.profile(profile?.name)
         if (profile != null) {
-            GearslipLog.i("vehicle profile matched: \"${profile.name}\" resolution=${profile.resolution} insets=${profile.insets}")
+            log.i("vehicle profile matched: \"${profile.name}\" resolution=${profile.resolution} insets=${profile.insets}")
         } else {
-            GearslipLog.i("no vehicle profile matched - default display settings (add one to vehicles.json)")
+            log.i("no vehicle profile matched - default display settings (add one to vehicles.json)")
         }
         CarEnvironment.setVehicle(profile?.name ?: "Unknown vehicle", profile?.insets ?: Insets.NONE)
         SessionStatus.connecting("Starting video")
@@ -303,18 +316,19 @@ class GearslipRunner(
     private fun startVideoChannel(serviceDiscoveryResponse: ByteArray) {
         val video = ServiceDiscovery.findVideoService(serviceDiscoveryResponse)
         if (video == null) {
-            GearslipLog.w("no video service in the discovery response - cannot start Phase A")
+            log.w("no video service in the discovery response - cannot start Phase A")
+            SessionReport.fail(SessionReport.Category.VIDEO, "head unit advertised no video service", state.name)
             return
         }
         videoChannelId = video.serviceId
         videoConfigs = video.configs
 
-        GearslipLog.i("video service: channel=${video.serviceId} codec=${video.codecName}")
+        log.i("video service: channel=${video.serviceId} codec=${video.codecName}")
         video.configs.forEachIndexed { index, config ->
-            GearslipLog.i("  config[$index] = $config")
+            log.i("  config[$index] = $config")
         }
         if (video.codecType != CODEC_H264_BP) {
-            GearslipLog.w("head unit wants ${video.codecName}, not H264_BP - Phase B must match this")
+            log.w("head unit wants ${video.codecName}, not H264_BP - Phase B must match this")
         }
 
         openChannel(video.serviceId)
@@ -322,12 +336,12 @@ class GearslipRunner(
 
         val input = ServiceDiscovery.findInputService(serviceDiscoveryResponse)
         if (input == null) {
-            GearslipLog.w("no input service advertised - projection will be output-only")
+            log.w("no input service advertised - projection will be output-only")
         } else {
             inputChannelId = input.serviceId
             touchWidth = input.touchWidth
             touchHeight = input.touchHeight
-            GearslipLog.i(
+            log.i(
                 "input service: channel=${input.serviceId} touchscreen=" +
                     "${input.touchWidth}x${input.touchHeight}",
             )
@@ -339,13 +353,13 @@ class GearslipRunner(
     private fun startAudioChannel(serviceDiscoveryResponse: ByteArray) {
         val sinks = ServiceDiscovery.findAudioServices(serviceDiscoveryResponse)
         sinks.forEach { sink ->
-            GearslipLog.i(
+            log.i(
                 "audio sink: channel=${sink.serviceId} stream=${sink.streamName} codec=${sink.codecName} " +
                     sink.configs.joinToString(prefix = "[", postfix = "]") { "${it.sampleRate}Hz/${it.bits}bit/x${it.channels}" },
             )
         }
         val media = sinks.firstOrNull { it.streamType == STREAM_MEDIA } ?: run {
-            GearslipLog.w("no media audio sink advertised - media apps will play on the phone only")
+            log.w("no media audio sink advertised - media apps will play on the phone only")
             return
         }
         audioLink = AudioLink(
@@ -363,7 +377,7 @@ class GearslipRunner(
             MSG_CHANNEL_OPEN_REQUEST, request, encrypted = true,
             channel = serviceId, messageType = Frames.MESSAGE_CONTROL,
         )
-        GearslipLog.i("-> ChannelOpenRequest(service_id=$serviceId) on channel $serviceId")
+        log.i("-> ChannelOpenRequest(service_id=$serviceId) on channel $serviceId")
     }
 
     /**
@@ -382,40 +396,42 @@ class GearslipRunner(
     private fun onInputMessage(messageId: Int, body: ByteArray) {
         when (messageId) {
             MSG_CHANNEL_OPEN_RESPONSE ->
-                GearslipLog.i("<- ChannelOpenResponse (input): status=${Protobuf.readInt32Field(body, 1)}")
+                log.i("<- ChannelOpenResponse (input): status=${Protobuf.readInt32Field(body, 1)}")
 
             MSG_INPUT_REPORT -> {
                 val report = Wire.fields(body)
                 val touch = Wire.bytes(report, 3) ?: Wire.bytes(report, 7)
                 if (touch == null) {
-                    GearslipLog.i("<- InputReport with no touch payload (key or rotary event)")
+                    log.i("<- InputReport with no touch payload (key or rotary event)")
                     return
                 }
                 val touchFields = Wire.fields(touch)
                 val action = Wire.varint(touchFields, 3)?.toInt() ?: 0
                 val pointers = Wire.allBytes(touchFields, 1)
                 if (pointers.isEmpty()) return
-                if (pointers.size > 1 && touchesSeen < 3) {
-                    GearslipLog.i("(multi-touch: ${pointers.size} pointers; using the first)")
-                }
-
-                val first = Wire.fields(pointers[0])
-                val rawX = Wire.varint(first, 1)?.toInt() ?: return
-                val rawY = Wire.varint(first, 2)?.toInt() ?: return
-
                 val size = videoConfigs.getOrNull(selectedConfigIndex ?: 0)?.pixelSize()
-                val x = clamp(rawX, size?.first)
-                val y = clamp(rawY, size?.second)
+                val points = pointers.mapIndexedNotNull { index, pointer ->
+                    val fields = Wire.fields(pointer)
+                    val rawX = Wire.varint(fields, 1)?.toInt() ?: return@mapIndexedNotNull null
+                    val rawY = Wire.varint(fields, 2)?.toInt() ?: return@mapIndexedNotNull null
+                    val id = Wire.varint(fields, 3)?.toInt() ?: index
+                    TouchPoint(id, clamp(rawX, size?.first), clamp(rawY, size?.second))
+                }
+                if (points.isEmpty()) return
+                val actionIndex = (Wire.varint(touchFields, 2)?.toInt() ?: 0).coerceIn(0, points.size - 1)
+                if (points.size > 1 && touchesSeen < 3) {
+                    log.i("multi-touch: ${points.size} pointers, action=$action index=$actionIndex")
+                }
 
                 touchesSeen++
                 if (touchesSeen <= 10 || action == ACTION_DOWN || action == ACTION_UP) {
-                    val note = if (x != rawX.toFloat() || y != rawY.toFloat()) " (clamped)" else ""
-                    GearslipLog.i("<- Touch action=$action at ($rawX,$rawY)$note")
+                    val at = points[actionIndex]
+                    log.i("<- Touch action=$action at (${at.x.toInt()},${at.y.toInt()}) pointers=${points.size}")
                 }
-                projection?.onTouch(action, x, y)
+                projection?.onTouch(action, actionIndex, points)
             }
 
-            else -> GearslipLog.i("<- unhandled input message id=$messageId (${body.size} bytes)")
+            else -> log.i("<- unhandled input message id=$messageId (${body.size} bytes)")
         }
     }
 
@@ -423,9 +439,9 @@ class GearslipRunner(
         when (messageId) {
             MSG_CHANNEL_OPEN_RESPONSE -> {
                 val status = Protobuf.readInt32Field(body, 1)
-                GearslipLog.i("<- ChannelOpenResponse: status=$status")
+                log.i("<- ChannelOpenResponse: status=$status")
                 if (status != 0) {
-                    GearslipLog.verdict(
+                    log.verdict(
                         "PHASE A FAILED (channel open rejected)",
                         "The head unit refused to open the video channel (status=$status).",
                     )
@@ -435,7 +451,7 @@ class GearslipRunner(
                 // Setup { required MediaCodecType type = 1 }
                 send(MSG_MEDIA_SETUP, Protobuf.varintField(1, CODEC_H264_BP.toLong()),
                     encrypted = true, channel = videoChannelId)
-                GearslipLog.i("-> Setup(codec=VIDEO_H264_BP)")
+                log.i("-> Setup(codec=VIDEO_H264_BP)")
             }
 
             MSG_MEDIA_CONFIG -> {
@@ -443,7 +459,7 @@ class GearslipRunner(
                 val status = Wire.varint(fields, 1)?.toInt()
                 val maxUnackedFromConfig = Wire.varint(fields, 2)?.toInt()
                 val indices = fields.filter { it.number == 3 && it.wireType == 0 }.map { it.varint }
-                GearslipLog.i(
+                log.i(
                     "<- Config: status=$status (1=WAIT 2=READY) max_unacked=$maxUnackedFromConfig " +
                         "configuration_indices=$indices",
                 )
@@ -457,21 +473,25 @@ class GearslipRunner(
                 selectedConfigIndex = preferred ?: offered.minByOrNull { idx ->
                     videoConfigs.getOrNull(idx)?.pixelCount() ?: Int.MAX_VALUE
                 } ?: offered.firstOrNull()
-                GearslipLog.i("selected config index $selectedConfigIndex from offered $offered")
+                log.i("selected config index $selectedConfigIndex from offered $offered")
+                SessionReport.video(
+                    "${videoConfigs.getOrNull(selectedConfigIndex ?: -1)?.resolutionName ?: "?"} " +
+                        "(head unit offered ${offered.size}), max_unacked=$maxUnacked",
+                )
                 // VideoFocusRequestNotification { mode = 2; reason = 3 }
                 val focus = Protobuf.varintField(2, VIDEO_FOCUS_PROJECTED.toLong()) +
                     Protobuf.varintField(3, 1L)
                 send(MSG_VIDEO_FOCUS_REQUEST, focus, encrypted = true, channel = videoChannelId)
-                GearslipLog.i("-> VideoFocusRequest(mode=PROJECTED)")
+                log.i("-> VideoFocusRequest(mode=PROJECTED)")
             }
 
             MSG_VIDEO_FOCUS_NOTIFICATION -> {
                 val fields = Wire.fields(body)
-                GearslipLog.i("<- VideoFocusNotification: mode=${Wire.varint(fields, 1)}")
+                log.i("<- VideoFocusNotification: mode=${Wire.varint(fields, 1)}")
                 // The head unit repeats this while it waits for frames; only act once.
                 if (!videoStarted) {
                     videoStarted = true
-                    GearslipLog.i("PHASE A COMPLETE - video focus granted; starting video source")
+                    log.i("PHASE A COMPLETE - video focus granted; starting video source")
                     startVideoSource()
                 }
             }
@@ -483,11 +503,11 @@ class GearslipRunner(
                 acksSeen++
                 lastAckAt = System.currentTimeMillis()
                 if (framesSent <= 3 || framesSent % 60 == 0) {
-                    GearslipLog.i("<- MediaAck(ack=$acked) inFlight=$inFlight after $framesSent frames")
+                    log.i("<- MediaAck(ack=$acked) inFlight=$inFlight after $framesSent frames")
                 }
             }
 
-            else -> GearslipLog.i("<- unhandled video message id=$messageId (${body.size} bytes)")
+            else -> log.i("<- unhandled video message id=$messageId (${body.size} bytes)")
         }
     }
 
@@ -503,18 +523,18 @@ class GearslipRunner(
         val index = selectedConfigIndex ?: 0
         val config = videoConfigs.getOrNull(index)
         if (config == null) {
-            GearslipLog.e("no video config at index $index - cannot start the encoder")
+            log.e("no video config at index $index - cannot start the encoder")
             return
         }
         val (width, height) = config.pixelSize() ?: run {
-            GearslipLog.e("unsupported resolution ${config.resolutionName}")
+            log.e("unsupported resolution ${config.resolutionName}")
             return
         }
 
         val start = Protobuf.varintField(1, SESSION_ID.toLong()) +
             Protobuf.varintField(2, index.toLong())
         send(MSG_MEDIA_START, start, encrypted = true, channel = videoChannelId)
-        GearslipLog.i("-> Start(session_id=$SESSION_ID, configuration_index=$index -> $config)")
+        log.i("-> Start(session_id=$SESSION_ID, configuration_index=$index -> $config)")
 
         val useProjection = projection != null
         videoSource = VideoSource(
@@ -524,8 +544,8 @@ class GearslipRunner(
             mode = if (useProjection) VideoSource.Mode.SURFACE else VideoSource.Mode.TEST_CARD,
             onCodecConfig = { csd ->
                 send(MSG_MEDIA_CODEC_CONFIG, csd, encrypted = true, channel = videoChannelId)
-                GearslipLog.i("-> CodecConfig (${csd.size} bytes SPS/PPS)")
-                GearslipLog.hex("   csd", csd, limit = 64)
+                log.i("-> CodecConfig (${csd.size} bytes SPS/PPS)")
+                log.hex("   csd", csd, limit = 64)
             },
             onFrame = { data, presentationTimeUs, keyFrame ->
                 sendVideoFrame(data, presentationTimeUs, keyFrame)
@@ -538,7 +558,7 @@ class GearslipRunner(
                     projection.onSurfaceReady(surface, width, height, config.density)
                     SessionStatus.projecting()
                 }
-            }.onFailure { e -> GearslipLog.e("encoder start failed", e) }
+            }.onFailure { e -> log.e("encoder start failed", e) }
         }
     }
 
@@ -549,12 +569,12 @@ class GearslipRunner(
             // looks identical to a frozen picture. Assume the window cleared and carry on.
             val since = System.currentTimeMillis() - lastAckAt
             if (since > ACK_STALL_MS) {
-                GearslipLog.w("no ack for ${since}ms with $inFlight in flight - resetting the window")
+                log.w("no ack for ${since}ms with $inFlight in flight - resetting the window")
                 inFlight = 0
             } else {
                 dropped++
                 if (dropped % 30 == 1) {
-                    GearslipLog.w("dropping frame - $inFlight in flight (max $maxUnacked)")
+                    log.w("dropping frame - $inFlight in flight (max $maxUnacked)")
                 }
                 // A dropped frame breaks the decoder's reference chain on the head unit -
                 // every frame after it is a P-frame assuming a picture that never arrived.
@@ -581,7 +601,7 @@ class GearslipRunner(
         }
         if (keyFrame) {
             if (resyncRequested) {
-                GearslipLog.i("resync keyframe delivered after $resyncAttempts attempt(s)")
+                log.i("resync keyframe delivered after $resyncAttempts attempt(s)")
             }
             resyncRequested = false
             resyncAttempts = 0
@@ -590,7 +610,7 @@ class GearslipRunner(
         try {
             send(MSG_MEDIA_DATA, timestamp + data, encrypted = true, channel = videoChannelId)
         } catch (e: java.io.IOException) {
-            if (running) GearslipLog.w("video send failed, stopping the encoder: ${e.message}")
+            if (running) log.w("video send failed, stopping the encoder: ${e.message}")
             running = false
             videoSource?.stop()
             return
@@ -598,7 +618,7 @@ class GearslipRunner(
         inFlight++
         framesSent++
         if (framesSent <= 3 || keyFrame && framesSent % 30 == 0) {
-            GearslipLog.i(
+            log.i(
                 "-> Data frame #$framesSent (${data.size} bytes, keyFrame=$keyFrame, " +
                     "ptsUs=$presentationTimeUs)",
             )
@@ -615,7 +635,7 @@ class GearslipRunner(
     private fun onPingRequest(body: ByteArray) {
         val timestamp = Protobuf.readInt32Field(body, 1)?.toLong() ?: System.nanoTime()
         send(MSG_PING_RESPONSE, Protobuf.varintField(1, timestamp), encrypted = tls.handshakeComplete)
-        GearslipLog.i("<- PingRequest / -> PingResponse (keeping the session alive)")
+        log.i("<- PingRequest / -> PingResponse (keeping the session alive)")
     }
 
     private fun send(
@@ -663,6 +683,13 @@ class GearslipRunner(
 
     private fun reportDisconnect() {
         when (state) {
+            State.WAIT_VERSION -> SessionReport.fail(SessionReport.Category.NO_HANDSHAKE, "no VersionRequest arrived", state.name)
+            State.TLS_HANDSHAKE -> SessionReport.fail(SessionReport.Category.TLS, "head unit dropped the link during TLS", state.name)
+            State.WAIT_AUTH -> SessionReport.fail(SessionReport.Category.AUTH, "dropped after TLS, before AuthComplete", state.name)
+            State.WAIT_SDR -> SessionReport.fail(SessionReport.Category.SERVICE_DISCOVERY, "accepted, then dropped before service discovery", state.name)
+            State.DONE -> {}
+        }
+        when (state) {
             State.DONE -> SessionStatus.disconnected()
             State.WAIT_VERSION -> SessionStatus.failed(
                 "Head unit never started talking",
@@ -678,28 +705,29 @@ class GearslipRunner(
             )
         }
         when (state) {
-            State.WAIT_VERSION -> GearslipLog.verdict(
+            State.WAIT_VERSION -> log.verdict(
                 "INCONCLUSIVE (no VersionRequest)",
                 "The head unit never opened the control channel. This is a connection problem, " +
                     "not a certificate verdict - check that the accessory was actually claimed.",
             )
-            State.TLS_HANDSHAKE -> GearslipLog.verdict(
+            State.TLS_HANDSHAKE -> log.verdict(
                 "LIKELY NOT VIABLE (dropped during TLS)",
                 "The unit disconnected mid-handshake without sending an alert we could read. " +
                     "Rejection is the likeliest reading, but re-run once before trusting it.",
             )
-            State.WAIT_AUTH -> GearslipLog.verdict(
+            State.WAIT_AUTH -> log.verdict(
                 "INCONCLUSIVE (dropped after TLS, before AuthComplete)",
                 "TLS completed but the unit disconnected before stating a verdict. Re-run.",
             )
-            State.WAIT_SDR -> GearslipLog.verdict(
+            State.WAIT_SDR -> log.verdict(
                 "INCONCLUSIVE (accepted, then dropped before service discovery)",
                 "AuthComplete said success, so the certificate was accepted - but our " +
                     "ServiceDiscoveryRequest drew no reply. Suspect our own encryption or " +
                     "framing rather than the head unit.",
             )
-            State.DONE -> GearslipLog.i("connection closed after the run completed")
+            State.DONE -> log.i("connection closed after the run completed")
         }
+        SessionReport.print()
     }
 
     private fun startWatchdog() {
@@ -711,7 +739,7 @@ class GearslipRunner(
 
                 if (state != State.DONE) {
                     val idle = System.currentTimeMillis() - lastProgress
-                    if (idle > 10_000) GearslipLog.w("stalled in state $state for ${idle / 1000}s")
+                    if (idle > 10_000) log.w("stalled in state $state for ${idle / 1000}s")
                 }
 
                 // Stream health. Without this a drive cannot tell "streaming fine" from
@@ -720,7 +748,8 @@ class GearslipRunner(
                     val sent = framesSent
                     val fps = (sent - lastFrames) / 5.0
                     lastFrames = sent
-                    GearslipLog.i(
+                    SessionReport.stream("${"%.1f".format(fps)} fps, sent=$sent dropped=$dropped acked=$acksSeen")
+                    log.i(
                         "video: ${"%.1f".format(fps)} fps over 5s | sent=$sent dropped=$dropped " +
                             "acked=$acksSeen inFlight=$inFlight split=$splitMessages",
                     )

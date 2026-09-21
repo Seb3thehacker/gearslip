@@ -49,7 +49,7 @@ private fun CompatWarning() {
                 Text(
                     "Gearslip may not connect on cars or head units newer than about 2020. " +
                         "Older systems are more likely to work; newer firmware often rejects the " +
-                        "connection outright. See SPIKE_FINDINGS.md in the project for details.",
+                        "connection outright.",
                 )
             },
             confirmButton = {

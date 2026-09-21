@@ -103,7 +103,10 @@ private fun ListContent(template: ListTemplate, modifier: Modifier) {
             template.actionStrip,
         )
         if (template.isLoading) Loading()
-        else ItemListColumn(template.singleList, template.sectionedLists?.map { it.itemList })
+        else ItemListColumn(
+            template.singleList, template.sectionedLists?.map { it.itemList },
+            Modifier.weight(1f, fill = false),
+        )
         ActionRow(template.actions.orEmpty(), Modifier.padding(12.dp))
     }
 }
@@ -117,7 +120,7 @@ private fun GridContent(template: GridTemplate, modifier: Modifier) {
             template.header?.endHeaderActions.orEmpty(),
             template.actionStrip,
         )
-        if (template.isLoading) Loading() else GridItems(template.singleList)
+        if (template.isLoading) Loading() else GridItems(template.singleList, Modifier.weight(1f, fill = false))
         ActionRow(template.actions.orEmpty(), Modifier.padding(12.dp))
     }
 }
@@ -484,7 +487,7 @@ private fun MediaPlaybackContent(template: MediaPlaybackTemplate, modifier: Modi
 @Composable
 private fun ContentSurface(modifier: Modifier, content: @Composable ColumnScopeAlias.() -> Unit) {
     ChromeSurface(modifier, shape = RoundedCornerShape(0.dp)) {
-        Column(Modifier.fillMaxSize(), content = content)
+        Column(Modifier.fillMaxWidth(), content = content)
     }
 }
 

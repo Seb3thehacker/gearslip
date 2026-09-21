@@ -1,15 +1,20 @@
 package app.seb3thehacker.gearslip.media
 
+import android.content.ComponentName
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadata
 import android.media.browse.MediaBrowser
 import android.media.session.MediaController
+import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import app.seb3thehacker.gearslip.GearslipLog
+import app.seb3thehacker.gearslip.notify.GearslipNotificationListener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +52,15 @@ class NowPlaying(
     val playing get() = state == PlaybackState.STATE_PLAYING || state == PlaybackState.STATE_BUFFERING
     val hasTrack get() = title.isNotEmpty() || state != PlaybackState.STATE_NONE
 
+    /**
+     * Something is actually playing or paused mid-track. A stopped, errored or empty session, or one
+     * that has not named a track yet, must not keep the player on screen.
+     */
+    val isActive get() = title.isNotEmpty() && when (state) {
+        PlaybackState.STATE_NONE, PlaybackState.STATE_STOPPED, PlaybackState.STATE_ERROR -> false
+        else -> true
+    }
+
     fun canDo(action: Long) = actions and action != 0L
 
     /** The position now, advanced from the last report the way the platform's own UIs do. */
@@ -64,6 +78,8 @@ class BrowseState(
     val entries: List<MediaEntry> = emptyList(),
     val loading: Boolean = true,
     val failed: Boolean = false,
+    /** The app connected but shares no library with us, so there is nothing to browse - only to control. */
+    val unavailable: Boolean = false,
 )
 
 /**
@@ -74,6 +90,15 @@ class BrowseState(
 class CarMedia(private val context: Context) {
 
     enum class Phase { IDLE, CONNECTING, READY, REJECTED }
+
+    /** Why a connection was [Phase.REJECTED], so the screen can say something useful. */
+    enum class Rejection { REFUSED, NEEDS_NOTIFICATION_ACCESS }
+
+    private val _rejection = MutableStateFlow(Rejection.REFUSED)
+    val rejection: StateFlow<Rejection> = _rejection.asStateFlow()
+
+    private val main = Handler(Looper.getMainLooper())
+    private var connecting: MediaApp? = null
 
     private val _phase = MutableStateFlow(Phase.IDLE)
     val phase: StateFlow<Phase> = _phase.asStateFlow()
@@ -92,13 +117,14 @@ class CarMedia(private val context: Context) {
 
     fun connect(app: MediaApp) {
         disconnect()
+        connecting = app
         _phase.value = Phase.CONNECTING
         _browse.value = BrowseState()
         val mb = MediaBrowser(context, app.component, object : MediaBrowser.ConnectionCallback() {
             override fun onConnected() = this@CarMedia.onConnected(app)
             override fun onConnectionFailed() {
-                GearslipLog.w("media: ${app.label} refused the connection")
-                _phase.value = Phase.REJECTED
+                GearslipLog.w("media: ${app.label} refused the connection to its library")
+                attachToSession(app)
             }
             override fun onConnectionSuspended() {
                 GearslipLog.w("media: ${app.label} went away")
@@ -110,6 +136,44 @@ class CarMedia(private val context: Context) {
             GearslipLog.e("media: connect threw", it)
             _phase.value = Phase.REJECTED
         }
+    }
+
+    /**
+     * Some apps only let Google's own host browse them. Their playback session is still public, so
+     * playback can be driven from it: what is playing, play and pause, skip, seek. Only the library
+     * is out of reach. Reading another app's session needs Notification access, which the driver
+     * grants once on the phone.
+     */
+    private fun attachToSession(app: MediaApp, attempt: Int = 0) {
+        if (connecting != app) return
+        val manager = context.getSystemService(MediaSessionManager::class.java)
+        val listener = ComponentName(context, GearslipNotificationListener::class.java)
+        val session = try {
+            manager.getActiveSessions(listener).firstOrNull { it.packageName == app.component.packageName }
+        } catch (e: SecurityException) {
+            GearslipLog.w("media: cannot read ${app.label}'s session without notification access")
+            _rejection.value = Rejection.NEEDS_NOTIFICATION_ACCESS
+            _phase.value = Phase.REJECTED
+            return
+        }
+        if (session == null) {
+            // The app only publishes its session once its service has started; give it a moment.
+            if (attempt < SESSION_RETRIES) {
+                main.postDelayed({ attachToSession(app, attempt + 1) }, SESSION_RETRY_MS)
+            } else {
+                GearslipLog.w("media: ${app.label} has no active session to control")
+                _rejection.value = Rejection.REFUSED
+                _phase.value = Phase.REJECTED
+            }
+            return
+        }
+        GearslipLog.i("media: controlling ${app.label} through its session; its library is not shared")
+        controller = session.also {
+            it.registerCallback(callback)
+            update(it.metadata, it.playbackState)
+        }
+        _browse.value = BrowseState(loading = false, unavailable = true)
+        _phase.value = Phase.READY
     }
 
     private fun onConnected(app: MediaApp) {
@@ -165,6 +229,8 @@ class CarMedia(private val context: Context) {
                     trail = path.map { it.second },
                     entries = children.map(::entryOf),
                     loading = false,
+                    // An empty top level is an app keeping its library to itself, not an empty one.
+                    unavailable = path.isEmpty() && children.isEmpty(),
                 )
             }
             override fun onError(parentId: String) {
@@ -222,6 +288,8 @@ class CarMedia(private val context: Context) {
     fun custom(action: CustomAction) = controller?.transportControls?.sendCustomAction(action.id, action.extras)
 
     fun disconnect() {
+        connecting = null
+        main.removeCallbacksAndMessages(null)
         runCatching { controller?.unregisterCallback(callback) }
         runCatching { subscribed?.let { browser?.unsubscribe(it) } }
         runCatching { browser?.disconnect() }
@@ -230,5 +298,10 @@ class CarMedia(private val context: Context) {
         subscribed = null
         _phase.value = Phase.IDLE
         _now.value = NowPlaying()
+    }
+
+    private companion object {
+        const val SESSION_RETRIES = 6
+        const val SESSION_RETRY_MS = 500L
     }
 }

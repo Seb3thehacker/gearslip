@@ -21,12 +21,13 @@ import javax.net.ssl.X509ExtendedTrustManager
  * unit, not about this code.
  */
 object TlsSelfTest {
+    private val log = GearslipLog.tagged("TLS")
 
     fun run(identity: CertProvider.Identity): Boolean {
-        GearslipLog.i("=== TLS self-test starting ===")
-        GearslipLog.i("cert source: ${identity.source}")
-        GearslipLog.i("  subject = ${identity.certificate.subjectX500Principal}")
-        GearslipLog.i("  issuer  = ${identity.certificate.issuerX500Principal}")
+        log.i("=== TLS self-test starting ===")
+        log.i("cert source: ${identity.source}")
+        log.i("  subject = ${identity.certificate.subjectX500Principal}")
+        log.i("  issuer  = ${identity.certificate.issuerX500Principal}")
         return try {
             val server = PhoneTls(identity.keyStore, identity.password)
             val client = Driver(clientEngine())
@@ -44,7 +45,7 @@ object TlsSelfTest {
             }
 
             if (!server.handshakeComplete) {
-                GearslipLog.e("self-test FAILED: handshake did not complete after $rounds rounds")
+                log.e("self-test FAILED: handshake did not complete after $rounds rounds")
                 return false
             }
 
@@ -53,14 +54,14 @@ object TlsSelfTest {
             val plaintext = "gearslip round trip".toByteArray()
             val decrypted = client.decrypt(server.encrypt(plaintext))
             if (!decrypted.contentEquals(plaintext)) {
-                GearslipLog.e("self-test FAILED: round trip mismatch (${decrypted.size} bytes back)")
+                log.e("self-test FAILED: round trip mismatch (${decrypted.size} bytes back)")
                 return false
             }
 
-            GearslipLog.i("=== TLS self-test PASSED - certificate, key manager and engine are sound ===")
+            log.i("=== TLS self-test PASSED - certificate, key manager and engine are sound ===")
             true
         } catch (t: Throwable) {
-            GearslipLog.e("self-test FAILED with an exception", t)
+            log.e("self-test FAILED with an exception", t)
             false
         }
     }

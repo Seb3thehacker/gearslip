@@ -31,6 +31,13 @@ object GearslipLog {
 
     private var file: File? = null
 
+    /**
+     * Set from [AppSettings.debugMode]. Off drops the noisy trace output (hex dumps, and
+     * logcat copies of info lines); warnings, errors and the file copy are always kept, so a
+     * crash report is never empty.
+     */
+    @Volatile var debug = true
+
     // What the live log screen shows. Bounded, and separate from the file, which always keeps
     // everything. The flow carries only a version number so a burst of lines costs the UI one
     // snapshot per frame rather than one list copy per line.
@@ -40,10 +47,13 @@ object GearslipLog {
     val version: StateFlow<Int> = liveVersion
 
     fun init(context: Context) {
+        debug = AppSettings.debugMode(context)
         val dir = context.getExternalFilesDir(null) ?: return
         val name = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         file = File(dir, "gearslip-$name.log")
         i("log file: ${file?.absolutePath}")
+        SessionReport.init(context)
+        i("debug mode: $debug")
     }
 
     fun snapshot(): List<String> = synchronized(live) { live.toList() }
@@ -61,13 +71,81 @@ object GearslipLog {
         return if (f != null && f.isFile) f.readText() else snapshot().joinToString("\n")
     }
 
-    fun i(message: String) = write("I", message)
+    /**
+     * The current session's log, with the session report on top, copied to the cache dir for
+     * sharing as an attachment (a whole log can exceed what an Intent may carry as text).
+     */
+    fun shareableFile(context: Context): android.net.Uri {
+        val dir = File(context.cacheDir, "shared").apply { mkdirs() }
+        dir.listFiles()?.forEach { it.delete() }
+        val out = File(dir, "gearslip-log.txt")
+        out.writeText(SessionReport.render() + "\n\n" + fullText())
+        return androidx.core.content.FileProvider.getUriForFile(
+            context, "${context.packageName}.logshare", out,
+        )
+    }
 
-    fun w(message: String) = write("W", message)
+    fun i(message: String, tag: String = "APP") = write("I", message, tag)
 
-    fun e(message: String, t: Throwable? = null) {
-        write("E", if (t == null) message else "$message: ${t.javaClass.simpleName}: ${t.message}")
-        if (t != null) Log.e(TAG, message, t)
+    fun w(message: String, tag: String = "APP") = write("W", message, tag)
+
+    /** Logs the message, then the exception with its cause chain and top stack frames. */
+    fun e(message: String, t: Throwable? = null, tag: String = "APP") {
+        write("E", if (t == null) message else "$message: ${rootCause(t)}", tag)
+        if (t != null) {
+            Log.e(TAG, message, t)
+            stackTrace(t).lines().forEach { write("E", "    $it", tag) }
+        }
+    }
+
+    /** A logger that stamps every line with [tag], so the log can be scanned by subsystem. */
+    fun tagged(tag: String) = Tagged(tag)
+
+    class Tagged(private val tag: String) {
+        fun i(message: String) = GearslipLog.i(message, tag)
+        fun w(message: String) = GearslipLog.w(message, tag)
+        fun e(message: String, t: Throwable? = null) = GearslipLog.e(message, t, tag)
+        fun hex(label: String, data: ByteArray, limit: Int = 256) = GearslipLog.hex(label, data, limit, tag)
+        fun verdict(headline: String, detail: String) = GearslipLog.verdict(headline, detail)
+        fun flush() = GearslipLog.flush()
+    }
+
+    /** "SSLHandshakeException: Received fatal alert: bad_certificate" - the deepest cause wins. */
+    fun rootCause(t: Throwable): String {
+        var cause: Throwable = t
+        while (cause.cause != null && cause.cause !== cause) cause = cause.cause!!
+        val top = "${t.javaClass.simpleName}: ${t.message}"
+        return if (cause === t) top else "$top <- ${cause.javaClass.simpleName}: ${cause.message}"
+    }
+
+    private fun stackTrace(t: Throwable, frames: Int = 12): String {
+        val out = StringBuilder()
+        var cause: Throwable? = t
+        var depth = 0
+        while (cause != null && depth < 4) {
+            if (depth > 0) out.append("caused by ${cause.javaClass.name}: ${cause.message}\n")
+            cause.stackTrace.take(frames).forEach { out.append("at $it\n") }
+            cause = cause.cause?.takeIf { it !== cause }
+            depth++
+        }
+        return out.toString().trimEnd()
+    }
+
+    /**
+     * Records an uncaught exception in the log file before the process dies, then lets the
+     * system's own handler run. Without it the file ends mid-sentence and the reason is lost.
+     */
+    fun installCrashHandler() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                SessionReport.fail(SessionReport.Category.CRASH, "uncaught in thread ${thread.name}", throwable)
+                e("FATAL uncaught exception in thread ${thread.name}", throwable)
+                SessionReport.print()
+                flush()
+            }
+            previous?.uncaughtException(thread, throwable)
+        }
     }
 
     /** Unmissable in a scrolling logcat - this is what the whole spike exists to print. */
@@ -89,7 +167,8 @@ object GearslipLog {
         runCatching { latch.await(timeoutMs, TimeUnit.MILLISECONDS) }
     }
 
-    fun hex(label: String, data: ByteArray, limit: Int = 256) {
+    fun hex(label: String, data: ByteArray, limit: Int = 256, tag: String = "APP") {
+        if (!debug) return
         val shown = minOf(data.size, limit)
         val sb = StringBuilder()
         for (idx in 0 until shown) {
@@ -97,16 +176,16 @@ object GearslipLog {
             if (idx % 16 == 15) sb.append('\n') else sb.append(' ')
         }
         val suffix = if (data.size > limit) "\n... (${data.size - limit} more bytes)" else ""
-        i("$label (${data.size} bytes)\n$sb$suffix")
+        i("$label (${data.size} bytes)\n$sb$suffix", tag)
     }
 
-    private fun write(level: String, message: String) {
+    private fun write(level: String, message: String, tag: String = "APP") {
         when (level) {
             "W" -> Log.w(TAG, message)
             "E" -> Log.e(TAG, message)
-            else -> Log.i(TAG, message)
+            else -> if (debug) Log.i(TAG, message)
         }
-        val line = "${stamp.format(Date())} $level $message"
+        val line = "${stamp.format(Date())} $level ${tag.padEnd(5)} $message"
         synchronized(live) {
             live.addLast(line)
             while (live.size > MAX_LIVE_LINES) live.removeFirst()

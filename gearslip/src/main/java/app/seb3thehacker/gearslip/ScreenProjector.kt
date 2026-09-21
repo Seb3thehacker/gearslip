@@ -136,13 +136,41 @@ class ScreenProjector(private val context: Context) {
         }
     }
 
-    /** [action] is already an Android MotionEvent action; x/y are in projected coordinates. */
-    fun dispatchTouch(action: Int, x: Float, y: Float) {
+    /**
+     * [action] is already an Android MotionEvent action; [points] are in projected coordinates and
+     * hold every finger down, with [actionIndex] naming the one the action is about. Two fingers
+     * arrive as one gesture, so pinch and two-finger drags work as they do on the phone itself.
+     */
+    fun dispatchTouch(action: Int, actionIndex: Int, points: List<TouchPoint>) {
         val target = root ?: return
+        if (points.isEmpty()) return
         val now = SystemClock.uptimeMillis()
         if (action == MotionEvent.ACTION_DOWN || downTime == 0L) downTime = now
 
-        val event = MotionEvent.obtain(downTime, now, action, x, y, 0)
+        val properties = Array(points.size) { i ->
+            MotionEvent.PointerProperties().apply {
+                id = points[i].id
+                toolType = MotionEvent.TOOL_TYPE_FINGER
+            }
+        }
+        val coords = Array(points.size) { i ->
+            MotionEvent.PointerCoords().apply {
+                x = points[i].x
+                y = points[i].y
+                pressure = 1f
+                size = 1f
+            }
+        }
+        // A second finger going down or up carries which finger it was in the action itself.
+        val encoded = when (action) {
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP ->
+                action or (actionIndex shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+            else -> action
+        }
+        val event = MotionEvent.obtain(
+            downTime, now, encoded, points.size, properties, coords,
+            0, 0, 1f, 1f, 0, 0, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0,
+        )
         try {
             target.dispatchTouchEvent(event)
         } finally {

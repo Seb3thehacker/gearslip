@@ -140,6 +140,27 @@ fun InputCallbackDelegate?.inputSubmitted(text: String) {
         .onFailure { GearslipLog.w("host: could not submit input: ${it.message}") }
 }
 
+/** Tells the app the driver entered or left pan mode, so it can hide its own map controls. */
+fun androidx.car.app.navigation.model.PanModeDelegate?.panModeChanged(active: Boolean) {
+    val delegate = this ?: return
+    runCatching { delegate.sendPanModeChanged(active, doneCallback("pan mode")) }
+        .onFailure { GearslipLog.w("host: could not send pan mode: ${it.message}") }
+}
+
+/** Tells the app a toggle row was switched; it answers with a template showing the new state. */
+fun androidx.car.app.model.OnCheckedChangeDelegate?.checkedChanged(checked: Boolean) {
+    val delegate = this ?: return
+    runCatching { delegate.sendCheckedChange(checked, doneCallback("toggle")) }
+        .onFailure { GearslipLog.w("host: could not send a toggle: ${it.message}") }
+}
+
+/** Tells the app which option of a single-choice list was picked. */
+fun androidx.car.app.model.OnSelectedDelegate?.selected(index: Int) {
+    val delegate = this ?: return
+    runCatching { delegate.sendSelected(index, doneCallback("selection")) }
+        .onFailure { GearslipLog.w("host: could not send a selection: ${it.message}") }
+}
+
 /** The driver asked for fresher content, e.g. by pulling a place list. */
 fun OnContentRefreshDelegate?.refresh() {
     val delegate = this ?: return

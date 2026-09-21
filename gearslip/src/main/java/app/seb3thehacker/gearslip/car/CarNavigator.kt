@@ -13,6 +13,9 @@ sealed interface CarScreen {
     /** Opened from the clock: the day's calendar and the weather, nothing that needs a keyboard. */
     data object Dashboard : CarScreen
 
+    /** Opened from the weather chip or the dashboard: now, the next hours and the week. */
+    data object Weather : CarScreen
+
     /** The current media app, full size: browse, lyrics and controls. */
     data object Media : CarScreen
 
@@ -37,13 +40,34 @@ class CarNavigator(startId: String) {
 
     fun home() { current = CarScreen.Home }
 
-    fun media() { current = CarScreen.Media }
+    /**
+     * Minimised, the home screen's player folds into the nav bar and the map takes the width.
+     * Opening the media screen from the bar restores it, so leaving that screen lands on the
+     * home screen with the player back in place.
+     */
+    var playerMinimised by mutableStateOf(false)
+        private set
+
+    /** Set by the player's Lyrics button; the media screen reads it once when it opens. */
+    var lyricsRequested = false
+
+    fun minimisePlayer() { playerMinimised = true }
+
+    fun restorePlayer() { playerMinimised = false }
+
+    fun media(lyrics: Boolean = false) {
+        lyricsRequested = lyrics
+        playerMinimised = false
+        current = CarScreen.Media
+    }
 
     fun apps() { current = CarScreen.Apps }
 
     fun settings() { current = CarScreen.Settings }
 
     fun dashboard() { current = CarScreen.Dashboard }
+
+    fun weather() { current = CarScreen.Weather }
 
     fun notifications(replyTo: String? = null) { current = CarScreen.Notifications(replyTo) }
 

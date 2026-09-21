@@ -19,7 +19,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.produceState
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -63,25 +66,37 @@ fun CarDashboardScreen() {
 
 @Composable
 private fun WeatherCard(context: Context) {
-    val weather by produceState<Weather?>(Weather.LOADING) {
-        value = withContext(Dispatchers.IO) { fetchWeather(context) }
-    }
+    val state by Weather.state.collectAsState()
+    val navigator = LocalCarNavigator.current
+    LaunchedEffect(Unit) { Weather.refresh(context) }
 
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.extraLarge) {
-        Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            val w = weather
-            when {
-                w === Weather.LOADING -> Text("Getting weather…", style = MaterialTheme.typography.bodyLarge)
-                w == null -> Text(
-                    "Weather unavailable - no location fix yet.",
-                    style = MaterialTheme.typography.bodyLarge,
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = MaterialTheme.shapes.extraLarge,
+        modifier = Modifier.clickable { navigator.weather() },
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            when (val s = state) {
+                WeatherState.Loading -> Text("Getting weather…", style = MaterialTheme.typography.bodyLarge)
+                is WeatherState.Unavailable -> Text(
+                    s.reason, style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                else -> Text(
-                    "${w.tempC.toInt()}°C  ·  ${w.description}",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                is WeatherState.Ready -> {
+                    val w = s.data
+                    WeatherIcon(w.code, w.isDay, size = 44.dp)
+                    Column {
+                        Text(
+                            "${w.temp}${w.tempUnit}  ·  ${Weather.describe(w.code)}",
+                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(w.place, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
         }
     }
@@ -89,8 +104,8 @@ private fun WeatherCard(context: Context) {
 
 @Composable
 private fun AgendaCard(context: Context) {
-    val events by produceState<List<AgendaEvent>?>(null) {
-        value = withContext(Dispatchers.IO) { fetchAgenda(context) }
+    val events by produceState<List<AgendaEvent>?>(cachedAgenda) {
+        value = withContext(Dispatchers.IO) { fetchAgenda(context) }.also { cachedAgenda = it }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -143,63 +158,14 @@ private fun eventWhen(event: AgendaEvent): String {
     return SimpleDateFormat("EEE", Locale.getDefault()).apply { timeZone = zone }.format(Date(event.startMillis)) + " " + time
 }
 
-private data class Weather(val tempC: Double, val description: String) {
-    companion object { val LOADING = Weather(Double.NaN, "") }
-}
-
 private data class AgendaEvent(val title: String, val startMillis: Long, val allDay: Boolean)
 
-private const val WEATHER_TTL_MS = 60 * 60 * 1000L
-private var cachedWeather: Weather? = null
-private var cachedWeatherAt = 0L
+@Volatile private var cachedAgenda: List<AgendaEvent>? = null
 
-/** Served from memory for up to an hour: weather barely changes, and each call is a network request. */
-private fun fetchWeather(context: Context): Weather? {
-    val now = System.currentTimeMillis()
-    cachedWeather?.let { if (now - cachedWeatherAt < WEATHER_TTL_MS) return it }
-    return loadWeather(context)?.also { cachedWeather = it; cachedWeatherAt = now }
-}
-
-/** Null means no fix or no permission; the card shows a plain empty state either way. */
-private fun loadWeather(context: Context): Weather? {
-    if (context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-        return null
-    }
-    val manager = context.getSystemService(LocationManager::class.java) ?: return null
-    val location = manager.allProviders
-        .mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
-        .maxByOrNull { it.time }
-        ?: return null
-
-    return runCatching {
-        // Open-Meteo: no API key, no account - the simplest thing that gives a real reading.
-        val url = URL(
-            "https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}" +
-                "&longitude=${location.longitude}&current_weather=true",
-        )
-        val body = (url.openConnection() as HttpURLConnection).run {
-            connectTimeout = 5_000
-            readTimeout = 5_000
-            inputStream.bufferedReader().use { it.readText() }
-        }
-        val current = JSONObject(body).getJSONObject("current_weather")
-        Weather(current.getDouble("temperature"), weatherDescription(current.getInt("weathercode")))
-    }.onFailure { GearslipLog.w("weather fetch failed: ${it.message}") }.getOrNull()
-}
-
-/** Open-Meteo's WMO weather codes, collapsed to what's worth a glance from the driver's seat. */
-private fun weatherDescription(code: Int): String = when (code) {
-    0 -> "Clear"
-    1, 2 -> "Partly cloudy"
-    3 -> "Overcast"
-    45, 48 -> "Fog"
-    in 51..57 -> "Drizzle"
-    in 61..67 -> "Rain"
-    in 71..77 -> "Snow"
-    in 80..82 -> "Rain showers"
-    in 85..86 -> "Snow showers"
-    in 95..99 -> "Thunderstorm"
-    else -> "-"
+/** Loads the weather and the agenda ahead of time, so the dashboard opens with both in place. */
+fun warmDashboard(context: Context) {
+    Weather.refresh(context, force = true)
+    cachedAgenda = fetchAgenda(context)
 }
 
 /**

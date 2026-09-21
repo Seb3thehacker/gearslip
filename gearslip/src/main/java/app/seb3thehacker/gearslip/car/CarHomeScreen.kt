@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -12,9 +13,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +52,7 @@ import kotlinx.coroutines.delay
  * The home screen: the map on the left, what is playing on the right.
  *
  * The map is whatever navigation app was used last, brought back on its own. The player only
- * takes its share of the screen while something is loaded; otherwise the map has all of it.
+ * takes its share of the screen only while something is playing or paused; otherwise the map has all of it.
  */
 @Composable
 fun CarHome() {
@@ -61,7 +64,10 @@ fun CarHome() {
     LaunchedEffect(Unit) { CarServices.autostart(frame) }
     LaunchedEffect(phase) { if (phase == CarMedia.Phase.READY) CarServices.autoplayIfDue() }
 
-    val showPlayer = phase == CarMedia.Phase.READY && now.hasTrack
+    val navigator = LocalCarNavigator.current
+    val showPlayer = phase == CarMedia.Phase.READY && now.isActive && !navigator.playerMinimised
+    // Once playback ends there is nothing left to minimise; the next song starts in place.
+    LaunchedEffect(now.isActive) { if (!now.isActive) navigator.restorePlayer() }
 
     Row(Modifier.fillMaxSize().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
@@ -136,7 +142,7 @@ private fun MiniPlayer(modifier: Modifier) {
 
     val navigator = LocalCarNavigator.current
     Surface(
-        onClick = navigator::media,
+        onClick = { navigator.media() },
         modifier = modifier,
         shape = RoundedCornerShape(EMBEDDED_RADIUS),
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -146,7 +152,7 @@ private fun MiniPlayer(modifier: Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Box(Modifier.size(140.dp).clip(RoundedCornerShape(EMBEDDED_RADIUS))) {
+            Box(Modifier.size(128.dp).clip(RoundedCornerShape(EMBEDDED_RADIUS))) {
                 art?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             }
             Spacer(Modifier.height(10.dp))
@@ -189,6 +195,21 @@ private fun MiniPlayer(modifier: Modifier) {
                 IconButton(onClick = { media.next() }, modifier = Modifier.size(48.dp)) {
                     Icon(MediaIcons.Next, "Next", Modifier.size(30.dp))
                 }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val compact = PaddingValues(horizontal = 8.dp)
+                FilledTonalButton(
+                    onClick = { navigator.media(lyrics = true) },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = compact,
+                ) { Text("Lyrics", maxLines = 1, softWrap = false) }
+                FilledTonalButton(
+                    onClick = navigator::minimisePlayer,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = compact,
+                ) { Text("Minimise", maxLines = 1, softWrap = false) }
             }
         }
     }

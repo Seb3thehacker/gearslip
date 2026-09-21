@@ -26,6 +26,7 @@ import app.seb3thehacker.gearslip.mirror.TouchRelayService
 import app.seb3thehacker.gearslip.car.CarEnvironment
 import app.seb3thehacker.gearslip.car.CarSettings
 import app.seb3thehacker.gearslip.car.CarUi
+import app.seb3thehacker.gearslip.car.Prefetch
 import app.seb3thehacker.gearslip.ui.GearslipApp
 import app.seb3thehacker.gearslip.ui.GearslipTheme
 import java.io.FileInputStream
@@ -96,12 +97,12 @@ class GearslipActivity : ComponentActivity(), Projection {
     /** Hosted map apps need Gearslip to hold location so they can keep it in the background. */
     private val locationPermission = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
-    ) { }
+    ) { granted -> if (granted) Prefetch.warm(this, force = true) }
 
     /** The car dashboard's agenda card; declined just leaves it empty rather than asking again. */
     private val calendarPermission = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
-    ) { }
+    ) { granted -> if (granted) Prefetch.warm(this, force = true) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,8 +116,10 @@ class GearslipActivity : ComponentActivity(), Projection {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         GearslipLog.init(this)
+        GearslipLog.installCrashHandler()
         GearslipLog.i("Gearslip ready")
         CarSettings.init(this)
+        Prefetch.warm(this)
         CarEnvironment.setPhoneTheme(resources.configuration)
 
         setContent {
@@ -139,6 +142,12 @@ class GearslipActivity : ComponentActivity(), Projection {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         CarEnvironment.setPhoneTheme(newConfig)
+    }
+
+    // Throttled inside Prefetch, so this only does work if the last run was a while ago.
+    override fun onStart() {
+        super.onStart()
+        Prefetch.warm(this)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -268,6 +277,7 @@ class GearslipActivity : ComponentActivity(), Projection {
 
     private fun closeAccessory() {
         runner?.stop()
+        SessionReport.print()
         runCatching { descriptor?.close() }
         descriptor = null
         runner = null
@@ -287,10 +297,11 @@ class GearslipActivity : ComponentActivity(), Projection {
         }
     }
 
-    override fun onTouch(action: Int, x: Float, y: Float) {
+    override fun onTouch(action: Int, actionIndex: Int, points: List<TouchPoint>) {
         runOnUiThread {
-            if (PhoneMirror.active.value) relayTouch(action, x, y)
-            else screenProjector?.dispatchTouch(action, x, y)
+            // Mirroring drives one phone touch at a time, so it follows the first finger only.
+            if (PhoneMirror.active.value) points.firstOrNull()?.let { relayTouch(action, it.x, it.y) }
+            else screenProjector?.dispatchTouch(action, actionIndex, points)
         }
     }
 

@@ -32,8 +32,8 @@ android {
         applicationId = "app.seb3thehacker.gearslip"
         minSdk = 35
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.0.02-pre"
+        versionCode = 3
+        versionName = "0.0.03-pre"
     }
 
     signingConfigs {

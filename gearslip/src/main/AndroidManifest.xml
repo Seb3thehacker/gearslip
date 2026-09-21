@@ -60,6 +60,17 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Gearslip">
 
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.logshare"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/share_paths" />
+        </provider>
+
+
         <!--
           singleTop: the head unit can re-attach while we are already foregrounded, which
           arrives via onNewIntent rather than a fresh instance.

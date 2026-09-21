@@ -3,6 +3,8 @@ package app.seb3thehacker.gearslip.car
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import android.provider.Settings
+import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -73,8 +75,12 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
     val phase by media.phase.collectAsStateWithLifecycle()
     val now by media.now.collectAsStateWithLifecycle()
     val browse by media.browse.collectAsStateWithLifecycle()
+    val rejection by media.rejection.collectAsStateWithLifecycle()
     val capture by CarAudio.capture.collectAsStateWithLifecycle()
-    var tab by remember { mutableStateOf(Tab.BROWSE) }
+    val navigator = LocalCarNavigator.current
+    var tab by remember {
+        mutableStateOf(if (navigator.lyricsRequested) Tab.LYRICS else Tab.BROWSE).also { navigator.lyricsRequested = false }
+    }
 
     // The connection outlives this screen: the home screen's player is the same one.
     LaunchedEffect(app) { CarServices.openMedia(app) }
@@ -88,10 +94,25 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
         }
 
         when (phase) {
-            CarMedia.Phase.REJECTED -> Notice(
-                "${app.label} would not let Gearslip browse it.",
-                "Some media apps only accept Google's own host.",
-            )
+            CarMedia.Phase.REJECTED -> when (rejection) {
+                CarMedia.Rejection.NEEDS_NOTIFICATION_ACCESS -> Notice(
+                    "${app.label} keeps its library to itself.",
+                    "Gearslip can still control it once it has Notification access on the phone. " +
+                        "Allow it under Settings > Notifications > Notification access.",
+                    action = "Open on phone" to {
+                        val app = context.applicationContext
+                        runCatching {
+                            app.startActivity(
+                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    },
+                )
+                CarMedia.Rejection.REFUSED -> Notice(
+                    "${app.label} would not let Gearslip browse it.",
+                    "Some media apps only accept Google's own host.",
+                )
+            }
             CarMedia.Phase.CONNECTING, CarMedia.Phase.IDLE -> Notice("Connecting to ${app.label}…", null)
             CarMedia.Phase.READY -> Row(
                 Modifier.fillMaxSize().padding(top = 6.dp),
@@ -108,7 +129,7 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
                         }
                     }
                     when (tab) {
-                        Tab.BROWSE -> BrowsePanel(browse, media, Modifier.fillMaxSize())
+                        Tab.BROWSE -> BrowsePanel(browse, media, app.label, Modifier.fillMaxSize())
                         Tab.LYRICS -> LyricsPanel(now, Modifier.fillMaxSize())
                     }
                 }
@@ -189,10 +210,23 @@ private fun AudioBadge(capture: CarAudio.Capture) {
 }
 
 @Composable
-private fun Notice(title: String, detail: String?) {
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+private fun Notice(title: String, detail: String?, action: Pair<String, () -> Unit>? = null) {
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        detail?.let {
+            Text(
+                it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+        action?.let { (label, run) ->
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.material3.FilledTonalButton(onClick = run) { Text(label) }
+        }
     }
 }
 
@@ -271,7 +305,7 @@ private fun NowPlayingPanel(now: NowPlaying, media: CarMedia, modifier: Modifier
 // --- browsing --------------------------------------------------------------------------------
 
 @Composable
-private fun BrowsePanel(browse: app.seb3thehacker.gearslip.media.BrowseState, media: CarMedia, modifier: Modifier) {
+private fun BrowsePanel(browse: app.seb3thehacker.gearslip.media.BrowseState, media: CarMedia, appLabel: String, modifier: Modifier) {
     Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (media.canGoUp) {
@@ -285,6 +319,10 @@ private fun BrowsePanel(browse: app.seb3thehacker.gearslip.media.BrowseState, me
         }
         when {
             browse.loading -> Notice("Loading…", null)
+            browse.unavailable -> Notice(
+                "$appLabel keeps its library to itself.",
+                "Start music in the app on your phone. Play, pause, skip and seek work from here.",
+            )
             browse.failed -> Notice("Could not load this list.", null)
             browse.entries.isEmpty() -> Notice("Nothing here.", null)
             else -> LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {

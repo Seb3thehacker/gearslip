@@ -42,6 +42,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -81,7 +83,14 @@ fun CarUi() {
     val base = LocalDensity.current
     val insets by CarEnvironment.insets.collectAsState()
     val navigator = remember { CarNavigator(CarSettings.openOnConnect.value) }
-    remember(appContext) { invalidateLauncherApps(); CarServices.init(appContext) }
+    val controlsWake = remember { MapControlsWake() }
+    LaunchedEffect(controlsWake) {
+        while (true) {
+            delay(250)
+            controlsWake.tick()
+        }
+    }
+    remember(appContext) { Prefetch.warm(appContext, force = true); CarServices.init(appContext) }
     DisposableEffect(Unit) { onDispose { CarServices.shutdown() } }
     // The map follows the light outside, whatever the app's own theme is set to.
     LaunchedEffect(darkOutside) { CarServices.nav.pushConfiguration() }
@@ -90,9 +99,23 @@ fun CarUi() {
         LocalDensity provides Density(base.density * scale, base.fontScale),
         LocalCarNavigator provides navigator,
         LocalDarkOutside provides darkOutside,
+        LocalMapControlsWake provides controlsWake,
     ) {
         MaterialTheme(colorScheme = colors) {
-            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Surface(
+                Modifier
+                    .fillMaxSize()
+                    // Watches every touch without taking any: first in line, consumes nothing.
+                    .pointerInput(controlsWake) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent(PointerEventPass.Initial)
+                                controlsWake.touch()
+                            }
+                        }
+                    },
+                color = MaterialTheme.colorScheme.background,
+            ) {
                 // Insets are in video-frame pixels, so convert with the un-scaled density.
                 val pad = with(base) {
                     PaddingValues(
@@ -113,6 +136,7 @@ fun CarUi() {
                                 CarScreen.Media -> mediaApp?.let { MediaScreen(it) { navigator.home() } }
                                 CarScreen.Settings -> CarSettingsScreen()
                                 CarScreen.Dashboard -> CarDashboardScreen()
+                                CarScreen.Weather -> WeatherScreen()
                                 is CarScreen.Notifications -> NotificationsScreen(screen.replyTo)
                                 is CarScreen.App -> CarApps.find(screen.id)?.content?.invoke()
                             }
@@ -140,26 +164,36 @@ private fun CarNavBar(navigator: CarNavigator) {
     val darkOutside by CarEnvironment.darkOutside.collectAsState()
     val now by rememberNow()
 
-    // The home and media screens already show what's playing; everywhere else it lives in the
-    // middle of this bar so it stays one tap away.
-    val showNowPlaying = navigator.current != CarScreen.Home && navigator.current != CarScreen.Media
+    // The home screen shows what's playing itself, unless it was minimised; everywhere else it lives in this bar.
+    val showNowPlaying = navigator.current != CarScreen.Home || navigator.playerMinimised
+    val weather by Weather.state.collectAsState()
 
+    // One row, so nothing can sit on top of anything else: the player takes whatever width the
+    // fixed items leave and shortens its title to fit.
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Box(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 10.dp)) {
-            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                NavItem(Icons.Filled.Home, navigator.current == CarScreen.Home) { navigator.home() }
-                Spacer(Modifier.width(6.dp))
-                NavItem(MediaIcons.Apps, navigator.current == CarScreen.Apps) { navigator.apps() }
+        Row(
+            Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            NavItem(Icons.Filled.Home, navigator.current == CarScreen.Home) { navigator.home() }
+            Spacer(Modifier.width(6.dp))
+            NavItem(MediaIcons.Apps, navigator.current == CarScreen.Apps) { navigator.apps() }
 
-                Spacer(Modifier.weight(1f))
+            Box(Modifier.weight(1f).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
+                if (showNowPlaying) NavNowPlaying(navigator, selected = navigator.current == CarScreen.Media)
+            }
 
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { navigator.dashboard() }
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                ) {
+            (weather as? WeatherState.Ready)?.data?.let { w ->
+                NavChip(navigator.current == CarScreen.Weather, { navigator.weather() }) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        WeatherIcon(w.code, w.isDay, size = 28.dp)
+                        Text("${w.temp}°", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+            NavChip(navigator.current == CarScreen.Dashboard, { navigator.dashboard() }) {
+                Column(horizontalAlignment = Alignment.End) {
                     Text(
                         DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(now)),
                         style = MaterialTheme.typography.titleMedium,
@@ -173,17 +207,27 @@ private fun CarNavBar(navigator: CarNavigator) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Spacer(Modifier.width(10.dp))
-                NavItem(
-                    Icons.Filled.Notifications, navigator.current is CarScreen.Notifications,
-                ) { navigator.notifications() }
             }
-
-            if (showNowPlaying) {
-                NavNowPlaying(navigator, Modifier.align(Alignment.Center))
-            }
+            Spacer(Modifier.width(10.dp))
+            NavItem(
+                Icons.Filled.Notifications, navigator.current is CarScreen.Notifications,
+            ) { navigator.notifications() }
         }
     }
+}
+
+/** A tappable group in the bar that stays highlighted while its screen is open, like [NavItem]. */
+@Composable
+private fun NavChip(selected: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (selected) scheme.secondaryContainer else scheme.surfaceContainer)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) { content() }
 }
 
 @Composable
@@ -212,19 +256,19 @@ internal fun rememberNow(): State<Long> = produceState(System.currentTimeMillis(
 
 /** Art, title and play/pause in the nav bar; tapping the art or title opens the full media screen. */
 @Composable
-private fun NavNowPlaying(navigator: CarNavigator, modifier: Modifier) {
+private fun NavNowPlaying(navigator: CarNavigator, selected: Boolean, modifier: Modifier = Modifier) {
     val media = CarServices.media
     val phase by media.phase.collectAsState()
     val now by media.now.collectAsState()
-    if (phase != CarMedia.Phase.READY || !now.hasTrack) return
+    if (phase != CarMedia.Phase.READY || !now.isActive) return
     val context = LocalContext.current
     val art by produceState(now.art, now.art, now.artUri) { value = now.art ?: MediaArt.load(context, now.artUri) }
 
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
     ) {
     Row(
         Modifier.padding(start = 6.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
@@ -233,6 +277,7 @@ private fun NavNowPlaying(navigator: CarNavigator, modifier: Modifier) {
     ) {
         Row(
             Modifier
+                .weight(1f, fill = false)
                 .clip(RoundedCornerShape(50))
                 .clickable { navigator.media() },
             verticalAlignment = Alignment.CenterVertically,
@@ -242,7 +287,8 @@ private fun NavNowPlaying(navigator: CarNavigator, modifier: Modifier) {
                 art?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             }
             Text(
-                now.title.ifEmpty { "Nothing playing" }.let { if (it.length > 15) it.take(15) + "…" else it },
+                now.title.ifEmpty { "Nothing playing" },
+                modifier = Modifier.weight(1f, fill = false),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,

@@ -24,6 +24,14 @@ object PhoneApps {
 
     private const val ICON_PX = 128
 
+    @Volatile private var cache: List<PhoneApp>? = null
+
+    /** What the last scan found, or null before the first one. */
+    fun cached(): List<PhoneApp>? = cache
+
+    /** Scans and stores the result; [Prefetch] calls this so the screen opens already filled. */
+    fun warm(context: Context) { cache = installed(context) }
+
     fun installed(context: Context): List<PhoneApp> {
         val manager = context.packageManager
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)

@@ -1,6 +1,14 @@
 package app.seb3thehacker.gearslip.ui
 
 import android.content.Intent
+import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -17,7 +25,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -78,20 +85,34 @@ fun LogsScreen(onBack: () -> Unit) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                actions = {
-                    TextButton(onClick = {
-                        scope.launch {
-                            val text = withContext(Dispatchers.IO) { GearslipLog.fullText() }
+            )
+        },
+        bottomBar = {
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                Row(
+                    Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                            val uri = withContext(Dispatchers.IO) { GearslipLog.shareableFile(context) }
                             val send = Intent(Intent.ACTION_SEND)
                                 .setType("text/plain")
                                 .putExtra(Intent.EXTRA_SUBJECT, "Gearslip log")
-                                .putExtra(Intent.EXTRA_TEXT, text)
+                                .putExtra(Intent.EXTRA_STREAM, uri)
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             context.startActivity(Intent.createChooser(send, "Share log"))
                         }
-                    }) { Text("Share") }
-                    TextButton(onClick = { GearslipLog.clearLive() }) { Text("Clear") }
-                },
-            )
+                        },
+                        modifier = Modifier.weight(1f).height(56.dp),
+                    ) { Text("Share") }
+                    OutlinedButton(
+                        onClick = { GearslipLog.clearLive() },
+                        modifier = Modifier.weight(1f).height(56.dp),
+                    ) { Text("Clear") }
+                }
+            }
         },
         floatingActionButton = {
             if (!follow && lines.isNotEmpty()) {

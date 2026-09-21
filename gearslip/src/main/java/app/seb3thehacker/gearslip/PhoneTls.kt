@@ -29,6 +29,7 @@ import javax.net.ssl.X509ExtendedTrustManager
  * the right tool.
  */
 class PhoneTls(keyStore: KeyStore, password: CharArray) {
+    private val log = GearslipLog.tagged("TLS")
 
     private val engine: SSLEngine
     private var netIn = ByteArray(0)
@@ -156,7 +157,7 @@ class PhoneTls(keyStore: KeyStore, password: CharArray) {
                     continue
                 }
                 SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
-                    GearslipLog.w("decrypt: record split across frames (${source.remaining()} bytes left over)")
+                    log.w("decrypt: record split across frames (${source.remaining()} bytes left over)")
                     break
                 }
                 SSLEngineResult.Status.CLOSED -> break
@@ -173,26 +174,29 @@ class PhoneTls(keyStore: KeyStore, password: CharArray) {
 
     private fun describeSession() {
         val session = engine.session
-        GearslipLog.i("TLS handshake COMPLETE - protocol=${session.protocol} cipher=${session.cipherSuite}")
+        log.i("TLS handshake COMPLETE - protocol=${session.protocol} cipher=${session.cipherSuite}")
+        SessionReport.tls(session.protocol, session.cipherSuite)
         try {
             val peers = session.peerCertificates
-            GearslipLog.i("head unit presented ${peers.size} certificate(s):")
+            log.i("head unit presented ${peers.size} certificate(s):")
             peers.forEachIndexed { index, certificate ->
                 if (certificate is X509Certificate) {
-                    GearslipLog.i("  [$index] subject=${certificate.subjectX500Principal}")
-                    GearslipLog.i("       issuer =${certificate.issuerX500Principal}")
-                    GearslipLog.i("       serial =${certificate.serialNumber} valid=${certificate.notBefore}..${certificate.notAfter}")
+                    log.i("  [$index] subject=${certificate.subjectX500Principal}")
+                    log.i("       issuer =${certificate.issuerX500Principal}")
+                    log.i("       serial =${certificate.serialNumber} valid=${certificate.notBefore}..${certificate.notAfter}")
                 }
             }
         } catch (_: SSLPeerUnverifiedException) {
-            GearslipLog.i("head unit presented NO certificate (we asked but did not require one)")
+            log.i("head unit presented NO certificate (we asked but did not require one)")
         }
     }
 
     /** Accepts everything and reports what it saw. We want the data, not a verdict. */
     private class LoggingTrustManager : X509ExtendedTrustManager() {
+        private val log = GearslipLog.tagged("TLS")
+
         override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-            GearslipLog.i("peer certificate offered (authType=$authType, chain=${chain?.size ?: 0}) - accepting")
+            log.i("peer certificate offered (authType=$authType, chain=${chain?.size ?: 0}) - accepting")
         }
 
         override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) =

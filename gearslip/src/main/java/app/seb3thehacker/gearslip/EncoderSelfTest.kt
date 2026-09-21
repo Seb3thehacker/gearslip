@@ -12,9 +12,10 @@ import java.util.concurrent.TimeUnit
  * the TLS self-test: make our own failures loud on the bench.
  */
 object EncoderSelfTest {
+    private val log = GearslipLog.tagged("VIDEO")
 
     fun run(width: Int = 800, height: Int = 480, frameRate: Int = 30): Boolean {
-        GearslipLog.i("=== encoder self-test starting (${width}x$height @ ${frameRate}fps) ===")
+        log.i("=== encoder self-test starting (${width}x$height @ ${frameRate}fps) ===")
 
         var codecConfig: ByteArray? = null
         var frames = 0
@@ -59,37 +60,37 @@ object EncoderSelfTest {
             val csd = codecConfig
             when {
                 csd == null -> {
-                    GearslipLog.e("encoder self-test FAILED: no CODEC_CONFIG (SPS/PPS) produced")
+                    log.e("encoder self-test FAILED: no CODEC_CONFIG (SPS/PPS) produced")
                     false
                 }
                 frames == 0 -> {
-                    GearslipLog.e("encoder self-test FAILED: no frames produced")
+                    log.e("encoder self-test FAILED: no frames produced")
                     false
                 }
                 !sawKeyFrame -> {
-                    GearslipLog.e("encoder self-test FAILED: no keyframe - the car needs one first")
+                    log.e("encoder self-test FAILED: no keyframe - the car needs one first")
                     false
                 }
                 !sawResyncKeyFrame -> {
-                    GearslipLog.e(
+                    log.e(
                         "encoder self-test FAILED: requestSyncFrame() produced no keyframe - " +
                             "the resync-after-drop fix would silently do nothing on this device",
                     )
                     false
                 }
                 else -> {
-                    GearslipLog.i(
+                    log.i(
                         "SPS/PPS = ${csd.size} bytes, $frames frames, keyframe present, " +
                             "requestSyncFrame() confirmed working",
                     )
-                    GearslipLog.hex("   csd", csd, limit = 48)
-                    GearslipLog.i("=== encoder self-test PASSED ===")
+                    log.hex("   csd", csd, limit = 48)
+                    log.i("=== encoder self-test PASSED ===")
                     true
                 }
             }
         } catch (t: Throwable) {
             runCatching { source.stop() }
-            GearslipLog.e("encoder self-test FAILED with an exception", t)
+            log.e("encoder self-test FAILED with an exception", t)
             false
         }
     }

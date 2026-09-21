@@ -1,6 +1,9 @@
 package app.seb3thehacker.gearslip.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,16 +21,21 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.SessionStatus
 
 @Composable
@@ -38,6 +46,8 @@ fun HomeScreen(
     onDisconnect: () -> Unit,
 ) {
     val status by SessionStatus.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var debug by remember { mutableStateOf(AppSettings.debugMode(context)) }
 
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         Column(
@@ -65,6 +75,28 @@ fun HomeScreen(
                 )
                 Spacer(Modifier.height(16.dp))
                 StatusCard(status)
+                Spacer(Modifier.height(24.dp))
+                SetupSteps()
+                Spacer(Modifier.height(24.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Debug mode", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (debug) "Full protocol logging, live logs and car preview."
+                            else "Quiet logging. Warnings and errors are still recorded.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = debug, onCheckedChange = {
+                        debug = it
+                        AppSettings.setDebugMode(context, it)
+                    })
+                }
                 Spacer(Modifier.height(16.dp))
             }
 
@@ -80,7 +112,7 @@ fun HomeScreen(
                         Text("Disconnect")
                     }
                 }
-                if (!live) {
+                if (!live && debug) {
                     FilledTonalButton(
                         onClick = onOpenCarPreview,
                         modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -89,8 +121,10 @@ fun HomeScreen(
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    FilledTonalButton(onClick = onOpenLogs, modifier = Modifier.weight(1f).height(56.dp)) {
-                        Text("Live logs")
+                    if (debug) {
+                        FilledTonalButton(onClick = onOpenLogs, modifier = Modifier.weight(1f).height(56.dp)) {
+                            Text("Live logs")
+                        }
                     }
                     OutlinedButton(onClick = onOpenSettings, modifier = Modifier.weight(1f).height(56.dp)) {
                         Text("Settings")
@@ -144,3 +178,61 @@ private fun StatusCard(status: SessionStatus.Snapshot) {
 private fun Context.appVersionName(): String =
     runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
 
+/** One step of the setup list: a sentence that says what to do, and optionally how. */
+private class Step(val action: String, val detail: String? = null)
+
+private val SETUP_STEPS = listOf(
+    Step("Use a car from 2020 or earlier.", "Newer head units reject the certificate."),
+    Step(
+        "On GrapheneOS, exempt Gearslip from exploit protections.",
+        "Open Settings, then Apps, then Gearslip, and turn on Exploit protection compatibility mode.",
+    ),
+    Step("Disable or uninstall the Android Auto app."),
+    Step("Load the certificate.", "Open Settings and choose Import certificate."),
+    Step("Plug the phone into the car.", "Gearslip opens by itself when the head unit connects."),
+)
+
+/**
+ * What to do before the first drive, in order. Kept in a narrow card with room at the sides so
+ * the lines stay short enough to read at a glance.
+ */
+@Composable
+private fun SetupSteps() {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            shape = MaterialTheme.shapes.extraLarge,
+            modifier = Modifier.widthIn(max = 560.dp).padding(horizontal = 16.dp),
+        ) {
+            Column(Modifier.padding(horizontal = 24.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                Text(
+                    "How to connect",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                SETUP_STEPS.forEachIndexed { index, step ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(
+                            "${index + 1}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.width(16.dp),
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(step.action, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            step.detail?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

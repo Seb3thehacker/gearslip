@@ -88,6 +88,9 @@ class CarAppConnection(private val context: Context) {
     private var binding: ServiceConnection? = null
     private var component: ComponentName? = null
 
+    /** Whose icon the header shows for the standard app-icon action. */
+    val appPackage: String? get() = component?.packageName
+
     private var frameWidth = 800
     private var frameHeight = 480
     private var frameDensity = 160
@@ -120,18 +123,57 @@ class CarAppConnection(private val context: Context) {
         binding = connection
 
         LocationKeepAlive.start(context)
-        val bound = runCatching {
-            context.bindService(intent, connection, Context.BIND_AUTO_CREATE or LocationKeepAlive.BIND_INCLUDE_CAPABILITIES)
-        }.getOrElse {
-            GearslipLog.e("bindService threw for ${app.component}", it)
-            false
+        val bind = {
+            var bindError: Throwable? = null
+            val bound = runCatching {
+                context.bindService(intent, connection, Context.BIND_AUTO_CREATE or LocationKeepAlive.BIND_INCLUDE_CAPABILITIES)
+            }.getOrElse {
+                GearslipLog.e("bindService threw for ${app.component}", it)
+                bindError = it
+                false
+            }
+            if (!bound) {
+                binding = null
+                fail(Phase.REJECTED, explainBindFailure(app.component, bindError))
+            } else {
+                GearslipLog.i("host: binding to ${app.component.flattenToShortString()}")
+            }
         }
-        if (!bound) {
-            binding = null
-            fail(Phase.FAILED, "bindService refused")
+
+        bind()
+    }
+
+    /**
+     * A service that names a permission can only be bound by an app holding it. Some navigation apps
+     * name one that only Google's own Android Auto host holds, and no other app can be granted.
+     */
+    private fun explainBindFailure(component: ComponentName, error: Throwable?): String {
+        if (error !is SecurityException) return "the app would not let Gearslip connect"
+        val needed = runCatching { context.packageManager.getServiceInfo(component, 0).permission }.getOrNull()
+        return if (needed != null) {
+            "It only accepts Google's own Android Auto: its service requires the permission $needed, which Gearslip can't hold."
         } else {
-            GearslipLog.i("host: binding to ${app.component.flattenToShortString()}")
+            "It only accepts Google's own Android Auto host."
         }
+    }
+
+    /** The app's own account of why it said no, in words rather than an object id. */
+    private fun describeFailure(step: String, value: Any?): String {
+        val failure = value as? androidx.car.app.FailureResponse
+            ?: return "$step failed: ${value ?: "no reason given"}"
+        val firstLine = failure.stackTrace.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
+        GearslipLog.w("host: $step failed: type=${failure.errorType}\n${failure.stackTrace.lineSequence().take(6).joinToString("\n")}")
+        // The Car App Library's own host check: the app keeps a list of hosts it trusts by signature.
+        if (firstLine.contains("Unrecognized host")) {
+            return "It only trusts hosts on its own allow-list (Google's Android Auto and a few others), and Gearslip isn't on it."
+        }
+        val kind = when (failure.errorType) {
+            androidx.car.app.FailureResponse.SECURITY_EXCEPTION -> "It rejected Gearslip as a host"
+            androidx.car.app.FailureResponse.ILLEGAL_STATE_EXCEPTION -> "It reported a state error"
+            androidx.car.app.FailureResponse.INVALID_PARAMETER_EXCEPTION -> "It reported an invalid parameter"
+            else -> "It failed"
+        }
+        return "$kind at $step: ${firstLine.substringAfterLast("Exception: ", firstLine)}"
     }
 
     fun disconnect() {
@@ -147,6 +189,7 @@ class CarAppConnection(private val context: Context) {
         binding = null
         this.carApp = null
         appManager = null
+        _panMode.value = false
         surfaceCallback = null
         component = null
         _template.value = null
@@ -242,6 +285,32 @@ class CarAppConnection(private val context: Context) {
             _template.value = template
             update { it.copy(template = template.javaClass.simpleName) }
         }) { manager.getTemplate(it) }
+    }
+
+    private val _panMode = MutableStateFlow(false)
+
+    /**
+     * Pan mode is the host's to run: the Pan action has no click handler, tapping it just switches
+     * the screen to the map and its own controls. The app is told only if its template asks.
+     */
+    val panMode: StateFlow<Boolean> = _panMode
+
+    fun setPanMode(on: Boolean) {
+        if (_panMode.value == on) return
+        _panMode.value = on
+        GearslipLog.i("host: pan mode ${if (on) "on" else "off"}")
+        (_template.value as? androidx.car.app.navigation.model.NavigationTemplate)
+            ?.panModeDelegate.panModeChanged(on)
+    }
+
+    /**
+     * The Back action carries no click handler of its own: the app keeps its own screen stack, so
+     * the host reports the press and the app answers with the template it went back to.
+     */
+    fun backPressed() {
+        val manager = appManager ?: return
+        GearslipLog.i("host: back pressed")
+        call("onBackPressed", onValue = { requestTemplate() }) { manager.onBackPressed(it) }
     }
 
     // --- the surface the app draws its map into -------------------------------------------
@@ -498,7 +567,7 @@ class CarAppConnection(private val context: Context) {
 
             override fun onFailure(response: Bundleable?) {
                 val value = response?.let { runCatching { it.get() }.getOrNull() }
-                main.post { fail(Phase.FAILED, "$name failed: $value") }
+                main.post { fail(Phase.REJECTED, describeFailure(name, value)) }
             }
         }
         runCatching { send(callback) }

@@ -26,6 +26,7 @@ class VideoSource(
     private val onCodecConfig: (ByteArray) -> Unit,
     private val onFrame: (data: ByteArray, presentationTimeUs: Long, keyFrame: Boolean) -> Unit,
 ) {
+    private val log = GearslipLog.tagged("VIDEO")
 
     /**
      * TEST_CARD feeds generated YUV buffers; SURFACE exposes a MediaCodec input Surface for
@@ -67,11 +68,11 @@ class VideoSource(
         codec = encoder
         running = true
 
-        GearslipLog.i("encoder started: ${width}x$height @ ${frameRate}fps, H.264 Baseline, mode=$mode")
+        log.i("encoder started: ${width}x$height @ ${frameRate}fps, H.264 Baseline, mode=$mode")
 
         worker = Thread {
             runCatching { pump(encoder) }
-                .onFailure { if (running) GearslipLog.e("encoder loop failed", it) }
+                .onFailure { if (running) log.e("encoder loop failed", it) }
         }.apply { name = "gearslip-encoder"; start() }
     }
 
@@ -89,7 +90,7 @@ class VideoSource(
             codec?.setParameters(Bundle().apply {
                 putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
             })
-        }.onFailure { GearslipLog.w("requestSyncFrame failed: ${it.message}") }
+        }.onFailure { log.w("requestSyncFrame failed: ${it.message}") }
     }
 
     fun stop() {

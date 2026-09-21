@@ -76,6 +76,27 @@ class CarPreviewActivity : ComponentActivity() {
             GearslipLog.i("preview: wrote ${out.name}")
             step++
         }
+        // A two-finger pinch: "cx,cy,startGap,endGap" in projected pixels, after "pinchAfter" ms.
+        intent.getStringExtra("pinch")?.let { spec ->
+            val (cx, cy, gap0, gap1) = spec.split(",").map { it.toFloat() }
+            val pair = { gap: Float -> listOf(TouchPoint(3, cx - gap / 2, cy), TouchPoint(7, cx + gap / 2, cy)) }
+            val after = intent.getIntExtra("pinchAfter", 9000).toLong()
+            main.postDelayed({
+                snap()
+                p.dispatchTouch(MotionEvent.ACTION_DOWN, 0, listOf(pair(gap0)[0]))
+                p.dispatchTouch(MotionEvent.ACTION_POINTER_DOWN, 1, pair(gap0))
+                val steps = 14
+                for (i in 1..steps) main.postDelayed({
+                    p.dispatchTouch(MotionEvent.ACTION_MOVE, 0, pair(gap0 + (gap1 - gap0) * i / steps))
+                }, 40L * i)
+                main.postDelayed({
+                    p.dispatchTouch(MotionEvent.ACTION_POINTER_UP, 1, pair(gap1))
+                    p.dispatchTouch(MotionEvent.ACTION_UP, 0, listOf(pair(gap1)[0]))
+                }, 40L * (steps + 1))
+                main.postDelayed({ snap() }, 40L * (steps + 1) + 2000)
+            }, after)
+        }
+
         // Free-running mode: keep snapshotting on a timer so the display can be driven from
         // outside (adb `am start --display` / `input -d`) while the harness records it.
         val snaps = intent.getIntExtra("snaps", 0)
@@ -89,8 +110,9 @@ class CarPreviewActivity : ComponentActivity() {
             snap()
             taps.forEachIndexed { i, (x, y) ->
                 main.postDelayed({
-                    p.dispatchTouch(MotionEvent.ACTION_DOWN, x, y)
-                    main.postDelayed({ p.dispatchTouch(MotionEvent.ACTION_UP, x, y) }, 80)
+                    val point = listOf(TouchPoint(0, x, y))
+                    p.dispatchTouch(MotionEvent.ACTION_DOWN, 0, point)
+                    main.postDelayed({ p.dispatchTouch(MotionEvent.ACTION_UP, 0, point) }, 80)
                 }, 2500L * (i + 1))
                 main.postDelayed({ snap() }, 2500L * (i + 1) + 1500)
             }

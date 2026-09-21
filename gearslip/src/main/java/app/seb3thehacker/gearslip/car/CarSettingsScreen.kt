@@ -163,7 +163,7 @@ private fun WebPageSetting() {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
-                url.ifEmpty { "Built-in test page - tap to set a URL" },
+                url.ifEmpty { "DuckDuckGo (default) - tap to set a different page" },
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (url.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
