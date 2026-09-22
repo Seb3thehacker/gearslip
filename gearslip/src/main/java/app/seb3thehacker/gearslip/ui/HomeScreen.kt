@@ -2,7 +2,6 @@ package app.seb3thehacker.gearslip.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,7 +30,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -178,8 +181,13 @@ private fun StatusCard(status: SessionStatus.Snapshot) {
 private fun Context.appVersionName(): String =
     runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
 
-/** One step of the setup list: a sentence that says what to do, and optionally how. */
-private class Step(val action: String, val detail: String? = null)
+/**
+ * One step of the setup list: a sentence that says what to do, and optionally how.
+ *
+ * [command] is for the one step that cannot be done on the phone. It is shown as something to
+ * copy rather than to read, because a mistyped package name fails silently.
+ */
+private class Step(val action: String, val detail: String? = null, val command: String? = null)
 
 private val SETUP_STEPS = listOf(
     Step("Use a car from 2020 or earlier.", "Newer head units reject the certificate."),
@@ -189,20 +197,69 @@ private val SETUP_STEPS = listOf(
     ),
     Step("Disable or uninstall the Android Auto app."),
     Step("Load the certificate.", "Open Settings and choose Import certificate."),
+    Step(
+        "Allow the microphone, so music can reach the car.",
+        "Android asks for the microphone before it will let any app pass music along. " +
+            "Gearslip never listens to you: it copies what a music app is playing, and nothing else.",
+    ),
+    Step(
+        "Optional: stop Android asking about audio every drive.",
+        "Connect the phone to a computer with USB debugging turned on, and run this command. " +
+            "It tells Android to trust Gearslip with audio from now on. Skip it and everything " +
+            "still works, but you have to tap Start once each time you set off.",
+        command = "adb shell appops set app.seb3thehacker.gearslip PROJECT_MEDIA allow",
+    ),
+    Step(
+        "Optional: keep notifications readable while music plays.",
+        "Android treats sending audio to the car like sharing your screen, and hides what your " +
+            "notifications say. Run this command too, and Gearslip switches that off only while " +
+            "music is going to the car, then puts it back.",
+        command = "adb shell pm grant app.seb3thehacker.gearslip android.permission.WRITE_SECURE_SETTINGS",
+    ),
     Step("Plug the phone into the car.", "Gearslip opens by itself when the head unit connects."),
 )
 
 /**
- * What to do before the first drive, in order. Kept in a narrow card with room at the sides so
- * the lines stay short enough to read at a glance.
+ * A command to run on a computer, shown so it can be copied rather than retyped. Tapping it puts
+ * it on the clipboard, which is the only way it reaches the computer from here anyway.
  */
+@Composable
+private fun CopyableCommand(command: String) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        shape = MaterialTheme.shapes.small,
+        onClick = {
+            clipboard.setText(AnnotatedString(command))
+            Toast.makeText(context, "Command copied", Toast.LENGTH_SHORT).show()
+        },
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                command,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                "Tap to copy",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+/** What to do before the first drive, in order. The same width as the status card above it. */
 @Composable
 private fun SetupSteps() {
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             shape = MaterialTheme.shapes.extraLarge,
-            modifier = Modifier.widthIn(max = 560.dp).padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Column(Modifier.padding(horizontal = 24.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Text(
@@ -229,6 +286,7 @@ private fun SetupSteps() {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            step.command?.let { CopyableCommand(it) }
                         }
                     }
                 }

@@ -51,6 +51,7 @@ class GearslipRunner(
     @Volatile private var dropped = 0
     @Volatile private var inputChannelId: Int = -1
     @Volatile private var audioLink: AudioLink? = null
+    private var audioMessagesSeen = 0
     private var touchWidth = 0
     private var touchHeight = 0
     private var touchesSeen = 0
@@ -142,6 +143,16 @@ class GearslipRunner(
             } else if (frame.channel == inputChannelId) {
                 onInputMessage(messageId, body)
             } else if (frame.channel == audioLink?.channelId) {
+                // The audio channel is the one still being reverse-engineered, and its first few
+                // replies are what tell us why. Raw bytes for those, then quiet.
+                if (audioMessagesSeen < AUDIO_TRACE_MESSAGES) {
+                    audioMessagesSeen++
+                    log.i(
+                        "audio frame #$audioMessagesSeen: channel=${frame.channel} " +
+                            "encrypted=${frame.encrypted} raw=${frame.payload.size}B decrypted=${message.size}B",
+                    )
+                    log.hex("   audio raw", message, limit = 64)
+                }
                 audioLink?.onMessage(messageId, body)
             } else {
                 log.i("ignoring message id $messageId on channel ${frame.channel}")
@@ -360,8 +371,16 @@ class GearslipRunner(
         }
         val media = sinks.firstOrNull { it.streamType == STREAM_MEDIA } ?: run {
             log.w("no media audio sink advertised - media apps will play on the phone only")
+            SessionReport.audio(
+                "no MEDIA sink; head unit offered ${sinks.joinToString { it.streamName }.ifEmpty { "none" }}",
+            )
             return
         }
+        val first = media.configs.firstOrNull()
+        SessionReport.audio(
+            "MEDIA sink on channel ${media.serviceId}, ${media.codecName}, " +
+                "${first?.sampleRate ?: 48_000}Hz/${first?.bits ?: 16}bit/x${first?.channels ?: 2}",
+        )
         audioLink = AudioLink(
             media,
             sendOnChannel = { id, body -> send(id, body, encrypted = true, channel = media.serviceId) },
@@ -799,6 +818,7 @@ class GearslipRunner(
         const val ACTION_DOWN = 0
         const val ACTION_UP = 1
         const val ACK_STALL_MS = 2_000L
+        const val AUDIO_TRACE_MESSAGES = 6
         const val PERIODIC_KEYFRAME_MS = 5_000L
     }
 }

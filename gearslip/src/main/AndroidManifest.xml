@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- The projected WebView loads real pages; without this every load fails silently. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -22,6 +23,21 @@
 
     <!-- Capturing a media app's playback (to send to the car) is gated on this by the platform. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
+        Playback capture copies a stream rather than moving it, so the phone keeps playing the
+        music it is sending to the car. Silencing the phone's own speaker for the drive needs this.
+    -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!--
+        Audio capture counts as a screen share, and Android hides notifications during one. The
+        protection can be switched off for the drive, but only with this, granted once over adb
+        (pm grant). Without it Gearslip works the same and notifications stay hidden.
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <!--
       Declared, not just requested. Templated apps decide whether to talk to a host by asking

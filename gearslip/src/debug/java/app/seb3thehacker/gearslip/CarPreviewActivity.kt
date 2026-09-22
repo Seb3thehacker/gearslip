@@ -9,6 +9,9 @@ import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import app.seb3thehacker.gearslip.audio.AudioCaptureService
+import app.seb3thehacker.gearslip.audio.CarAudio
 import app.seb3thehacker.gearslip.car.CarEnvironment
 import app.seb3thehacker.gearslip.car.CarSettings
 import app.seb3thehacker.gearslip.car.CarUi
@@ -30,6 +33,28 @@ class CarPreviewActivity : ComponentActivity() {
     private var projector: ScreenProjector? = null
     private var reader: ImageReader? = null
     @Volatile private var latest: Bitmap? = null
+
+    private val audioPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) askAudioCapture() else CarAudio.denied()
+    }
+
+    private val audioConsent = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == RESULT_OK && data != null) {
+            AudioCaptureService.start(this, result.resultCode, data)
+        } else {
+            GearslipLog.w("preview: audio capture consent declined")
+            CarAudio.denied()
+        }
+    }
+
+    private fun askAudioCapture() {
+        val manager = getSystemService(android.media.projection.MediaProjectionManager::class.java)
+        runCatching { audioConsent.launch(manager.createScreenCaptureIntent()) }
+            .onFailure { GearslipLog.e("preview: could not ask for audio capture", it); CarAudio.denied() }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +82,22 @@ class CarPreviewActivity : ComponentActivity() {
 
         val p = ScreenProjector(this).also { projector = it }
         p.start(imageReader.surface, w, h, dpi) { CarUi() }
+
+        // Stand in for the car's media sink, so the phone half of the audio path runs for real.
+        if (intent.getBooleanExtra("audio", false)) {
+            CarAudio.onConsentRequested = {
+                runOnUiThread {
+                    if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                    ) {
+                        askAudioCapture()
+                    } else {
+                        audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+            }
+            CarAudio.attach(BenchAudioSink())
+        }
 
         GearslipLog.i("preview: displayId=${p.displayId}")
         if (intent.getBooleanExtra("hide", false)) p.setOverlayVisible(false)
@@ -123,6 +164,8 @@ class CarPreviewActivity : ComponentActivity() {
         super.onDestroy()
         projector?.stop()
         reader?.close()
+        CarAudio.onConsentRequested = null
+        CarAudio.release()
         CarEnvironment.stop()
     }
 }

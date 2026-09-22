@@ -6,12 +6,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Joins the two ends of the audio path: [AudioCaptureService] on the phone, which hears what a
- * media app plays, and the car's audio channel, which is where it has to end up.
+ * Joins the two ends of the audio path: [AudioCaptureService] on the phone, which hears what the
+ * phone is playing, and the car's audio channel, which is where it has to end up.
  *
- * They come and go independently. The phone side needs on-device consent and can be running on
- * the bench with no car attached; the car side exists only while a head unit is connected and
- * offers a media audio sink. Whichever pair is present, samples flow.
+ * Capture belongs to the car session, not to any one app. Android grants it through a consent
+ * dialog that cannot be answered in advance or remembered, so Gearslip asks once, when a head unit
+ * first offers a sink to play through, and then holds that grant for as long as the car is
+ * connected. Switching between media apps, or starting playback from the phone, costs nothing
+ * further: the capture is by audio usage rather than by app, so whatever the phone plays as media
+ * goes to the car.
  */
 object CarAudio {
 
@@ -36,9 +39,8 @@ object CarAudio {
     /** Set by the activity: shows the permission and consent dialogs, which only it can. */
     var onConsentRequested: (() -> Unit)? = null
 
-    /** The uid being captured (or waited on). */
-    @Volatile var uid: Int = -1
-        private set
+    /** Whether the driver has asked for the car to be fed at all; see CarSettings.pipeAudio. */
+    @Volatile private var wanted = false
 
     @Volatile private var link: Link? = null
 
@@ -48,30 +50,48 @@ object CarAudio {
 
     fun attach(link: Link) {
         this.link = link
-        if (_capture.value == Capture.ON) link.start()
+        GearslipLog.i("audio: the car offered a sink at ${link.sampleRate}Hz x${link.channels}")
+        when {
+            _capture.value == Capture.ON -> link.start()
+            wanted -> ask()
+        }
     }
 
     fun detach(link: Link) {
         if (this.link === link) this.link = null
     }
 
-    /** A media app was opened: start hearing it. */
-    fun request(uid: Int) {
-        if (this.uid == uid && _capture.value != Capture.OFF && _capture.value != Capture.DENIED) return
-        if (this.uid != uid) AudioCaptureService.stop()
-        this.uid = uid
-        _capture.value = Capture.ASKING
-        val ask = onConsentRequested
-        if (ask == null) {
-            GearslipLog.w("audio: nothing on the phone can ask for capture consent")
-            _capture.value = Capture.DENIED
-        } else {
-            ask()
+    /**
+     * The car wants sound. Safe to call as often as the session likes: the consent dialog appears
+     * at most once, and only once there is a sink to play through - asking on the bench, where the
+     * sound has nowhere to go, would put a system dialog in front of the driver for nothing.
+     */
+    fun request() {
+        wanted = true
+        when (_capture.value) {
+            Capture.ON, Capture.ASKING, Capture.DENIED -> return
+            Capture.OFF -> if (link == null) {
+                GearslipLog.i("audio: waiting for the car to offer an audio sink")
+            } else {
+                ask()
+            }
         }
     }
 
+    private fun ask() {
+        _capture.value = Capture.ASKING
+        val request = onConsentRequested
+        if (request == null) {
+            GearslipLog.w("audio: nothing on the phone can ask for capture consent")
+            _capture.value = Capture.DENIED
+        } else {
+            request()
+        }
+    }
+
+    /** The car went away. Everything is torn down; the next connection asks again. */
     fun release() {
-        uid = -1
+        wanted = false
         AudioCaptureService.stop()
         _capture.value = Capture.OFF
     }

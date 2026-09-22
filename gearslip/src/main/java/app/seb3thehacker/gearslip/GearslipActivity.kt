@@ -112,6 +112,14 @@ class GearslipActivity : ComponentActivity(), Projection {
         if (checkSelfPermission(android.Manifest.permission.READ_CALENDAR) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) calendarPermission.launch(android.Manifest.permission.READ_CALENDAR)
+        // Playback capture needs the microphone even though it never records one. Ask for it here,
+        // at the kerb, rather than the first time a song plays: a permission dialog that appears
+        // mid-drive is one the driver has to read and answer at the wheel, and missing it is
+        // indistinguishable from the car link being broken.
+        if (CarSettings.pipeAudio.value &&
+            checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
@@ -119,6 +127,11 @@ class GearslipActivity : ComponentActivity(), Projection {
         GearslipLog.installCrashHandler()
         GearslipLog.i("Gearslip ready")
         CarSettings.init(this)
+        // A capture that died without tidying up would leave notifications exposed to every
+        // later screen share. Nothing is capturing if the service is not running, so undo it.
+        if (!app.seb3thehacker.gearslip.audio.AudioCaptureService.running) {
+            app.seb3thehacker.gearslip.audio.ScreenShareGuard.restore(this)
+        }
         Prefetch.warm(this)
         CarEnvironment.setPhoneTheme(resources.configuration)
 

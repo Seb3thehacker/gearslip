@@ -42,6 +42,7 @@ object SessionReport {
     @Volatile private var headUnit = ""
     @Volatile private var profile = ""
     @Volatile private var video = ""
+    @Volatile private var audio = ""
     @Volatile private var lastStream = ""
     @Volatile private var lastState = ""
     private var printed = false
@@ -68,6 +69,7 @@ object SessionReport {
     fun headUnit(info: String) { headUnit = info }
     fun profile(name: String?) { profile = name ?: "none matched" }
     fun video(summary: String) { video = summary }
+    fun audio(summary: String) { audio = summary }
     fun stream(summary: String) { lastStream = summary }
 
     /** Records the first failure only: later ones are usually fallout from it. */
@@ -107,6 +109,7 @@ object SessionReport {
             append(row("auth status", authStatus?.let { "$it (${authName(it)})" } ?: ""))
             append("\n")
             append(row("video", video))
+            append(row("audio", audio))
             append(row("last stream stat", lastStream))
             append("=".repeat(60))
         }

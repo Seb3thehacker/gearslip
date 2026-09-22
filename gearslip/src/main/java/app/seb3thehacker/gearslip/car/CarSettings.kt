@@ -33,7 +33,7 @@ object CarSettings {
     private val scaleFlow = MutableStateFlow(1f)
     private val openFlow = MutableStateFlow(HOME)
     private val nightFlow = MutableStateFlow(NightMode.AUTO)
-    private val pipeAudioFlow = MutableStateFlow(false)
+    private val pipeAudioFlow = MutableStateFlow(true)
     private val lastNavFlow = MutableStateFlow<String?>(null)
     private val lastMediaFlow = MutableStateFlow<String?>(null)
     private val autoplayFlow = MutableStateFlow(false)
@@ -52,9 +52,10 @@ object CarSettings {
     val nightMode: StateFlow<NightMode> = nightFlow
 
     /**
-     * Whether a media app's sound is captured and sent over the car link. Off by default: the
-     * platform only allows that behind a screen-capture consent dialog, and without it the app
-     * simply plays through the phone's normal output (e.g. Bluetooth to the car).
+     * Whether a media app's sound is captured and sent over the car link. On by default, since
+     * sound in the car is the point of the exercise; the platform allows the capture only behind a
+     * consent dialog, which [app.seb3thehacker.gearslip.audio.CarAudio] raises once the car has
+     * somewhere to play it. Turned off, the app plays through the phone's normal output instead.
      */
     val pipeAudio: StateFlow<Boolean> = pipeAudioFlow
 
@@ -68,7 +69,7 @@ object CarSettings {
             AppTheme.valueOf(AppSettings.getString(app, KEY_THEME, AppTheme.PHONE.name))
         }.getOrDefault(AppTheme.PHONE)
         autoplayFlow.value = AppSettings.getString(app, KEY_AUTOPLAY, "false") == "true"
-        pipeAudioFlow.value = AppSettings.getString(app, KEY_PIPE_AUDIO, "false") == "true"
+        pipeAudioFlow.value = AppSettings.getString(app, KEY_PIPE_AUDIO, "true") == "true"
         nightFlow.value = runCatching {
             NightMode.valueOf(AppSettings.getString(app, KEY_NIGHT, NightMode.AUTO.name))
         }.getOrDefault(NightMode.AUTO)

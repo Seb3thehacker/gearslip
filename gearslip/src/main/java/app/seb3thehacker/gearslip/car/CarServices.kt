@@ -62,11 +62,12 @@ object CarServices {
         val live = phase == CarMedia.Phase.READY || phase == CarMedia.Phase.CONNECTING
         if (_mediaApp.value?.component == app.component && live) return
 
-        CarAudio.release()
         _mediaApp.value = app
         autoplayPending = autoplay
         media.connect(app)
-        if (CarSettings.pipeAudio.value) CarAudio.request(app.uid)
+        // Not torn down and rebuilt per app: the capture covers whatever the phone plays, so
+        // switching media apps never costs the driver another consent dialog.
+        if (CarSettings.pipeAudio.value) CarAudio.request()
     }
 
     /** Called once the media app is connected: starts playback if that was asked for. */

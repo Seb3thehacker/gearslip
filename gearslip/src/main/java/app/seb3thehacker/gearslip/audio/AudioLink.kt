@@ -27,10 +27,16 @@ class AudioLink(
     private var configIndex = 0
     @Volatile private var ready = false
     @Volatile private var started = false
+    @Volatile private var focusGranted = false
+    @Volatile private var focusRequested = false
     @Volatile private var inFlight = 0
-    @Volatile private var maxUnacked = 8
+    // The Uconnect asks for 4 on its video channel; assume the same until its Config says otherwise.
+    @Volatile private var maxUnacked = 4
     @Volatile private var lastAckAt = 0L
     private var chunks = 0
+    private var bytes = 0L
+    private var dropped = 0
+    @Volatile private var configTimer: Thread? = null
 
     private val config get() = service.configs.getOrNull(configIndex) ?: service.configs.firstOrNull()
     override val sampleRate get() = config?.sampleRate ?: 48_000
@@ -39,12 +45,47 @@ class AudioLink(
     val channelId get() = service.serviceId
 
     fun opened(status: Int) {
+        GearslipLog.i("audio: <- ChannelOpenResponse (media audio): status=$status")
         if (status != 0) {
             GearslipLog.w("audio: the head unit refused the media audio channel (status $status)")
             return
         }
-        sendOnChannel(MSG_SETUP, Protobuf.varintField(1, service.codecType.toLong()))
-        GearslipLog.i("audio: -> Setup(codec=${service.codecName})")
+        // AVChannelSetupRequest { required uint32 config_index = 1 }. This field is an index into
+        // the sink's own audio_configs, not a codec id - sending the codec type asks for a config
+        // the sink does not have, and it answers with a status that never reaches READY.
+        sendOnChannel(MSG_SETUP, Protobuf.varintField(1, 0L))
+        GearslipLog.i("audio: -> Setup(config_index=0) on channel ${service.serviceId}, codec ${service.codecName}")
+        armConfigFallback()
+    }
+
+    /**
+     * The 2018 Uconnect answers our Setup with a two-byte message we cannot identify (id 255, no
+     * body) rather than the AVChannelSetupResponse the video channel gets, so the sink never
+     * reaches READY and no audio is ever sent.
+     *
+     * Service discovery already told us everything that message would have: the sink is PCM at
+     * 48000Hz stereo and it has exactly one configuration. So rather than wait forever for a
+     * message that is not coming, assume the advertised configuration and carry on. If that guess
+     * is wrong the head unit simply will not ack, which the write path already reports.
+     */
+    private fun armConfigFallback() {
+        val timer = Thread({
+            try {
+                Thread.sleep(CONFIG_WAIT_MS)
+            } catch (e: InterruptedException) {
+                return@Thread
+            }
+            if (ready) return@Thread
+            GearslipLog.w(
+                "audio: no usable Config after ${CONFIG_WAIT_MS}ms - falling back to the sink the " +
+                    "head unit advertised (${sampleRate}Hz x$channels, config_index=0, max_unacked=$maxUnacked)",
+            )
+            configIndex = 0
+            ready = true
+            CarAudio.attach(this)
+        }, "gearslip-audio-config").apply { isDaemon = true }
+        configTimer = timer
+        timer.start()
     }
 
     fun onMessage(messageId: Int, body: ByteArray) {
@@ -60,9 +101,15 @@ class AudioLink(
                 if (window != null) maxUnacked = maxOf(1, window)
                 configIndex = indices.firstOrNull() ?: 0
                 if (status == STATUS_READY) {
+                    configTimer?.interrupt()
                     ready = true
-                    GearslipLog.i("audio: ready - ${sampleRate}Hz x$channels ${config?.bits}bit")
+                    GearslipLog.i("audio: sink ready - ${sampleRate}Hz x$channels ${config?.bits}bit")
                     CarAudio.attach(this)
+                } else {
+                    GearslipLog.w(
+                        "audio: the sink is not ready (status=$status, 1=WAIT 2=READY) - " +
+                            "nothing will be sent until it is",
+                    )
                 }
             }
 
@@ -72,17 +119,40 @@ class AudioLink(
                 lastAckAt = System.currentTimeMillis()
             }
 
-            else -> GearslipLog.i("audio: <- unhandled message id=$messageId (${body.size} bytes)")
+            // Whatever the head unit answers Setup with, we need its bytes to identify it.
+            else -> {
+                GearslipLog.i("audio: <- unhandled message id=$messageId (${body.size} bytes)")
+                GearslipLog.hex("   audio msg", body, limit = 64)
+            }
         }
     }
 
+    /**
+     * The head unit's answer to our AudioFocusRequest. Until it grants focus the sink is wired to
+     * whatever else the car is playing - the radio, usually - and anything we send is discarded,
+     * so [start] waits here rather than streaming into nothing.
+     */
     fun onFocus(state: Int) {
-        GearslipLog.i("audio: <- AudioFocus state=$state (1=GAIN, 2=GAIN_TRANSIENT, 3=LOSS, 4=LOSS_TRANSIENT)")
+        val name = FOCUS_STATES[state] ?: "unknown($state)"
+        GearslipLog.i("audio: <- AudioFocusResponse state=$name")
+        focusGranted = state == FOCUS_STATE_GAIN || state == FOCUS_STATE_GAIN_TRANSIENT
+        if (focusGranted) startStream() else stop()
     }
 
     override fun start() {
         if (!ready || started) return
-        sendControl(MSG_FOCUS_REQUEST, Protobuf.varintField(1, FOCUS_GAIN.toLong()))
+        if (!focusRequested) {
+            focusRequested = true
+            sendControl(MSG_FOCUS_REQUEST, Protobuf.varintField(1, FOCUS_GAIN.toLong()))
+            GearslipLog.i("audio: -> AudioFocusRequest(GAIN); waiting for the head unit to hand the sink over")
+        }
+        // Some head units grant the sink silently and never answer. Do not let that be the end of
+        // it: start anyway, and let the acks say whether anything is being taken.
+        startStream()
+    }
+
+    private fun startStream() {
+        if (!ready || started) return
         sendOnChannel(
             MSG_START,
             Protobuf.varintField(1, SESSION_ID.toLong()) + Protobuf.varintField(2, configIndex.toLong()),
@@ -90,7 +160,7 @@ class AudioLink(
         inFlight = 0
         lastAckAt = System.currentTimeMillis()
         started = true
-        GearslipLog.i("audio: -> AudioFocusRequest(GAIN), Start(config=$configIndex)")
+        GearslipLog.i("audio: -> Start(session=$SESSION_ID, config=$configIndex) - streaming ${sampleRate}Hz x$channels")
     }
 
     override fun stop() {
@@ -98,17 +168,26 @@ class AudioLink(
         started = false
         runCatching {
             sendOnChannel(MSG_STOP, Protobuf.varintField(1, SESSION_ID.toLong()))
-            sendControl(MSG_FOCUS_REQUEST, Protobuf.varintField(1, FOCUS_RELEASE.toLong()))
+            if (focusRequested) sendControl(MSG_FOCUS_REQUEST, Protobuf.varintField(1, FOCUS_RELEASE.toLong()))
         }
-        GearslipLog.i("audio: -> Stop, AudioFocusRequest(RELEASE) after $chunks chunks")
+        focusRequested = false
+        focusGranted = false
+        GearslipLog.i("audio: -> Stop, AudioFocusRequest(RELEASE) after $chunks chunks / $bytes bytes")
         chunks = 0
+        bytes = 0
     }
 
     override fun write(pcm: ByteArray, size: Int) {
         if (!started) return
         if (inFlight >= maxUnacked) {
             // A lost ack must not silence the stream for good; after a stall assume the window cleared.
-            if (System.currentTimeMillis() - lastAckAt > STALL_MS) inFlight = 0 else return
+            if (System.currentTimeMillis() - lastAckAt > STALL_MS) {
+                GearslipLog.w("audio: no ack for ${STALL_MS}ms with $inFlight in flight - reopening the window")
+                inFlight = 0
+            } else {
+                dropped++
+                return
+            }
         }
         val timestamp = ByteArray(8)
         val micros = System.nanoTime() / 1_000
@@ -116,14 +195,26 @@ class AudioLink(
         try {
             sendOnChannel(MSG_DATA, timestamp + pcm.copyOf(size))
         } catch (e: java.io.IOException) {
+            GearslipLog.e("audio: the link died mid-stream", e)
             started = false
             return
         }
         inFlight++
         chunks++
+        bytes += size
+        // The first chunk proves the whole path; after that, an occasional line is enough to show
+        // the car is still taking audio and to catch a window that has quietly closed.
+        if (chunks == 1 || chunks % CHUNK_LOG_EVERY == 0) {
+            GearslipLog.i(
+                "audio: -> $chunks chunks / $bytes bytes, inFlight=$inFlight/$maxUnacked, " +
+                    "dropped=$dropped, focus=${if (focusGranted) "granted" else "not granted"}",
+            )
+        }
     }
 
     fun close() {
+        configTimer?.interrupt()
+        configTimer = null
         stop()
         ready = false
         CarAudio.detach(this)
@@ -142,7 +233,15 @@ class AudioLink(
         private const val STATUS_READY = 2
         private const val FOCUS_GAIN = 1
         private const val FOCUS_RELEASE = 4
+        private const val FOCUS_STATE_GAIN = 1
+        private const val FOCUS_STATE_GAIN_TRANSIENT = 2
         private const val SESSION_ID = 2
         private const val STALL_MS = 2_000L
+        private const val CHUNK_LOG_EVERY = 200 // about every four seconds
+        private const val CONFIG_WAIT_MS = 2_500L
+
+        private val FOCUS_STATES = mapOf(
+            1 to "GAIN", 2 to "GAIN_TRANSIENT", 3 to "LOSS", 4 to "LOSS_TRANSIENT",
+        )
     }
 }

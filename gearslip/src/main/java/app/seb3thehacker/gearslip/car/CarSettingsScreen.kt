@@ -98,9 +98,10 @@ fun CarSettingsScreen() {
             pipeAudio,
         ) { CarSettings.setPipeAudio(it) }
         Text(
-            "Phone output needs no permission: the app plays as it normally would, e.g. over " +
-                "Bluetooth to the car. Through Gearslip sends the sound over the car link, and " +
-                "Android asks for screen-capture consent each time.",
+            "Through Gearslip sends the sound over the USB link. Android asks for consent the " +
+                "first time a media app plays in the car, and some apps refuse to be captured at " +
+                "all. Phone output needs no permission: the app plays as it normally would, for " +
+                "example over Bluetooth to the car.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
