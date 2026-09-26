@@ -4,12 +4,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -82,24 +84,52 @@ import app.seb3thehacker.gearslip.host.text
 /**
  * The app keeps drawing its map across the whole surface - the visible area we report tells it
  * where to put its own markers, not where to stop painting. So anything the host lays over the
- * map is opaque by default, or the map reads through it.
+ * map is opaque, always, in the same one colour: a card that lets the map show through in places
+ * reads as broken glass, not as a deliberate choice, and a driver has no way to tell which was
+ * meant. There is no alpha knob here on purpose - every card, bar and strip in the template
+ * chrome shares this surface, so nothing drawn over a map is ever see-through.
  */
 @Composable
 internal fun ChromeSurface(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(16.dp),
-    alpha: Float = 1f,
     shadowElevation: androidx.compose.ui.unit.Dp = 0.dp,
     content: @Composable () -> Unit,
 ) {
     Surface(
         shadowElevation = shadowElevation,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = alpha),
+        color = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = shape,
         modifier = modifier,
         content = content,
     )
+}
+
+/**
+ * The one type scale for everything a templated app's screen draws. Apps hand the host plain
+ * strings with no size of their own - the Car App Library deliberately keeps that decision out of
+ * their hands - so without a shared scale, each template's text ends up whatever size felt right
+ * when that template was written, and two apps' otherwise-identical rows read as different sizes
+ * of importance. Every car chrome file should reach for one of these four rather than naming a
+ * Material size directly.
+ */
+internal object ChromeType {
+    /** The one number or word a card exists to show: distance to a turn, minutes left, a PIN. */
+    val headline: androidx.compose.ui.text.TextStyle
+        @Composable get() = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
+
+    /** A row's name, a header, a manoeuvre's instruction - the line the rest is supporting. */
+    val title: androidx.compose.ui.text.TextStyle
+        @Composable get() = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
+
+    /** Supporting detail: a road, an address, a message's body, a second line under a title. */
+    val body: androidx.compose.ui.text.TextStyle
+        @Composable get() = MaterialTheme.typography.titleMedium
+
+    /** The smallest text Gearslip draws over a map - still large enough to read while moving. */
+    val label: androidx.compose.ui.text.TextStyle
+        @Composable get() = MaterialTheme.typography.bodyLarge
 }
 
 @Composable
@@ -109,7 +139,7 @@ internal fun UnsupportedChrome(template: Template, modifier: Modifier = Modifier
             Text(
                 "${template.javaClass.simpleName} isn't drawn yet",
                 Modifier.padding(16.dp),
-                style = MaterialTheme.typography.titleMedium,
+                style = ChromeType.title,
             )
         }
     }
@@ -142,8 +172,7 @@ internal fun HeaderBar(
         startAction?.takeIf { it.isDrawable() }?.let { ActionButton(it) }
         Text(
             title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
+            style = ChromeType.title,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -285,12 +314,7 @@ internal fun ActionButton(action: Action, large: Boolean = false, modifier: Modi
                 contentAlignment = Alignment.Center,
             ) {
                 if (hasGlyph) CarGlyph(action.icon, Modifier.size(30.dp).align(Alignment.CenterStart), standardFor(action))
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                )
+                Text(title, style = ChromeType.title, maxLines = 1)
             }
         } else if (title.isEmpty()) {
             // Every icon-only button - back, settings, the map's zoom and locate - is the same size.
@@ -304,11 +328,81 @@ internal fun ActionButton(action: Action, large: Boolean = false, modifier: Modi
             ) {
                 if (hasGlyph) CarGlyph(action.icon, Modifier.size(24.dp), standardFor(action))
                 if (hasGlyph) Spacer(Modifier.width(8.dp))
-                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Text(title, style = ChromeType.body, maxLines = 1)
             }
         }
     }
 }
+
+/**
+ * A large action that fires on its own after five seconds, filling to show the countdown - for
+ * the one button on a map-preview pane, where the app is proposing a single place or route and a
+ * driver glancing at the car screen has already decided. Tapping it, same as any other button,
+ * fires it at once; the fill is only ever a preview of what a touch already does.
+ */
+@Composable
+internal fun AutoStartButton(action: Action, modifier: Modifier = Modifier) {
+    var fraction by remember(action.identity()) { mutableStateOf(0f) }
+    var fired by remember(action.identity()) { mutableStateOf(false) }
+    fun fire() {
+        if (fired) return
+        fired = true
+        action.onClickDelegate.click("auto-start")
+    }
+    androidx.compose.runtime.LaunchedEffect(action.identity()) {
+        val steps = 60
+        repeat(steps) { step ->
+            kotlinx.coroutines.delay(AUTO_START_MS / steps)
+            fraction = (step + 1) / steps.toFloat()
+        }
+        fire()
+    }
+
+    val dark = MaterialTheme.colorScheme.surface.luminanceIsDark()
+    val custom = action.backgroundColor?.type?.let { it != androidx.car.app.model.CarColor.TYPE_DEFAULT } == true
+    val background = action.backgroundColor.color(dark, MaterialTheme.colorScheme.primary)
+    val content = if (custom) Color.White else MaterialTheme.colorScheme.onPrimary
+    val hasGlyph = action.icon != null
+
+    Surface(
+        // An unfilled track, solid, not the button's own colour dimmed with alpha - so the map
+        // behind never shows through however much of the five seconds is left.
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = content,
+        shape = RoundedCornerShape(28.dp),
+        modifier = modifier.fillMaxWidth().clickable(enabled = action.isEnabled) { fire() },
+    ) {
+        androidx.compose.foundation.layout.Box {
+            // The countdown itself: a plain fill sweeping left to right underneath the label.
+            // matchParentSize(), not fillMaxHeight() - this Box sits beside a label Box that
+            // wraps its own content, and the outer Box sizes itself to its tallest child; a
+            // plain fillMaxHeight() here has nothing bounded to fill up to but the whole screen,
+            // which is what was stretching the whole button that tall. matchParentSize() instead
+            // takes whatever size the label ends up being, without itself voting on what that is.
+            androidx.compose.foundation.layout.Box(Modifier.matchParentSize()) {
+                androidx.compose.foundation.layout.Box(
+                    Modifier
+                        .fillMaxWidth(fraction)
+                        .fillMaxHeight()
+                        .background(background),
+                )
+            }
+            androidx.compose.foundation.layout.Box(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (hasGlyph) CarGlyph(action.icon, Modifier.size(24.dp).align(Alignment.CenterStart))
+                Text(
+                    action.title.text().ifEmpty { "Start" },
+                    style = ChromeType.title,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+private const val AUTO_START_MS = 5_000L
 
 /** The connected app's own launcher icon, which is what the app-icon action stands for. */
 @Composable
@@ -376,8 +470,7 @@ internal fun PaneTitle(title: String) {
     if (title.isEmpty()) return
     Text(
         title,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
+        style = ChromeType.title,
         modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
     )
 }
@@ -394,7 +487,7 @@ internal fun ItemListColumn(
     }
     if (rows.isEmpty()) {
         val message = single?.noItemsMessage.text()
-        if (message.isNotEmpty()) Text(message, Modifier.padding(14.dp))
+        if (message.isNotEmpty()) Text(message, Modifier.padding(14.dp), style = ChromeType.body)
         return
     }
     // A list the app made selectable is a single-choice list: one option chosen, shown as a radio.
@@ -430,7 +523,7 @@ internal fun GridItems(list: ItemList?, modifier: Modifier = Modifier) {
                 Spacer(Modifier.height(6.dp))
                 Text(
                     item.title.text(),
-                    style = MaterialTheme.typography.labelLarge,
+                    style = ChromeType.label,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -438,7 +531,7 @@ internal fun GridItems(list: ItemList?, modifier: Modifier = Modifier) {
                 if (subtitle.isNotEmpty()) {
                     Text(
                         subtitle,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = ChromeType.label,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -449,17 +542,24 @@ internal fun GridItems(list: ItemList?, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * [autoStart] is for a pane floating over a map - a place or a route the app is proposing - where
+ * a single action counts itself down rather than waiting to be pressed, on the theory that a
+ * driver glancing at the car screen has already decided. It never applies to more than one
+ * action: a pane offering a real choice (Start vs. something else) always waits to be tapped.
+ */
 @Composable
-internal fun PaneRows(pane: Pane?, modifier: Modifier = Modifier) {
+internal fun PaneRows(pane: Pane?, modifier: Modifier = Modifier, autoStart: Boolean = false) {
     // Some apps pad a pane with a row of blank strings; drawn, it is just a gap.
     val rows = pane?.rows.orEmpty().filterNot { it.isBlank() }
+    val actions = pane?.actions.orEmpty().filter { it.isDrawable() }
     Column(modifier) {
         rows.forEach { RowItem(it, large = true) }
-        ActionRow(
-            pane?.actions.orEmpty(),
-            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            large = true,
-        )
+        if (autoStart && actions.size == 1) {
+            AutoStartButton(actions.single(), Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+        } else {
+            ActionRow(actions, Modifier.padding(horizontal = 14.dp, vertical = 10.dp), large = true)
+        }
     }
 }
 
@@ -496,18 +596,20 @@ internal fun RowItem(row: CarRow, selection: RowSelection? = null, large: Boolea
             CarGlyph(it, Modifier.size(28.dp))
             Spacer(Modifier.width(12.dp))
         }
+        // large only changes how much room a row gets (more lines, a bigger icon above) - the
+        // type itself is the same scale as every other row, so a pane's one row and a plain
+        // list's tenth row read as the same kind of text.
         Column(Modifier.weight(1f)) {
             Text(
                 row.title.text(),
-                style = if (large) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyLarge,
-                fontWeight = if (large) FontWeight.SemiBold else null,
+                style = ChromeType.title,
                 maxLines = if (large) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
             )
             row.texts.orEmpty().take(if (large) 3 else 2).forEach { line ->
                 Text(
                     line.text(),
-                    style = if (large) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+                    style = ChromeType.body,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = if (large) 2 else 1,
                     overflow = TextOverflow.Ellipsis,

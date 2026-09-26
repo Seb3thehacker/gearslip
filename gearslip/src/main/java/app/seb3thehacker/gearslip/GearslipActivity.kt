@@ -104,6 +104,19 @@ class GearslipActivity : ComponentActivity(), Projection {
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
     ) { granted -> if (granted) Prefetch.warm(this, force = true) }
 
+    /**
+     * Caller name, incoming number and call state; declined just means no phone card on the car
+     * screen. Asked for up front, like location and the calendar, so nothing prompts mid-drive.
+     */
+    private val callPermissions = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted -> if (granted.values.any { it }) app.seb3thehacker.gearslip.call.CarCalls.start(this) }
+
+    /** Setting Gearslip as the phone's caller ID and spam app - what lets it decline a ringing call. */
+    private val callScreeningRole = registerForActivityResult(StartActivityForResult()) { result ->
+        if (result.resultCode != RESULT_OK) GearslipLog.w("calls: call screening role declined")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
@@ -120,6 +133,15 @@ class GearslipActivity : ComponentActivity(), Projection {
             checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+        val callPerms = arrayOf(
+            android.Manifest.permission.READ_PHONE_STATE,
+            android.Manifest.permission.READ_CALL_LOG,
+            android.Manifest.permission.READ_CONTACTS,
+            android.Manifest.permission.ANSWER_PHONE_CALLS,
+        )
+        if (callPerms.any { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
+            callPermissions.launch(callPerms)
+        }
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
@@ -137,7 +159,7 @@ class GearslipActivity : ComponentActivity(), Projection {
 
         setContent {
             GearslipTheme {
-                GearslipApp(onDisconnect = ::closeAccessory)
+                GearslipApp(onDisconnect = ::closeAccessory, onRequestCallScreening = ::requestCallScreeningRole)
             }
         }
 
@@ -179,6 +201,19 @@ class GearslipActivity : ComponentActivity(), Projection {
         PhoneMirror.requestStop()
         closeAccessory()
         GearslipLog.flush()
+    }
+
+    /** Launches the system dialog that offers Gearslip the call-screening role, if it isn't held already. */
+    private fun requestCallScreeningRole() {
+        val roleManager = getSystemService(android.app.role.RoleManager::class.java)
+        if (roleManager == null || !roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_CALL_SCREENING)) {
+            GearslipLog.w("calls: call screening role unavailable on this phone")
+            return
+        }
+        if (roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_CALL_SCREENING)) return
+        runCatching {
+            callScreeningRole.launch(roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_CALL_SCREENING))
+        }.onFailure { GearslipLog.e("could not ask for the call screening role", it) }
     }
 
     // --- Media audio --------------------------------------------------------------------

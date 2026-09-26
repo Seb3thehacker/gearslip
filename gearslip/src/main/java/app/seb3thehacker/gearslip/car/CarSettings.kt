@@ -24,6 +24,11 @@ object CarSettings {
     private const val KEY_LAST_MEDIA = "car_last_media"
     private const val KEY_AUTOPLAY = "car_autoplay"
     private const val KEY_THEME = "car_app_theme"
+    private const val KEY_PINNED = "car_pinned_apps"
+
+    /** How many shortcuts the nav bar makes room for; a driver reaching for one needs it to
+     * still be on the bar, not off the edge of a long list. */
+    const val MAX_PINNED = 3
 
     /** Id of the app to open on connect; [HOME] opens the launcher. */
     const val HOME = "home"
@@ -39,6 +44,10 @@ object CarSettings {
     private val autoplayFlow = MutableStateFlow(false)
     private val themeFlow = MutableStateFlow(AppTheme.PHONE)
     val appTheme: StateFlow<AppTheme> = themeFlow
+    private val pinnedFlow = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Flattened component names of the apps long-pressed onto the nav bar as shortcuts. */
+    val pinnedApps: StateFlow<Set<String>> = pinnedFlow
 
     /** Flattened component names of the map and media apps used last, brought back on connect. */
     val lastNav: StateFlow<String?> = lastNavFlow
@@ -73,6 +82,8 @@ object CarSettings {
         nightFlow.value = runCatching {
             NightMode.valueOf(AppSettings.getString(app, KEY_NIGHT, NightMode.AUTO.name))
         }.getOrDefault(NightMode.AUTO)
+        pinnedFlow.value = AppSettings.getString(app, KEY_PINNED, "")
+            .split(",").filter { it.isNotEmpty() }.toSet()
     }
 
     fun setScale(value: Float) {
@@ -114,5 +125,18 @@ object CarSettings {
         nightFlow.value = mode
         AppSettings.putString(app, KEY_NIGHT, mode.name)
         CarEnvironment.refresh()
+    }
+
+    /** Long-pressed onto or off the nav bar. Silently does nothing past [MAX_PINNED] rather than
+     * bumping the oldest pin - a driver who filled the bar on purpose shouldn't lose one by accident. */
+    fun togglePin(component: String) {
+        val current = pinnedFlow.value
+        val next = when {
+            component in current -> current - component
+            current.size >= MAX_PINNED -> return
+            else -> current + component
+        }
+        pinnedFlow.value = next
+        AppSettings.putString(app, KEY_PINNED, next.joinToString(","))
     }
 }

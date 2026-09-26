@@ -91,6 +91,17 @@ fun remainingTime(seconds: Long): String {
     return if (hours > 0) "$hours hr $minutes min" else "$minutes min"
 }
 
+/** "1:10 AM" - the clock at the destination, not the phone's own, in case a route crosses a zone. */
+fun androidx.car.app.model.DateTimeWithZone?.clockTime(): String {
+    val at = this ?: return ""
+    val shifted = java.util.Date(at.timeSinceEpochMillis + at.zoneOffsetSeconds * 1000L)
+    return runCatching {
+        java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }.format(shifted)
+    }.getOrDefault("")
+}
+
 /**
  * Tells the app something was tapped.
  *

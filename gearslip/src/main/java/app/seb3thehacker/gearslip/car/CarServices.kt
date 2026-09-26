@@ -39,6 +39,7 @@ object CarServices {
     fun init(appContext: Context) {
         context = appContext.applicationContext
         app.seb3thehacker.gearslip.notify.CarMotion.start(appContext)
+        app.seb3thehacker.gearslip.call.CarCalls.start(appContext)
     }
 
     // --- map -----------------------------------------------------------------------------
@@ -52,6 +53,12 @@ object CarServices {
     fun stopNav() {
         navStopped = true
         nav.disconnect()
+    }
+
+    /** Undoes [stopNav]'s hold so the last map app comes back, same as it would after a restart. */
+    suspend fun reconnectNav(frame: CarEnvironment.Frame) {
+        navStopped = false
+        autostart(frame)
     }
 
     // --- media ---------------------------------------------------------------------------
@@ -105,6 +112,7 @@ object CarServices {
     /** The car went away: nothing should keep running for a screen that no longer exists. */
     fun shutdown() {
         context?.let { app.seb3thehacker.gearslip.notify.CarMotion.stop(it) }
+        app.seb3thehacker.gearslip.call.CarCalls.stop()
         runCatching { nav.disconnect() }
         runCatching { media.disconnect() }
         CarAudio.release()

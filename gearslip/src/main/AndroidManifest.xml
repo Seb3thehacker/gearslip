@@ -40,6 +40,18 @@
         tools:ignore="ProtectedPermissions" />
 
     <!--
+        Phone calls on the car screen. READ_PHONE_STATE and READ_CALL_LOG together are what a
+        call's own state (ringing, in progress) and the incoming number need; READ_CONTACTS
+        turns that number into a name; ANSWER_PHONE_CALLS lets the driver pick up from here.
+        Declining a call, and the caller ID itself, need Gearslip set as the phone's caller ID
+        and spam app too - an on-device consent, not a permission declared here.
+    -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+
+    <!--
       Declared, not just requested. Templated apps decide whether to talk to a host by asking
       whether it holds this permission (HostValidator.isValidHost checks it before falling back
       to a signature allow-list containing Android Auto's). It is defined by the car framework
@@ -156,6 +168,22 @@
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!--
+          Sees incoming calls before they ring, so the car screen can show the caller and
+          decline it. Inert until the driver sets Gearslip as the phone's caller ID and spam
+          app, under Settings > Apps > Default apps - the same consent a call-blocking app asks
+          for, not a privileged one.
+        -->
+        <service
+            android:name=".call.GearslipCallScreening"
+            android:exported="true"
+            android:label="Gearslip calls"
+            android:permission="android.permission.BIND_SCREENING_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
             </intent-filter>
         </service>
     </application>

@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.car.app.model.GridTemplate
@@ -51,6 +52,7 @@ import androidx.car.app.media.model.MediaPlaybackTemplate
 import androidx.car.app.OnDoneCallback
 import androidx.car.app.serialization.Bundleable
 import app.seb3thehacker.gearslip.GearslipLog
+import app.seb3thehacker.gearslip.host.isDrawable
 import app.seb3thehacker.gearslip.host.inputChanged
 import app.seb3thehacker.gearslip.host.inputSubmitted
 import app.seb3thehacker.gearslip.host.submitted
@@ -65,12 +67,12 @@ import app.seb3thehacker.gearslip.host.textChanged
  * the same function either way - the only difference is how much room they get.
  */
 @Composable
-fun ContentTemplate(template: Template?, modifier: Modifier = Modifier) {
+fun ContentTemplate(template: Template?, modifier: Modifier = Modifier, autoStartPane: Boolean = false) {
     when (template) {
         null -> Unit
         is ListTemplate -> ListContent(template, modifier)
         is GridTemplate -> GridContent(template, modifier)
-        is PaneTemplate -> PaneContent(template, modifier)
+        is PaneTemplate -> PaneContent(template, modifier, autoStartPane)
         is MessageTemplate -> MessageContent(template, modifier)
         is LongMessageTemplate -> LongMessageContent(template, modifier)
         is SearchTemplate -> SearchContent(template, modifier)
@@ -126,7 +128,7 @@ private fun GridContent(template: GridTemplate, modifier: Modifier) {
 }
 
 @Composable
-private fun PaneContent(template: PaneTemplate, modifier: Modifier) {
+private fun PaneContent(template: PaneTemplate, modifier: Modifier, autoStart: Boolean = false) {
     ContentSurface(modifier) {
         HeaderBar(
             headerTitle(template.header, template.title.text()),
@@ -134,7 +136,7 @@ private fun PaneContent(template: PaneTemplate, modifier: Modifier) {
             template.header?.endHeaderActions.orEmpty(),
             template.actionStrip,
         )
-        if (template.pane?.isLoading == true) Loading() else PaneRows(template.pane)
+        if (template.pane?.isLoading == true) Loading() else PaneRows(template.pane, autoStart = autoStart)
     }
 }
 
@@ -143,27 +145,45 @@ private fun PaneContent(template: PaneTemplate, modifier: Modifier) {
 @Composable
 private fun MessageContent(template: MessageTemplate, modifier: Modifier) {
     ContentSurface(modifier) {
-        HeaderBar(
-            headerTitle(template.header, template.title.text()),
-            template.header?.startHeaderAction ?: template.headerAction,
-            template.header?.endHeaderActions.orEmpty(),
-            template.actionStrip,
-        )
+        // The header carries only the back arrow, not a title - a message template's own title
+        // is usually the long-form question ("Would you like to download the map...") that
+        // reads fine centred in the body but doesn't fit a one-line header without truncating.
+        val backAction = template.header?.startHeaderAction ?: template.headerAction
+        HeaderBar("", backAction, template.header?.endHeaderActions.orEmpty(), template.actionStrip)
         if (template.isLoading) {
             Loading()
             return@ContentSurface
         }
-        Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // A back arrow already undoes this screen, so an app's own "Cancel" button would just
+        // be a second way to do the one thing the header already offers.
+        val actions = template.actions.orEmpty().filter { it.isDrawable() }.let { list ->
+            if (backAction != null) list.filterNot { it.title.text().equals("Cancel", ignoreCase = true) } else list
+        }
+        Column(
+            Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             template.icon?.let {
-                CarGlyph(it, Modifier.size(32.dp))
-                Spacer(Modifier.width(12.dp))
+                CarGlyph(it, Modifier.size(40.dp))
+                Spacer(Modifier.height(12.dp))
             }
-            Text(template.message.text(), style = MaterialTheme.typography.bodyLarge)
+            Text(template.title.text(), style = ChromeType.title, textAlign = TextAlign.Center)
+            val detail = template.message.text()
+            if (detail.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    detail,
+                    style = ChromeType.body,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (actions.isNotEmpty()) {
+                Spacer(Modifier.height(24.dp))
+                ActionRow(actions, Modifier.fillMaxWidth(0.6f), large = true)
+            }
         }
-        ActionRow(template.actions.orEmpty(), Modifier.padding(16.dp))
     }
 }
 
@@ -181,7 +201,7 @@ private fun LongMessageContent(template: LongMessageTemplate, modifier: Modifier
         )
         Text(
             template.message.text(),
-            style = MaterialTheme.typography.bodyMedium,
+            style = ChromeType.body,
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
@@ -245,7 +265,7 @@ private fun SearchField(query: String, hint: String, modifier: Modifier = Modifi
     ) {
         Text(
             query.ifEmpty { hint.ifEmpty { "Search" } },
-            style = MaterialTheme.typography.titleMedium,
+            style = ChromeType.body,
             color = if (query.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
             else MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
@@ -279,7 +299,7 @@ private fun SignInContent(template: SignInTemplate, modifier: Modifier) {
         if (instructions.isNotEmpty()) {
             Text(
                 instructions,
-                style = MaterialTheme.typography.bodyLarge,
+                style = ChromeType.body,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             )
         }
@@ -298,7 +318,7 @@ private fun SignInContent(template: SignInTemplate, modifier: Modifier) {
         if (additional.isNotEmpty()) {
             Text(
                 additional,
-                style = MaterialTheme.typography.bodySmall,
+                style = ChromeType.label,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
@@ -319,7 +339,7 @@ private fun InputSignIn(method: InputSignInMethod, modifier: Modifier) {
         if (error.isNotEmpty()) {
             Text(
                 error,
-                style = MaterialTheme.typography.bodySmall,
+                style = ChromeType.label,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
@@ -343,8 +363,7 @@ private fun Callout(value: String, modifier: Modifier) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(
             value,
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
+            style = ChromeType.headline,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     }
@@ -385,7 +404,7 @@ private fun TabContent(template: TabTemplate, modifier: Modifier) {
                             CarGlyph(it, Modifier.size(20.dp))
                             Spacer(Modifier.width(6.dp))
                         }
-                        Text(tab.title.text(), style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                        Text(tab.title.text(), style = ChromeType.label, maxLines = 1)
                     }
                 }
             }
@@ -450,7 +469,7 @@ private fun SectionRows(section: Section<*>) {
 
     if (items.isEmpty()) {
         val message = section.noItemsMessage.text()
-        if (message.isNotEmpty()) Text(message, Modifier.padding(14.dp))
+        if (message.isNotEmpty()) Text(message, Modifier.padding(14.dp), style = ChromeType.body)
         return
     }
     items.filterIsInstance<CarRow>().forEach { RowItem(it) }
@@ -474,7 +493,7 @@ private fun MediaPlaybackContent(template: MediaPlaybackTemplate, modifier: Modi
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
                 "Playback controls come from the app's media session,\nwhich Gearslip doesn't carry yet.",
-                style = MaterialTheme.typography.bodyMedium,
+                style = ChromeType.body,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
@@ -496,6 +515,6 @@ private typealias ColumnScopeAlias = androidx.compose.foundation.layout.ColumnSc
 @Composable
 private fun Loading() {
     Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
-        Text("Loading…", style = MaterialTheme.typography.bodyLarge)
+        Text("Loading…", style = ChromeType.title)
     }
 }

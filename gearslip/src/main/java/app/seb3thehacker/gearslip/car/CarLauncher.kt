@@ -1,6 +1,9 @@
 package app.seb3thehacker.gearslip.car
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -60,23 +63,29 @@ private class Tile(
     val glyph: ImageVector? = null,
     /** Tested from start to finish with Gearslip; drawn with a check mark. */
     val verified: Boolean = false,
+    val pinned: Boolean = false,
+    /** Null for the built-in tiles (Web, Screen sharing, Settings) - nothing to pin them as. */
+    val onLongClick: (() -> Unit)? = null,
     val onClick: () -> Unit,
 )
 
 /** A launcher app's data, kept apart from [Tile] so it can be cached without capturing click state. */
-private class Entry(
+internal class Entry(
     val label: String,
     val icon: ImageBitmap?,
     val template: TemplateApp? = null,
     val media: MediaApp? = null,
-)
+) {
+    /** What a pin or a nav-bar shortcut remembers this entry as; null for nothing pinnable. */
+    val componentId: String? get() = (template?.component ?: media?.component)?.flattenToString()
+}
 
 /**
  * The installed car and media apps with their icons. Scanning the package manager and decoding
  * icons is slow, so [Prefetch] does it ahead of time and again at the start of each car session,
  * which is when new installs are picked up.
  */
-private object LauncherCache {
+internal object LauncherCache {
     @Volatile var entries: List<Entry>? = null
 
     /** Returns the scan if there is one; [force] rescans. Synchronized so two callers share one scan. */
@@ -96,6 +105,16 @@ private object LauncherCache {
 /** Rescans the car and media apps now, replacing the cached list; the launcher keeps showing the old one meanwhile. */
 fun warmLauncherApps(context: Context) { LauncherCache.load(context, force = true) }
 
+/**
+ * Connects or opens [entry] - what tapping its tile does, shared with the nav bar's pinned
+ * shortcuts and its open-app icon so there is exactly one place that knows how to launch either
+ * kind of app.
+ */
+internal fun launchEntry(entry: Entry, navigator: CarNavigator, frame: CarEnvironment.Frame) {
+    entry.template?.let { CarServices.connectNav(it, frame); navigator.home() }
+    entry.media?.let { CarServices.openMedia(it); navigator.media() }
+}
+
 /** The app launcher: Web and Screen sharing, every car app the phone has, then Settings, as an icon grid. */
 @Composable
 fun CarLauncher() {
@@ -108,15 +127,20 @@ fun CarLauncher() {
         value = LauncherCache.entries ?: withContext(Dispatchers.IO) { LauncherCache.load(context) }
     }
 
+    val pinned by CarSettings.pinnedApps.collectAsState()
+
     val tiles = listOf(
         Tile("Web", glyph = Icons.Filled.Search) { navigator.open("web") },
         Tile("Screen sharing", glyph = Icons.Filled.Share) { navigator.open("phone") },
     ) + installed.map { entry ->
         val pkg = entry.template?.component?.packageName ?: entry.media?.component?.packageName
-        Tile(entry.label, entry.icon, verified = pkg != null && KnownApps.works(pkg)) {
-            entry.template?.let { CarServices.connectNav(it, frame); navigator.home() }
-            entry.media?.let { CarServices.openMedia(it); navigator.media() }
-        }
+        val id = entry.componentId
+        Tile(
+            entry.label, entry.icon,
+            verified = pkg != null && KnownApps.works(pkg),
+            pinned = id != null && id in pinned,
+            onLongClick = id?.let { { CarSettings.togglePin(it) } },
+        ) { launchEntry(entry, navigator, frame) }
     } + listOf(
         Tile("Settings", glyph = Icons.Filled.Settings) { navigator.settings() },
     )
@@ -164,12 +188,19 @@ private fun VerifiedBadge(size: androidx.compose.ui.unit.Dp, modifier: Modifier 
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppTile(tile: Tile) {
+    val shape = MaterialTheme.shapes.extraLarge
     Surface(
-        onClick = tile.onClick,
-        modifier = Modifier.height(120.dp),
-        shape = MaterialTheme.shapes.extraLarge,
+        modifier = Modifier
+            .height(120.dp)
+            .let { if (tile.pinned) it.border(2.dp, MaterialTheme.colorScheme.primary, shape) else it }
+            // combinedClickable, not Surface's own onClick, so a long press can mean something
+            // different from a tap - pinning is deliberately the same gesture everywhere apps
+            // are shown (here and, once pinned, the shortcut itself on the nav bar).
+            .combinedClickable(onClick = tile.onClick, onLongClick = tile.onLongClick),
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceVariant,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
     ) {

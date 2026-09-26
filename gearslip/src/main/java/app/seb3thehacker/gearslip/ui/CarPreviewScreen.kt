@@ -3,7 +3,7 @@ package app.seb3thehacker.gearslip.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.HardwareBuffer
@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowInsetsCompat
@@ -70,7 +71,9 @@ fun CarPreviewScreen(onBack: () -> Unit) {
     val frame by CarEnvironment.frame.collectAsStateWithLifecycle()
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var viewSize by remember { mutableStateOf(0 to 0) }
-    var fullscreen by remember { mutableStateOf(false) }
+    // Tied to how the phone itself is held, not a button: turn it sideways and the preview goes
+    // fullscreen, turn it back and the phone's own chrome (the Back/title above the frame) returns.
+    val fullscreen = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     val width = frame.width
     val height = frame.height
@@ -149,7 +152,7 @@ fun CarPreviewScreen(onBack: () -> Unit) {
     }
 
     if (fullscreen) {
-        Fullscreen(landscape = width > height, onExit = { fullscreen = false }) {
+        Fullscreen(onBack) {
             // No fillMax here: left to the bounds alone, aspectRatio takes the whole width or the
             // whole height, whichever the car's shape allows, and the rest stays black.
             frameContent(Modifier)
@@ -174,7 +177,6 @@ fun CarPreviewScreen(onBack: () -> Unit) {
 
             Row {
                 TextButton(onClick = onBack) { Text("Back") }
-                TextButton(onClick = { fullscreen = true }) { Text("Fullscreen") }
             }
         }
     }
@@ -184,34 +186,32 @@ fun CarPreviewScreen(onBack: () -> Unit) {
  * Fills the phone screen with [content], centred and letterboxed.
  *
  * A car screen is wider than it is tall, so a portrait phone would waste most of its height on
- * one. While this is showing, the activity is turned to match and the system bars go away - both
- * are undone on the way out, so the rest of the phone UI is unaffected.
+ * one. This only shows once the phone is already turned sideways (the caller drives it off the
+ * phone's own orientation), so there is no rotation left to force here - just the system bars to
+ * hide while it's up and restore on the way out.
  */
 @Composable
 private fun Fullscreen(
-    landscape: Boolean,
-    onExit: () -> Unit,
+    onBack: () -> Unit,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val activity = LocalContext.current.activity()
 
-    DisposableEffect(activity, landscape) {
+    DisposableEffect(activity) {
         if (activity == null) return@DisposableEffect onDispose { }
 
         val insets = WindowInsetsControllerCompat(activity.window, activity.window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
-        val previousOrientation = activity.requestedOrientation
-        if (landscape) activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 
-        onDispose {
-            insets.show(WindowInsetsCompat.Type.systemBars())
-            activity.requestedOrientation = previousOrientation
-        }
+        onDispose { insets.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
-    BackHandler(onBack = onExit)
+    // Turning the phone back upright is what normally leaves fullscreen; back still leaves the
+    // preview screen entirely rather than doing nothing, in case the phone's own rotation lock
+    // is on and turning it sideways/back isn't an option.
+    BackHandler(onBack = onBack)
 
     Box(
         Modifier.fillMaxSize().background(Color.Black),
@@ -222,10 +222,10 @@ private fun Fullscreen(
         // The frame swallows every touch inside it, so leaving needs either the back gesture or
         // a button of its own. This one sits in the corner the car UI leaves emptiest.
         FilledTonalIconButton(
-            onClick = onExit,
+            onClick = onBack,
             modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
         ) {
-            Icon(Icons.Filled.Close, contentDescription = "Leave fullscreen")
+            Icon(Icons.Filled.Close, contentDescription = "Leave the car preview")
         }
     }
 }

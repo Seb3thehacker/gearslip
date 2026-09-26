@@ -181,16 +181,22 @@ class GearslipRunner(
         log.i("<- VersionRequest: head unit speaks $major.$minor")
         SessionReport.protocolVersion(major, minor)
 
-        // Echo the head unit's own version with STATUS_SUCCESS (0). Echoing rather than
-        // asserting 1.6 is the permissive choice: we only need to reach service discovery,
-        // not to honour whatever that version implies.
+        // PROTOCOL-DOWNGRADE EXPERIMENT. The 2018 Uconnect speaks 1.3 and ACCEPTS the JVC cert;
+        // the 2025 unit speaks 4.3 and rejects it at AuthComplete (-3). If the 4.3 identity check
+        // is tied to the *negotiated* protocol version rather than baked into the firmware,
+        // claiming an older version makes the newer unit skip the check entirely. CLAIM_VERSION
+        // = null restores the previous echo-the-head-unit behaviour.
+        val claim = CLAIM_VERSION ?: (major to minor)
         val response = byteArrayOf(
-            ((major shr 8) and 0xFF).toByte(), (major and 0xFF).toByte(),
-            ((minor shr 8) and 0xFF).toByte(), (minor and 0xFF).toByte(),
+            ((claim.first shr 8) and 0xFF).toByte(), (claim.first and 0xFF).toByte(),
+            ((claim.second shr 8) and 0xFF).toByte(), (claim.second and 0xFF).toByte(),
             0, 0, // STATUS_SUCCESS
         )
         send(MSG_VERSION_RESPONSE, response, encrypted = false)
-        log.i("-> VersionResponse: $major.$minor status=0 (STATUS_SUCCESS)")
+        log.i(
+            "-> VersionResponse: ${claim.first}.${claim.second} status=0 (STATUS_SUCCESS)" +
+                if (CLAIM_VERSION != null) " [FORCED; head unit offered $major.$minor]" else "",
+        )
         state = State.TLS_HANDSHAKE
         SessionStatus.connecting("Securing the link")
         log.i("awaiting ClientHello - the head unit is the TLS client, we are the server")
@@ -787,6 +793,13 @@ class GearslipRunner(
     }
 
     private companion object {
+        /**
+         * Force the protocol version Gearslip claims in VersionResponse, as (major, minor), or
+         * null to echo the head unit. 1.3 is what the 2018 Uconnect (which accepts the JVC cert)
+         * speaks. This is the 2025 identity-check downgrade experiment: see onVersionRequest.
+         */
+        val CLAIM_VERSION: Pair<Int, Int>? = 1 to 3
+
         // protobuf/aap_protobuf/service/control/ControlMessageType.proto:7-17
         const val MSG_VERSION_REQUEST = 1
         const val MSG_VERSION_RESPONSE = 2

@@ -31,6 +31,7 @@ import androidx.car.app.suggestion.ISuggestionHost
 import androidx.car.app.hardware.ICarHardwareHost
 import androidx.car.app.hardware.ICarHardwareResult
 import androidx.car.app.navigation.INavigationHost
+import androidx.car.app.navigation.INavigationManager
 import androidx.car.app.serialization.Bundleable
 import androidx.car.app.versioning.CarAppApiLevels
 import app.seb3thehacker.gearslip.GearslipLog
@@ -81,6 +82,8 @@ class CarAppConnection(private val context: Context) {
 
     private var carApp: ICarApp? = null
     private var appManager: IAppManager? = null
+    /** Only present for an app that asked for it - most apps aren't navigation apps. */
+    private var navigationManager: INavigationManager? = null
     /** Main thread only, both of these - the handoff is a race between them either way round. */
     private var surfaceCallback: ISurfaceCallback? = null
     private var lent: Lent? = null
@@ -189,6 +192,7 @@ class CarAppConnection(private val context: Context) {
         binding = null
         this.carApp = null
         appManager = null
+        navigationManager = null
         _panMode.value = false
         surfaceCallback = null
         component = null
@@ -269,6 +273,37 @@ class CarAppConnection(private val context: Context) {
             if (appManager == null) GearslipLog.e("host: app manager was ${value?.javaClass?.name}")
             requestTemplate()
         }) { app.getManager(CarContext.APP_SERVICE, it) }
+
+        // Best-effort and silent: an app that never asked for NavigationManager (not every
+        // templated app navigates) simply has no binder to hand back, which is normal, not a
+        // failure worth surfacing.
+        runCatching {
+            app.getManager(CarContext.NAVIGATION_SERVICE, object : IOnDoneCallback.Stub() {
+                override fun onSuccess(response: Bundleable?) {
+                    val value = response?.let { runCatching { it.get() }.getOrNull() }
+                    navigationManager = when (value) {
+                        is INavigationManager -> value
+                        is IBinder -> INavigationManager.Stub.asInterface(value)
+                        else -> null
+                    }
+                }
+                override fun onFailure(response: Bundleable?) = Unit
+            })
+        }
+    }
+
+    /**
+     * Tells the app itself to stop navigating - the proper end of a route, not just leaving its
+     * screen. Ending only the on-screen guidance (a back press) leaves the app's own
+     * "am I navigating" flag set, which is what stopped a fresh route from starting afterwards;
+     * this is the call [NavigationManagerCallback.onStopNavigation] on the app's side answers,
+     * and it is expected to clear that flag and present its own post-navigation screen.
+     */
+    fun stopNavigating() {
+        val manager = navigationManager ?: return
+        GearslipLog.i("host: asking the app to stop navigating")
+        runCatching { manager.onStopNavigation(noop("stop navigation")) }
+            .onFailure { GearslipLog.w("host: could not stop navigation: ${it.message}") }
     }
 
     /** The app describes its current screen; this is what the host draws. */

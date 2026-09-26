@@ -16,7 +16,7 @@ private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW }
 
 /** Three screens and a back stack of depth one: no navigation library needed. */
 @Composable
-fun GearslipApp(onDisconnect: () -> Unit) {
+fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
     BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
 
@@ -26,6 +26,7 @@ fun GearslipApp(onDisconnect: () -> Unit) {
             onOpenSettings = { screen = Screen.SETTINGS },
             onOpenCarPreview = { screen = Screen.CAR_PREVIEW },
             onDisconnect = onDisconnect,
+            onRequestCallScreening = onRequestCallScreening,
         )
         Screen.LOGS -> LogsScreen(onBack = { screen = Screen.HOME })
         Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HOME })

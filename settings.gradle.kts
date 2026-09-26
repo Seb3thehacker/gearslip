@@ -25,4 +25,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Gearslip"
 include(":gearslip")
+include(":ksdump")
  

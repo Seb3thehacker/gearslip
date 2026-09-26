@@ -47,6 +47,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenCarPreview: () -> Unit,
     onDisconnect: () -> Unit,
+    onRequestCallScreening: () -> Unit,
 ) {
     val status by SessionStatus.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -79,7 +80,7 @@ fun HomeScreen(
                 Spacer(Modifier.height(16.dp))
                 StatusCard(status)
                 Spacer(Modifier.height(24.dp))
-                SetupSteps()
+                SetupSteps(onRequestCallScreening)
                 Spacer(Modifier.height(24.dp))
                 Row(
                     Modifier.fillMaxWidth(),
@@ -184,12 +185,19 @@ private fun Context.appVersionName(): String =
 /**
  * One step of the setup list: a sentence that says what to do, and optionally how.
  *
- * [command] is for the one step that cannot be done on the phone. It is shown as something to
- * copy rather than to read, because a mistyped package name fails silently.
+ * [command] is for a step that cannot be done on the phone; it is shown as something to copy
+ * rather than to read, because a mistyped package name fails silently. [onClick] is for a step
+ * that can, in one tap, in which case it is shown as a button instead.
  */
-private class Step(val action: String, val detail: String? = null, val command: String? = null)
+private class Step(
+    val action: String,
+    val detail: String? = null,
+    val command: String? = null,
+    val buttonLabel: String? = null,
+    val onClick: (() -> Unit)? = null,
+)
 
-private val SETUP_STEPS = listOf(
+private fun setupSteps(onRequestCallScreening: () -> Unit) = listOf(
     Step("Use a car from 2020 or earlier.", "Newer head units reject the certificate."),
     Step(
         "On GrapheneOS, exempt Gearslip from exploit protections.",
@@ -215,6 +223,14 @@ private val SETUP_STEPS = listOf(
             "notifications say. Run this command too, and Gearslip switches that off only while " +
             "music is going to the car, then puts it back.",
         command = "adb shell pm grant app.seb3thehacker.gearslip android.permission.WRITE_SECURE_SETTINGS",
+    ),
+    Step(
+        "Optional: let the car screen answer and decline calls.",
+        "This sets Gearslip as your phone's caller ID and spam-blocking app, the same kind of " +
+            "consent a call-blocking app asks for. Without it, calls still ring, but only the " +
+            "phone itself can answer or decline them.",
+        buttonLabel = "Set up",
+        onClick = onRequestCallScreening,
     ),
     Step("Plug the phone into the car.", "Gearslip opens by itself when the head unit connects."),
 )
@@ -254,7 +270,8 @@ private fun CopyableCommand(command: String) {
 
 /** What to do before the first drive, in order. The same width as the status card above it. */
 @Composable
-private fun SetupSteps() {
+private fun SetupSteps(onRequestCallScreening: () -> Unit) {
+    val steps = remember(onRequestCallScreening) { setupSteps(onRequestCallScreening) }
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -268,7 +285,7 @@ private fun SetupSteps() {
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                SETUP_STEPS.forEachIndexed { index, step ->
+                steps.forEachIndexed { index, step ->
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text(
                             "${index + 1}",
@@ -287,6 +304,11 @@ private fun SetupSteps() {
                                 )
                             }
                             step.command?.let { CopyableCommand(it) }
+                            if (step.onClick != null) {
+                                FilledTonalButton(onClick = step.onClick, modifier = Modifier.padding(top = 4.dp)) {
+                                    Text(step.buttonLabel ?: "Open")
+                                }
+                            }
                         }
                     }
                 }

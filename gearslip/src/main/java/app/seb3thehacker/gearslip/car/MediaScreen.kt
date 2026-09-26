@@ -77,10 +77,7 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
     val browse by media.browse.collectAsStateWithLifecycle()
     val rejection by media.rejection.collectAsStateWithLifecycle()
     val capture by CarAudio.capture.collectAsStateWithLifecycle()
-    val navigator = LocalCarNavigator.current
-    var tab by remember {
-        mutableStateOf(if (navigator.lyricsRequested) Tab.LYRICS else Tab.BROWSE).also { navigator.lyricsRequested = false }
-    }
+    var tab by remember { mutableStateOf(Tab.BROWSE) }
 
     // The connection outlives this screen: the home screen's player is the same one.
     LaunchedEffect(app) { CarServices.openMedia(app) }
@@ -145,7 +142,7 @@ private enum class Tab { BROWSE, LYRICS }
  * the current line in the accent colour; unsynced ones are plain scrolling text.
  */
 @Composable
-private fun LyricsPanel(now: NowPlaying, modifier: Modifier) {
+internal fun LyricsPanel(now: NowPlaying, modifier: Modifier) {
     val lyrics by produceState<LyricsState>(LyricsState.Loading, now.title, now.artist, now.album, now.durationMs) {
         value = LyricsState.Loading
         value = Lyrics.find(now.title, now.artist, now.album, now.durationMs)

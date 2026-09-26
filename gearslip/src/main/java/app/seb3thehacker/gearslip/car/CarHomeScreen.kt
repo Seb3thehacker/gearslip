@@ -1,10 +1,8 @@
 package app.seb3thehacker.gearslip.car
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -13,11 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,32 +22,26 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import android.media.session.PlaybackState
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.seb3thehacker.gearslip.host.CarAppConnection
 import app.seb3thehacker.gearslip.media.CarMedia
-import app.seb3thehacker.gearslip.media.MediaArt
-import kotlinx.coroutines.delay
+import app.seb3thehacker.gearslip.media.NowPlaying
+import kotlinx.coroutines.launch
 
 /**
- * The home screen: the map on the left, what is playing on the right.
+ * The home screen: the map on the left, lyrics on the right when asked for.
  *
- * The map is whatever navigation app was used last, brought back on its own. The player only
- * takes its share of the screen only while something is playing or paused; otherwise the map has all of it.
+ * The map is whatever navigation app was used last, brought back on its own. Playback itself is
+ * controlled from the nav bar's pill everywhere, including here - this column only opens when the
+ * pill's lyrics button is on, and closes itself back to a full-width map once nothing is playing.
  */
 @Composable
 fun CarHome() {
@@ -65,21 +54,19 @@ fun CarHome() {
     LaunchedEffect(phase) { if (phase == CarMedia.Phase.READY) CarServices.autoplayIfDue() }
 
     val navigator = LocalCarNavigator.current
-    val showPlayer = phase == CarMedia.Phase.READY && now.isActive && !navigator.playerMinimised
-    // Once playback ends there is nothing left to minimise; the next song starts in place.
-    LaunchedEffect(now.isActive) { if (!now.isActive) navigator.restorePlayer() }
+    val showLyrics = phase == CarMedia.Phase.READY && now.isActive && navigator.lyricsOpen
 
     Row(Modifier.fillMaxSize().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
             Modifier
-                .weight(if (showPlayer) 2.1f else 1f)
+                .weight(if (showLyrics) 2.1f else 1f)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(EMBEDDED_RADIUS)),
         ) {
             MapPane(navStatus, frame)
         }
-        if (showPlayer) {
-            MiniPlayer(Modifier.weight(1f).fillMaxHeight())
+        if (showLyrics) {
+            LyricsColumn(now, Modifier.weight(1f).fillMaxHeight())
         }
     }
 }
@@ -98,6 +85,7 @@ private fun MapPane(status: CarAppConnection.Status, frame: CarEnvironment.Frame
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val hasLast = CarSettings.lastNav.value != null
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
         when (status.phase) {
             CarAppConnection.Phase.BINDING, CarAppConnection.Phase.HANDSHAKE ->
                 Text("Starting ${status.app ?: "the map"}…", style = MaterialTheme.typography.titleMedium)
@@ -107,110 +95,56 @@ private fun MapPane(status: CarAppConnection.Status, frame: CarEnvironment.Frame
                 TextButton(onClick = navigator::apps) { Text("Choose another app") }
             }
             else -> {
+                // IDLE with a last app on record means the driver stopped it themselves - it will
+                // not come back on its own, so the screen must offer a way to bring it back rather
+                // than sit on a "starting" message that never resolves.
                 Text(
-                    if (hasLast) "Starting the map…" else "No map app chosen yet.",
+                    if (hasLast) "Map stopped." else "No map app chosen yet.",
                     style = MaterialTheme.typography.titleMedium,
                 )
-                if (!hasLast) {
+                if (hasLast) {
+                    TextButton(onClick = { scope.launch { CarServices.reconnectNav(frame) } }) { Text("Reopen") }
+                } else {
                     Text(
                         "Open Car apps and connect a navigation app; it will start here next time.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    TextButton(onClick = { navigator.apps() }) { Text("Car apps") }
                 }
+                TextButton(onClick = { navigator.apps() }) { Text("Car apps") }
             }
         }
     }
 }
 
-/** Previous, play/pause, next and a seek bar, and nothing else: the full controls are in the media screen. */
+/**
+ * Lyrics for whatever the nav bar's pill is playing, beside the map. Transport controls live in
+ * the pill itself now, not here - this column has exactly one job.
+ */
 @Composable
-private fun MiniPlayer(modifier: Modifier) {
-    val media = CarServices.media
-    val now by media.now.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val art by produceState(now.art, now.art, now.artUri) { value = now.art ?: MediaArt.load(context, now.artUri) }
-
-    var position by remember { mutableStateOf(0L) }
-    LaunchedEffect(now) {
-        while (true) {
-            position = now.currentPosition()
-            delay(500)
-        }
-    }
-
+private fun LyricsColumn(now: NowPlaying, modifier: Modifier) {
     val navigator = LocalCarNavigator.current
     Surface(
-        onClick = { navigator.media() },
         modifier = modifier,
         shape = RoundedCornerShape(EMBEDDED_RADIUS),
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
-        Column(
-            Modifier.fillMaxSize().padding(18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Box(Modifier.size(128.dp).clip(RoundedCornerShape(EMBEDDED_RADIUS))) {
-                art?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
-            }
-            Spacer(Modifier.height(10.dp))
-            Text(
-                now.title.ifEmpty { "Nothing playing" },
-                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                now.artist,
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-
-            if (now.durationMs > 0) {
-                WavyProgress(
-                    fraction = position.toFloat() / now.durationMs,
-                    playing = now.state == PlaybackState.STATE_PLAYING,
-                    onSeek = { media.seek((it * now.durationMs).toLong()) },
-                    modifier = Modifier.padding(vertical = 4.dp),
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    now.title.ifEmpty { "Lyrics" },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-            } else {
-                Spacer(Modifier.height(16.dp))
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = { media.previous() }, modifier = Modifier.size(48.dp)) {
-                    Icon(MediaIcons.Previous, "Previous", Modifier.size(30.dp))
-                }
-                FilledIconButton(onClick = media::togglePlay, modifier = Modifier.size(60.dp)) {
-                    Icon(
-                        if (now.playing) MediaIcons.Pause else Icons.Filled.PlayArrow,
-                        if (now.playing) "Pause" else "Play",
-                        Modifier.size(36.dp),
-                    )
-                }
-                IconButton(onClick = { media.next() }, modifier = Modifier.size(48.dp)) {
-                    Icon(MediaIcons.Next, "Next", Modifier.size(30.dp))
+                IconButton(onClick = navigator::toggleLyrics, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.Close, "Hide lyrics", Modifier.size(20.dp))
                 }
             }
-
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val compact = PaddingValues(horizontal = 8.dp)
-                FilledTonalButton(
-                    onClick = { navigator.media(lyrics = true) },
-                    modifier = Modifier.weight(1f),
-                    contentPadding = compact,
-                ) { Text("Lyrics", maxLines = 1, softWrap = false) }
-                FilledTonalButton(
-                    onClick = navigator::minimisePlayer,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = compact,
-                ) { Text("Minimise", maxLines = 1, softWrap = false) }
-            }
+            Spacer(Modifier.height(4.dp))
+            LyricsPanel(now, Modifier.weight(1f).fillMaxWidth())
         }
     }
 }
