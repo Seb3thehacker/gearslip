@@ -117,9 +117,6 @@ fun CarSettingsScreen() {
             Info("Video", display.ifEmpty { "-" })
             Info("Certificate", cert?.headline ?: "Checking…")
         }
-        val navigator = LocalCarNavigator.current
-        Button(onClick = { navigator.open("calibrate") }) { Text("Display test") }
-        Spacer(Modifier.height(8.dp))
     }
 }
 

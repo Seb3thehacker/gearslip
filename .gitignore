@@ -24,3 +24,4 @@ archive/
 CLAUDE.md
 *.pdf
 extraction/
+.claude/

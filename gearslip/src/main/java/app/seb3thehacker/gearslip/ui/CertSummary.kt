@@ -19,12 +19,17 @@ data class CertSummary(
             val identity = CertProvider.loadSupplied(context)
                 ?: return CertSummary(
                     CertProvider.Kind.SELF_SIGNED,
-                    "None loaded - a self-signed one is generated, which real head units reject",
+                    "None loaded (self-signed; cars reject it)",
                     null, null, null,
                 )
             val cert = identity.certificate
             val name = friendlyName(cert.subjectX500Principal.name)
-            val prefix = if (identity.kind == CertProvider.Kind.IMPORTED) "Imported" else "Staged over adb"
+            val prefix = when (identity.kind) {
+                    CertProvider.Kind.IMPORTED -> "Imported"
+                    CertProvider.Kind.DOWNLOADED -> "Downloaded"
+                    CertProvider.Kind.ADB_STAGED -> "Staged over adb"
+                    CertProvider.Kind.SELF_SIGNED -> "Self-signed"
+                }
             return CertSummary(
                 identity.kind,
                 "$prefix: $name",

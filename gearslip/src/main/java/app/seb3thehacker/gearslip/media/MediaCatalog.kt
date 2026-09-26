@@ -1,6 +1,7 @@
 package app.seb3thehacker.gearslip.media
 
 import app.seb3thehacker.gearslip.host.AndroidAuto
+import app.seb3thehacker.gearslip.host.KnownApps
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -33,6 +34,7 @@ object MediaCatalog {
             .asSequence()
             .filter { it.serviceInfo.packageName != context.packageName }
             .filterNot { AndroidAuto.matches(it.serviceInfo.packageName, it.loadLabel(manager).toString()) }
+            .filterNot { KnownApps.isHidden(it.serviceInfo.packageName) }
             .filter { declaresCar(manager, it.serviceInfo) }
             .map {
                 val info = it.serviceInfo

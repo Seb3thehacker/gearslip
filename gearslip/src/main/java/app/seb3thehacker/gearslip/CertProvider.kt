@@ -2,6 +2,7 @@ package app.seb3thehacker.gearslip
 
 import android.content.Context
 import android.net.Uri
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.KeyStore
 import java.security.cert.X509Certificate
@@ -14,7 +15,9 @@ import java.security.cert.X509Certificate
  *
  *  1. **Imported** in the app (Settings > Certificate): a PKCS#12 file plus its password,
  *     copied into the app's private storage.
- *  2. **Staged over adb** into the app's external files directory, the way the spike has
+ *  2. **Downloaded** from the public opencardev/aasdk repository. Fetched only when the
+ *     user asks; the app never ships or hosts the certificate.
+ *  3. **Staged over adb** into the app's external files directory, the way the spike has
  *     always done it. Still honoured, so existing setups keep working untouched:
  *
  *       openssl pkcs12 -export -in headunit.crt -inkey headunit.key \
@@ -23,7 +26,7 @@ import java.security.cert.X509Certificate
  *
  *     Default password is "aaspike" (kept as-is so an already-staged phone.p12 doesn't need
  *     regenerating); a `phone.pass` file next to it overrides it.
- *  3. A freshly generated self-signed cert, which a real head unit rejects (see
+ *  4. A freshly generated self-signed cert, which a real head unit rejects (see
  *     SPIKE_FINDINGS.md).
  */
 object CertProvider {
@@ -34,7 +37,7 @@ object CertProvider {
     private const val DEFAULT_PASSWORD = "aaspike"
     private const val IMPORT_DIR = "identity"
 
-    enum class Kind { IMPORTED, ADB_STAGED, SELF_SIGNED }
+    enum class Kind { IMPORTED, DOWNLOADED, ADB_STAGED, SELF_SIGNED }
 
     class Identity(
         val keyStore: KeyStore,
@@ -68,6 +71,13 @@ object CertProvider {
             runCatching {
                 return loadP12(imported, importedPassword(context), "imported certificate", Kind.IMPORTED)
             }.onFailure { log.e("could not load the imported certificate - trying the next source", it) }
+        }
+
+        val downloaded = downloadedFile(context, P12_NAME)
+        if (downloaded.isFile) {
+            runCatching {
+                return loadP12(downloaded, DEFAULT_PASSWORD, "downloaded certificate", Kind.DOWNLOADED)
+            }.onFailure { log.e("could not load the downloaded certificate - trying the next source", it) }
         }
 
         val dir = context.getExternalFilesDir(null)
@@ -113,16 +123,83 @@ object CertProvider {
 
     fun hasImported(context: Context): Boolean = importedFile(context, P12_NAME).isFile
 
-    /** Drops the imported identity; the next source in line (adb-staged, then self-signed) takes over. */
+    /** Whether a downloaded certificate is stored (may or may not also be imported). */
+    fun hasDownloaded(context: Context): Boolean = downloadedFile(context, P12_NAME).isFile
+
+    /** Drops the imported identity; the next source in line (downloaded, adb-staged, then self-signed) takes over. */
     fun removeImported(context: Context) {
         importedFile(context, P12_NAME).delete()
         importedFile(context, PASS_NAME).delete()
         log.i("removed the imported certificate")
     }
 
+    /** Drops the downloaded identity. */
+    fun removeDownloaded(context: Context) {
+        downloadedFile(context, P12_NAME).delete()
+        downloadedFile(context, PASS_NAME).delete()
+        log.i("removed the downloaded certificate")
+    }
+
+    /** Whether any certificate is available (imported, downloaded, or adb-staged). */
+    fun hasAnyCert(context: Context): Boolean =
+        hasImported(context) || hasDownloaded(context) || hasAdbStaged(context)
+
+    private fun hasAdbStaged(context: Context): Boolean =
+        context.getExternalFilesDir(null)?.let { File(it, P12_NAME).isFile } == true
+
+    /**
+     * Validates raw PKCS#12 bytes with [password] and, if good, writes them as the imported
+     * identity. Used when the app assembles a certificate in memory (e.g. from a download)
+     * rather than importing from a file picker.
+     */
+    fun importFromBytes(context: Context, p12Bytes: ByteArray, password: String): Identity {
+        val staging = File(context.cacheDir, "import-$P12_NAME")
+        try {
+            staging.writeBytes(p12Bytes)
+            val identity = loadP12(staging, password, "imported certificate", Kind.IMPORTED)
+
+            val target = importedFile(context, P12_NAME)
+            target.parentFile?.mkdirs()
+            staging.copyTo(target, overwrite = true)
+            importedFile(context, PASS_NAME).writeText(password)
+            log.i("imported a certificate from bytes: ${identity.certificate.subjectX500Principal}")
+            return identity
+        } finally {
+            staging.delete()
+        }
+    }
+
+    /**
+     * Downloads the publicly available head unit certificate from the opencardev/aasdk
+     * repository, converts it from PEM to PKCS#12, and stores it ready for use.
+     * Runs synchronously (caller is responsible for threading). Throws on any failure.
+     */
+    fun downloadAndImport(context: Context): Identity {
+        val download = CertDownloader.fetch()
+        val result = PemKeyParser.build(download.certificatePem, download.privateKeyPem)
+
+        val target = downloadedFile(context, P12_NAME)
+        target.parentFile?.mkdirs()
+        val p12Password = DEFAULT_PASSWORD
+        val keyStore = result.keyStore
+        val p12Bytes = ByteArrayOutputStream().use { stream ->
+            keyStore.store(stream, p12Password.toCharArray())
+            stream.toByteArray()
+        }
+        target.writeBytes(p12Bytes)
+        downloadedFile(context, PASS_NAME).writeText(p12Password)
+
+        log.i("downloaded and stored certificate: ${result.certificate.subjectX500Principal}")
+        return Identity(keyStore, result.certificate, p12Password.toCharArray(),
+            "downloaded certificate (opencardev/aasdk)", Kind.DOWNLOADED)
+    }
+
     // The imported files live in the app's private internal storage (not the external files
     // dir), so other apps cannot read the key, and `adb uninstall` clearing it is expected.
     private fun importedFile(context: Context, name: String) = File(File(context.filesDir, IMPORT_DIR), name)
+
+    private fun downloadedFile(context: Context, name: String) =
+        File(File(context.filesDir, "$IMPORT_DIR-downloaded"), name)
 
     private fun importedPassword(context: Context): String =
         importedFile(context, PASS_NAME).takeIf { it.isFile }?.readText().orEmpty()

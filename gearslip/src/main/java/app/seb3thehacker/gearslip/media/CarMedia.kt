@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.media.MediaMetadata
 import android.media.browse.MediaBrowser
 import android.media.session.MediaController
+import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
@@ -33,6 +34,15 @@ class MediaEntry(
 
 class CustomAction(val id: String, val name: String, val extras: Bundle?)
 
+/** One entry in the app's own queue - not its library, whatever it has lined up to play next. */
+class QueueTrack(
+    val queueId: Long,
+    val title: String,
+    val subtitle: String,
+    val iconUri: Uri?,
+    val iconBitmap: Bitmap?,
+)
+
 /** What is playing, as the car's now-playing panel needs it. */
 class NowPlaying(
     val title: String = "",
@@ -48,6 +58,8 @@ class NowPlaying(
     val actions: Long = 0,
     val custom: List<CustomAction> = emptyList(),
     val error: String? = null,
+    /** Which [QueueTrack.queueId] is playing now, so "up next" can show what follows it. */
+    val activeQueueItemId: Long = MediaSession.QueueItem.UNKNOWN_ID.toLong(),
 ) {
     val playing get() = state == PlaybackState.STATE_PLAYING || state == PlaybackState.STATE_BUFFERING
     val hasTrack get() = title.isNotEmpty() || state != PlaybackState.STATE_NONE
@@ -108,6 +120,9 @@ class CarMedia(private val context: Context) {
 
     private val _now = MutableStateFlow(NowPlaying())
     val now: StateFlow<NowPlaying> = _now.asStateFlow()
+
+    private val _queue = MutableStateFlow<List<QueueTrack>>(emptyList())
+    val queue: StateFlow<List<QueueTrack>> = _queue.asStateFlow()
 
     private var browser: MediaBrowser? = null
     private var controller: MediaController? = null
@@ -171,6 +186,7 @@ class CarMedia(private val context: Context) {
         controller = session.also {
             it.registerCallback(callback)
             update(it.metadata, it.playbackState)
+            _queue.value = queueOf(it.queue)
         }
         _browse.value = BrowseState(loading = false, unavailable = true)
         _phase.value = Phase.READY
@@ -182,6 +198,7 @@ class CarMedia(private val context: Context) {
         controller = MediaController(context, mb.sessionToken).also {
             it.registerCallback(callback)
             update(it.metadata, it.playbackState)
+            _queue.value = queueOf(it.queue)
         }
         rootId = mb.root
         path.clear()
@@ -192,6 +209,20 @@ class CarMedia(private val context: Context) {
     private val callback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) = update(metadata, controller?.playbackState)
         override fun onPlaybackStateChanged(state: PlaybackState?) = update(controller?.metadata, state)
+        override fun onQueueChanged(queue: MutableList<MediaSession.QueueItem>?) {
+            _queue.value = queueOf(queue)
+        }
+    }
+
+    private fun queueOf(items: List<MediaSession.QueueItem>?): List<QueueTrack> = items.orEmpty().map { item ->
+        val d = item.description
+        QueueTrack(
+            queueId = item.queueId,
+            title = d.title?.toString().orEmpty(),
+            subtitle = d.subtitle?.toString().orEmpty(),
+            iconUri = d.iconUri,
+            iconBitmap = d.iconBitmap,
+        )
     }
 
     private fun update(metadata: MediaMetadata?, state: PlaybackState?) {
@@ -212,6 +243,7 @@ class CarMedia(private val context: Context) {
             actions = state?.actions ?: 0,
             custom = state?.customActions.orEmpty().map { CustomAction(it.action, it.name.toString(), it.extras) },
             error = state?.errorMessage?.toString(),
+            activeQueueItemId = state?.activeQueueItemId ?: MediaSession.QueueItem.UNKNOWN_ID.toLong(),
         )
     }
 
@@ -286,6 +318,7 @@ class CarMedia(private val context: Context) {
     fun previous() = controller?.transportControls?.skipToPrevious()
     fun seek(ms: Long) = controller?.transportControls?.seekTo(ms)
     fun custom(action: CustomAction) = controller?.transportControls?.sendCustomAction(action.id, action.extras)
+    fun playQueueItem(track: QueueTrack) = controller?.transportControls?.skipToQueueItem(track.queueId)
 
     fun disconnect() {
         connecting = null
@@ -298,6 +331,7 @@ class CarMedia(private val context: Context) {
         subscribed = null
         _phase.value = Phase.IDLE
         _now.value = NowPlaying()
+        _queue.value = emptyList()
     }
 
     private companion object {

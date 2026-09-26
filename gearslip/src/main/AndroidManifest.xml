@@ -51,6 +51,9 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
 
+    <!-- Placing a call from the car screen's dial pad or contacts list needs this. -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+
     <!--
       Declared, not just requested. Templated apps decide whether to talk to a host by asking
       whether it holds this permission (HostValidator.isValidHost checks it before falling back
@@ -66,6 +69,10 @@
     <uses-feature android:name="android.hardware.usb.accessory" android:required="true" />
 
     <queries>
+    <!-- Named directly: current builds have no launcher-category entry point for the MAIN/
+         LAUNCHER query below to find, so the setup guide's Android Auto check needs this to see
+         whether the package is installed at all. -->
+    <package android:name="com.google.android.projection.gearhead" />
     <intent>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />

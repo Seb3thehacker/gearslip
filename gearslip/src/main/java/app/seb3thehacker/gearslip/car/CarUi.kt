@@ -130,33 +130,29 @@ fun CarUi() {
                         end = insets.right.toDp(), bottom = insets.bottom.toDp(),
                     )
                 }
-                // The calibration screen is the raw frame: no insets, no nav bar.
                 val screen = navigator.current
-                if (screen == CarScreen.App("calibrate")) {
-                    CarApps.find("calibrate")?.content?.invoke()
-                } else {
-                    Column(Modifier.fillMaxSize().padding(pad)) {
-                        BreadcrumbBar(navigator)
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
-                            when (screen) {
-                                CarScreen.Home -> CarHome()
-                                CarScreen.Apps -> CarLauncher()
-                                CarScreen.Media -> mediaApp?.let { MediaScreen(it) { navigator.back() } }
-                                CarScreen.Settings -> CarSettingsScreen()
-                                CarScreen.Dashboard -> CarDashboardScreen()
-                                CarScreen.Weather -> WeatherScreen()
-                                is CarScreen.Notifications -> NotificationsScreen(screen.replyTo)
-                                is CarScreen.App -> CarApps.find(screen.id)?.content?.invoke()
-                            }
-                            // The history screen is already showing them, so it needs no popup.
-                            if (screen !is CarScreen.Notifications) {
-                                NotificationPopup(Modifier.align(Alignment.TopCenter))
-                            }
-                            // Above the popup: a call is more urgent than any notification.
-                            CallOverlay(Modifier.align(Alignment.TopCenter))
+                Column(Modifier.fillMaxSize().padding(pad)) {
+                    // Header navigation (breadcrumb trail) - off for now, kept to tweak later.
+                    // BreadcrumbBar(navigator)
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        when (screen) {
+                            CarScreen.Home -> CarHome()
+                            CarScreen.Apps -> CarLauncher()
+                            CarScreen.Media -> mediaApp?.let { MediaScreen(it) { navigator.back() } }
+                            CarScreen.Settings -> CarSettingsScreen()
+                            CarScreen.Dashboard -> CarDashboardScreen()
+                            CarScreen.Weather -> WeatherScreen()
+                            is CarScreen.Notifications -> NotificationsScreen(screen.replyTo)
+                            is CarScreen.App -> CarApps.find(screen.id)?.content?.invoke()
                         }
-                        CarNavBar(navigator)
+                        // The history screen is already showing them, so it needs no popup.
+                        if (screen !is CarScreen.Notifications) {
+                            NotificationPopup(Modifier.align(Alignment.TopCenter))
+                        }
+                        // Above the popup: a call is more urgent than any notification.
+                        CallOverlay(Modifier.align(Alignment.TopCenter))
                     }
+                    CarNavBar(navigator)
                 }
             }
         }

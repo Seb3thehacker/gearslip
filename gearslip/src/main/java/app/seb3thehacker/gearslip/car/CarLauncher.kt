@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -48,6 +49,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import app.seb3thehacker.gearslip.host.KnownApps
 import app.seb3thehacker.gearslip.host.CarAppCatalog
 import app.seb3thehacker.gearslip.host.TemplateApp
@@ -63,6 +65,8 @@ private class Tile(
     val glyph: ImageVector? = null,
     /** Tested from start to finish with Gearslip; drawn with a check mark. */
     val verified: Boolean = false,
+    /** Known not to work; drawn with a red X instead of being left off the launcher. */
+    val broken: Boolean = false,
     val pinned: Boolean = false,
     /** Null for the built-in tiles (Web, Screen sharing, Settings) - nothing to pin them as. */
     val onLongClick: (() -> Unit)? = null,
@@ -132,12 +136,14 @@ fun CarLauncher() {
     val tiles = listOf(
         Tile("Web", glyph = Icons.Filled.Search) { navigator.open("web") },
         Tile("Screen sharing", glyph = Icons.Filled.Share) { navigator.open("phone") },
+        Tile("Phone", glyph = Icons.Filled.Call) { navigator.open("dialer") },
     ) + installed.map { entry ->
         val pkg = entry.template?.component?.packageName ?: entry.media?.component?.packageName
         val id = entry.componentId
         Tile(
             entry.label, entry.icon,
             verified = pkg != null && KnownApps.works(pkg),
+            broken = pkg != null && KnownApps.isBroken(pkg),
             pinned = id != null && id in pinned,
             onLongClick = id?.let { { CarSettings.togglePin(it) } },
         ) { launchEntry(entry, navigator, frame) }
@@ -188,6 +194,17 @@ private fun VerifiedBadge(size: androidx.compose.ui.unit.Dp, modifier: Modifier 
     }
 }
 
+/** A red disc with a white X: marks a tile known not to work with Gearslip yet. */
+@Composable
+private fun BrokenBadge(size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(size).background(Color(0xFFD32F2F), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Filled.Close, contentDescription = "Doesn't work with Gearslip", tint = Color.White, modifier = Modifier.size(size * 0.66f))
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppTile(tile: Tile) {
@@ -226,6 +243,9 @@ private fun AppTile(tile: Tile) {
             }
             if (tile.verified) {
                 VerifiedBadge(24.dp, Modifier.align(Alignment.TopEnd).padding(8.dp))
+            }
+            if (tile.broken) {
+                BrokenBadge(24.dp, Modifier.align(Alignment.TopEnd).padding(8.dp))
             }
         }
     }

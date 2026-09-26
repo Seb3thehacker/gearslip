@@ -94,24 +94,6 @@ class GearslipActivity : ComponentActivity(), Projection {
         }
     }
 
-    /** Hosted map apps need Gearslip to hold location so they can keep it in the background. */
-    private val locationPermission = registerForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) Prefetch.warm(this, force = true) }
-
-    /** The car dashboard's agenda card; declined just leaves it empty rather than asking again. */
-    private val calendarPermission = registerForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) Prefetch.warm(this, force = true) }
-
-    /**
-     * Caller name, incoming number and call state; declined just means no phone card on the car
-     * screen. Asked for up front, like location and the calendar, so nothing prompts mid-drive.
-     */
-    private val callPermissions = registerForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
-    ) { granted -> if (granted.values.any { it }) app.seb3thehacker.gearslip.call.CarCalls.start(this) }
-
     /** Setting Gearslip as the phone's caller ID and spam app - what lets it decline a ringing call. */
     private val callScreeningRole = registerForActivityResult(StartActivityForResult()) { result ->
         if (result.resultCode != RESULT_OK) GearslipLog.w("calls: call screening role declined")
@@ -119,29 +101,11 @@ class GearslipActivity : ComponentActivity(), Projection {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) locationPermission.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
-        if (checkSelfPermission(android.Manifest.permission.READ_CALENDAR) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) calendarPermission.launch(android.Manifest.permission.READ_CALENDAR)
-        // Playback capture needs the microphone even though it never records one. Ask for it here,
-        // at the kerb, rather than the first time a song plays: a permission dialog that appears
-        // mid-drive is one the driver has to read and answer at the wheel, and missing it is
-        // indistinguishable from the car link being broken.
-        if (CarSettings.pipeAudio.value &&
-            checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
-        val callPerms = arrayOf(
-            android.Manifest.permission.READ_PHONE_STATE,
-            android.Manifest.permission.READ_CALL_LOG,
-            android.Manifest.permission.READ_CONTACTS,
-            android.Manifest.permission.ANSWER_PHONE_CALLS,
-        )
-        if (callPerms.any { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
-            callPermissions.launch(callPerms)
-        }
+        // Location, calendar, the phone/contacts group, and the microphone are asked for one at
+        // a time by PermissionsSetupScreen instead of here, each only after the driver taps
+        // Allow on a screen explaining what it is for. Firing them all from onCreate, unprompted,
+        // is both a bad first impression and unreliable: Android does not consistently show more
+        // than one system permission dialog fired back-to-back, which was silently dropping some.
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 

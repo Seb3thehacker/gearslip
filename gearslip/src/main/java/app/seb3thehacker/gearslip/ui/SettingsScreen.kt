@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -124,6 +125,26 @@ private fun CertificateSection() {
         Button(onClick = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
             Text("Import certificate (.p12)")
         }
+
+        FilledTonalButton(
+            onClick = {
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching { CertProvider.downloadAndImport(context) }
+                    }
+                    result.onSuccess {
+                        notice = "Certificate downloaded."
+                        refresh++
+                    }.onFailure {
+                        notice = "Download failed: ${it.message}"
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Text("Download certificate")
+        }
+
         if (summary?.kind == CertProvider.Kind.IMPORTED) {
             OutlinedButton(
                 onClick = {
@@ -134,9 +155,21 @@ private fun CertificateSection() {
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) { Text("Remove imported certificate") }
         }
+
+        if (summary?.kind == CertProvider.Kind.DOWNLOADED) {
+            OutlinedButton(
+                onClick = {
+                    CertProvider.removeDownloaded(context)
+                    notice = "Removed the downloaded certificate."
+                    refresh++
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) { Text("Remove downloaded certificate") }
+        }
+
         notice?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         Text(
-            "An imported certificate takes priority over one staged over adb. Takes effect on the next connection.",
+            "Changes take effect on the next connection.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

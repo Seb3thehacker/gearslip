@@ -1,7 +1,7 @@
 package app.seb3thehacker.gearslip.car
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Settings
@@ -28,8 +28,8 @@ object CarApps {
         CarApp("phone", "Screen sharing", Icons.Filled.Share) {
             PhoneAppsScreen()
         },
-        CarApp("calibrate", "Display test", Icons.Filled.Info) {
-            CalibrationApp()
+        CarApp("dialer", "Phone", Icons.Filled.Call) {
+            PhoneDialerScreen()
         },
         CarApp("settings", "Settings", Icons.Filled.Settings) {
             CarSettingsScreen()

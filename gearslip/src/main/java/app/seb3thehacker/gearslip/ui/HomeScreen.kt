@@ -1,8 +1,6 @@
 package app.seb3thehacker.gearslip.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,11 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import android.widget.Toast
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,8 +40,8 @@ fun HomeScreen(
     onOpenLogs: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenCarPreview: () -> Unit,
+    onOpenHelp: () -> Unit,
     onDisconnect: () -> Unit,
-    onRequestCallScreening: () -> Unit,
 ) {
     val status by SessionStatus.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -66,21 +60,24 @@ fun HomeScreen(
                     .verticalScroll(rememberScrollState()),
             ) {
                 Spacer(Modifier.height(24.dp))
-                Text(
-                    "Gearslip",
-                    style = MaterialTheme.typography.displayLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                Text(
-                    "v${LocalContext.current.appVersionName()}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text(
+                            "Gearslip",
+                            style = MaterialTheme.typography.displayLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        Text(
+                            "v${LocalContext.current.appVersionName()}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    HelpButton(onClick = onOpenHelp)
+                }
                 Spacer(Modifier.height(16.dp))
                 StatusCard(status)
-                Spacer(Modifier.height(24.dp))
-                SetupSteps(onRequestCallScreening)
                 Spacer(Modifier.height(24.dp))
                 Row(
                     Modifier.fillMaxWidth(),
@@ -182,137 +179,3 @@ private fun StatusCard(status: SessionStatus.Snapshot) {
 private fun Context.appVersionName(): String =
     runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
 
-/**
- * One step of the setup list: a sentence that says what to do, and optionally how.
- *
- * [command] is for a step that cannot be done on the phone; it is shown as something to copy
- * rather than to read, because a mistyped package name fails silently. [onClick] is for a step
- * that can, in one tap, in which case it is shown as a button instead.
- */
-private class Step(
-    val action: String,
-    val detail: String? = null,
-    val command: String? = null,
-    val buttonLabel: String? = null,
-    val onClick: (() -> Unit)? = null,
-)
-
-private fun setupSteps(onRequestCallScreening: () -> Unit) = listOf(
-    Step("Use a car from 2020 or earlier.", "Newer head units reject the certificate."),
-    Step(
-        "On GrapheneOS, exempt Gearslip from exploit protections.",
-        "Open Settings, then Apps, then Gearslip, and turn on Exploit protection compatibility mode.",
-    ),
-    Step("Disable or uninstall the Android Auto app."),
-    Step("Load the certificate.", "Open Settings and choose Import certificate."),
-    Step(
-        "Allow the microphone, so music can reach the car.",
-        "Android asks for the microphone before it will let any app pass music along. " +
-            "Gearslip never listens to you: it copies what a music app is playing, and nothing else.",
-    ),
-    Step(
-        "Optional: stop Android asking about audio every drive.",
-        "Connect the phone to a computer with USB debugging turned on, and run this command. " +
-            "It tells Android to trust Gearslip with audio from now on. Skip it and everything " +
-            "still works, but you have to tap Start once each time you set off.",
-        command = "adb shell appops set app.seb3thehacker.gearslip PROJECT_MEDIA allow",
-    ),
-    Step(
-        "Optional: keep notifications readable while music plays.",
-        "Android treats sending audio to the car like sharing your screen, and hides what your " +
-            "notifications say. Run this command too, and Gearslip switches that off only while " +
-            "music is going to the car, then puts it back.",
-        command = "adb shell pm grant app.seb3thehacker.gearslip android.permission.WRITE_SECURE_SETTINGS",
-    ),
-    Step(
-        "Optional: let the car screen answer and decline calls.",
-        "This sets Gearslip as your phone's caller ID and spam-blocking app, the same kind of " +
-            "consent a call-blocking app asks for. Without it, calls still ring, but only the " +
-            "phone itself can answer or decline them.",
-        buttonLabel = "Set up",
-        onClick = onRequestCallScreening,
-    ),
-    Step("Plug the phone into the car.", "Gearslip opens by itself when the head unit connects."),
-)
-
-/**
- * A command to run on a computer, shown so it can be copied rather than retyped. Tapping it puts
- * it on the clipboard, which is the only way it reaches the computer from here anyway.
- */
-@Composable
-private fun CopyableCommand(command: String) {
-    val clipboard = LocalClipboardManager.current
-    val context = LocalContext.current
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        shape = MaterialTheme.shapes.small,
-        onClick = {
-            clipboard.setText(AnnotatedString(command))
-            Toast.makeText(context, "Command copied", Toast.LENGTH_SHORT).show()
-        },
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-    ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                command,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                "Tap to copy",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-    }
-}
-
-/** What to do before the first drive, in order. The same width as the status card above it. */
-@Composable
-private fun SetupSteps(onRequestCallScreening: () -> Unit) {
-    val steps = remember(onRequestCallScreening) { setupSteps(onRequestCallScreening) }
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            shape = MaterialTheme.shapes.extraLarge,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(horizontal = 24.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                Text(
-                    "How to connect",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                steps.forEachIndexed { index, step ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text(
-                            "${index + 1}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.width(16.dp),
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(step.action, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            step.detail?.let {
-                                Text(
-                                    it,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            step.command?.let { CopyableCommand(it) }
-                            if (step.onClick != null) {
-                                FilledTonalButton(onClick = step.onClick, modifier = Modifier.padding(top = 4.dp)) {
-                                    Text(step.buttonLabel ?: "Open")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
