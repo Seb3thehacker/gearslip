@@ -41,6 +41,7 @@ than Google's own can talk to a car head unit.
 - **Templated apps work.** Gearslip renders all 16 template types that the Car App
   Library defines, and it draws its own keyboard for search, sign-in, and text fields.
   It has been tested against several real navigation and media apps.
+- **Gearslip works with [LIVI](https://github.com/f-io/LIVI),** LIVI, used in open source car dashboards, is fully supported by Gearslip.
 - **Audio reaches the car by capturing playback, not by mirroring the screen.** Android
   requires a screen-share style consent dialog and indicator for this, even though
   Gearslip never reads the screen; that grant is the only way a non-privileged app can
