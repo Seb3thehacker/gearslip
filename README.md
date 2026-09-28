@@ -16,24 +16,36 @@ mode.
 The author reverse-engineered the protocol for interoperability, so that a client other
 than Google's own can talk to a car head unit.
 
+## Features
+
+- **Phone calls.** Dial from a keypad, or search your contacts, then confirm before the
+  call goes out.
+- **Navigation.** Gearslip hosts real Car App Library map apps on the car screen; Organic
+  Maps and OsmAnd both work today.
+- **Music.** Browse, play, and queue tracks from a car-enabled media app, with a Now
+  Playing view, an Up Next queue, and lyrics.
+- **The web.** A browser template with its own on-screen keyboard, for anything that
+  doesn't ship a car interface of its own.
+- **Weather and the day ahead.** A dashboard screen shows the week's calendar next to
+  the current and coming weather.
+- **Notifications.** Read and reply to notifications from the car screen, using the same
+  on-screen keyboard.
+
 ## Status
 
+- **The connection is wired only, for now.** Plug the phone into the head unit's USB port;
+  Gearslip does not yet offer a wireless option.
+- **Setup walks you through it.** First launch asks for the Android Auto certificate,
+  then one permission at a time, each with a plain reason and an Allow or Skip. A help
+  screen inside the car answers anything setup didn't cover.
 - **Templated apps work.** Gearslip renders all 16 template types that the Car App
-  Library defines, and it draws its own keyboard for search and sign-in. It has been
-  tested against several real navigation and media apps.
-- **Media playback works.** Gearslip lets you browse and control car-enabled media apps
-  from the car screen, with lyrics and playback state, over the same host connection.
+  Library defines, and it draws its own keyboard for search, sign-in, and text fields.
+  It has been tested against several real navigation and media apps.
 - **Audio reaches the car by capturing playback, not by mirroring the screen.** Android
   requires a screen-share style consent dialog and indicator for this, even though
   Gearslip never reads the screen; that grant is the only way a non-privileged app can
-  tap another app's audio. The consent normally repeats every drive; the app's own setup
-  steps include two optional adb commands that reduce it to a one-time grant.
-- **A real head unit needs a certificate that Google controls.** A head unit accepts only
-  a phone identity that chains to Google's Automotive Link certificate authority, and
-  Google alone issues those certificates. Gearslip does not ship one. Without it,
-  Gearslip runs and renders correctly against a debug harness, but a real car rejects the
-  connection. A leaked certificate exists that older head units accept; newer firmware
-  and Google's reference tooling reject it.
+  tap another app's audio. The consent normally repeats every drive; two optional adb
+  commands in the setup guide reduce it to a one-time grant.
 - **Gearslip needs no adb, root, or Shizuku.** Every feature relies on an ordinary
   Android permission or an on-device consent dialog. The two adb commands mentioned
   above, for audio, are the sole exception: both are optional, and both only remove a
