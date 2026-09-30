@@ -91,7 +91,7 @@ private fun AppSurface(
 
     // A fresh SurfaceView - and so a fresh Surface - for every size, the way Android Auto hands an
     // app a new surface rather than resizing the old one. A resized SurfaceView keeps the same
-    // BufferQueue, and apps that draw through their own VirtualDisplay (Flitsmeister) build the
+    // BufferQueue, and apps that draw through their own VirtualDisplay build the
     // new one on it before releasing the old: the old display's disconnect then takes the new one's
     // connection with it and the map freezes for good. The nav bar hiding for the search keyboard
     // and the lyrics pane opening both resize this area.
