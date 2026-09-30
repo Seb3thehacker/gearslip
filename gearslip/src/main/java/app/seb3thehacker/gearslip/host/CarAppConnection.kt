@@ -139,8 +139,19 @@ class CarAppConnection(private val context: Context) {
             // Replaced by another connect (or a disconnect) while waiting on the location service.
             if (binding !== connection) return@bind
             var bindError: Throwable? = null
+            val flags = Context.BIND_AUTO_CREATE or LocationKeepAlive.BIND_INCLUDE_CAPABILITIES
             val bound = runCatching {
-                context.bindService(intent, connection, Context.BIND_AUTO_CREATE or LocationKeepAlive.BIND_INCLUDE_CAPABILITIES)
+                // Without BIND_FOREGROUND_SERVICE, an app bound by a foreground service (which is
+                // all Gearslip is once the phone screen leaves it) only reaches "important
+                // foreground", and that state loses network under Doze and background network
+                // restrictions: the map and GPS keep working while search and routing go dead.
+                // In the preview Gearslip is the top app, which hides this. Retried without the
+                // flag in case a build of Android refuses it from an unprivileged caller.
+                runCatching { context.bindService(intent, connection, flags or BIND_FOREGROUND_SERVICE) }
+                    .getOrElse {
+                        GearslipLog.w("host: foreground binding refused (${it.message}); binding without it")
+                        context.bindService(intent, connection, flags)
+                    }
             }.getOrElse {
                 GearslipLog.e("bindService threw for ${app.component}", it)
                 bindError = it
@@ -428,10 +439,14 @@ class CarAppConnection(private val context: Context) {
         }
     }
 
-    /** Takes the Surface back, e.g. when the SurfaceView goes away. */
-    fun detachSurface() {
+    /**
+     * Takes the Surface back, e.g. when the SurfaceView goes away. With [surface], only if that is
+     * still the one lent - a replaced view's teardown must not take back its successor's.
+     */
+    fun detachSurface(surface: Surface? = null) {
         main.post {
             val current = lent ?: return@post
+            if (surface != null && current.surface !== surface) return@post
             lent = null
             sendSurfaceDestroyed(current)
             update { it.copy(surfaceAttached = false) }
@@ -714,5 +729,8 @@ class CarAppConnection(private val context: Context) {
     private companion object {
         /** The newest template API this host claims to understand. */
         const val HOST_API_LEVEL = CarAppApiLevels.LEVEL_8
+
+        /** Context.BIND_FOREGROUND_SERVICE; the constant itself is hidden from the SDK. */
+        const val BIND_FOREGROUND_SERVICE = 0x04000000
     }
 }

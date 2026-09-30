@@ -89,6 +89,28 @@ private fun AppSurface(
         }
     }
 
+    // A fresh SurfaceView - and so a fresh Surface - for every size, the way Android Auto hands an
+    // app a new surface rather than resizing the old one. A resized SurfaceView keeps the same
+    // BufferQueue, and apps that draw through their own VirtualDisplay build the
+    // new one on it before releasing the old: the old display's disconnect then takes the new one's
+    // connection with it and the map freezes for good. The nav bar hiding for the search keyboard
+    // and the lyrics pane opening both resize this area.
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+        androidx.compose.runtime.key(constraints.maxWidth, constraints.maxHeight) {
+            SurfaceHost(connection, frame, onSize = { size = it }, Modifier.fillMaxSize())
+        }
+    }
+
+    DisposableEffect(connection) { onDispose { connection.detachSurface() } }
+}
+
+@Composable
+private fun SurfaceHost(
+    connection: CarAppConnection,
+    frame: CarEnvironment.Frame,
+    onSize: (Pair<Int, Int>) -> Unit,
+    modifier: Modifier,
+) {
     AndroidView(
         modifier = modifier
             .pointerInput(connection) {
@@ -114,20 +136,20 @@ private fun AppSurface(
                         height: Int,
                     ) {
                         GearslipLog.i("stage: surface ready at ${width}x$height")
-                        size = width to height
+                        onSize(width to height)
                         connection.attachSurface(holder.surface, width, height, frame.densityDpi)
                     }
 
                     override fun surfaceDestroyed(holder: SurfaceHolder) {
                         GearslipLog.i("stage: surface destroyed")
-                        connection.detachSurface()
+                        // Only this view's own surface: a replaced view's teardown can land after
+                        // its successor has already lent the app a new one.
+                        connection.detachSurface(holder.surface)
                     }
                 })
             }
         },
     )
-
-    DisposableEffect(connection) { onDispose { connection.detachSurface() } }
 }
 
 @Composable
