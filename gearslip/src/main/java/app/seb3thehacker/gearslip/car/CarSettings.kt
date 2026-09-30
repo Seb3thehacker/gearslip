@@ -25,6 +25,10 @@ object CarSettings {
     private const val KEY_AUTOPLAY = "car_autoplay"
     private const val KEY_THEME = "car_app_theme"
     private const val KEY_PINNED = "car_pinned_apps"
+    private const val KEY_EXPERIMENTAL_FEATURES = "car_experimental_features"
+    private const val KEY_VOICE_ASSISTANT = "car_voice_assistant"
+    private const val KEY_CAR_SENSORS = "car_sensors_enabled"
+    private const val KEY_SEEN_SAFETY_WARNING = "car_seen_safety_warning"
 
     /** How many shortcuts the nav bar makes room for; a driver reaching for one needs it to
      * still be on the bar, not off the edge of a long list. */
@@ -45,6 +49,10 @@ object CarSettings {
     private val themeFlow = MutableStateFlow(AppTheme.PHONE)
     val appTheme: StateFlow<AppTheme> = themeFlow
     private val pinnedFlow = MutableStateFlow<Set<String>>(emptySet())
+    private val experimentalFeaturesFlow = MutableStateFlow(false)
+    private val voiceAssistantFlow = MutableStateFlow(false)
+    private val carSensorsFlow = MutableStateFlow(false)
+    private val seenSafetyWarningFlow = MutableStateFlow(false)
 
     /** Flattened component names of the apps long-pressed onto the nav bar as shortcuts. */
     val pinnedApps: StateFlow<Set<String>> = pinnedFlow
@@ -68,6 +76,40 @@ object CarSettings {
      */
     val pipeAudio: StateFlow<Boolean> = pipeAudioFlow
 
+    /**
+     * Off by default: a driver has to opt into experimental features as a whole before any of
+     * them - the voice assistant included - show up to turn on individually.
+     */
+    val experimentalFeaturesEnabled: StateFlow<Boolean> = experimentalFeaturesFlow
+
+    /**
+     * The voice assistant is experimental and off by default; a driver has to turn it on
+     * knowingly, from the settings screen, after reading the warning shown there. This flag
+     * alone does not run the assistant - [experimentalFeaturesEnabled] must also be on.
+     */
+    val voiceAssistantEnabled: StateFlow<Boolean> = voiceAssistantFlow
+
+    /**
+     * Vehicle data is experimental and off by default: the launcher's tile for it, and the
+     * voice assistant's "vehicle data" command, only show up once this and
+     * [experimentalFeaturesEnabled] are both on. See [app.seb3thehacker.gearslip.car.CarSensors]
+     * for why the raw sensor feed it shows is worth gating - the field labels are unverified.
+     */
+    val carSensorsEnabled: StateFlow<Boolean> = carSensorsFlow
+
+    /**
+     * Whether the car screen's own "drive safely" warning has already been shown and dismissed
+     * once, from this same install. Separate from the phone side's own compat/safety dialogs -
+     * a driver who only ever plugs in and never opens the phone app should still see this once,
+     * on the screen they are actually about to use while driving.
+     */
+    val hasSeenSafetyWarning: StateFlow<Boolean> = seenSafetyWarningFlow
+
+    fun markSafetyWarningSeen() {
+        seenSafetyWarningFlow.value = true
+        AppSettings.putString(app, KEY_SEEN_SAFETY_WARNING, "true")
+    }
+
     fun init(context: Context) {
         app = context.applicationContext
         scaleFlow.value = AppSettings.getString(app, KEY_SCALE, "1.0").toFloatOrNull() ?: 1f
@@ -84,6 +126,10 @@ object CarSettings {
         }.getOrDefault(NightMode.AUTO)
         pinnedFlow.value = AppSettings.getString(app, KEY_PINNED, "")
             .split(",").filter { it.isNotEmpty() }.toSet()
+        experimentalFeaturesFlow.value = AppSettings.getString(app, KEY_EXPERIMENTAL_FEATURES, "false") == "true"
+        voiceAssistantFlow.value = AppSettings.getString(app, KEY_VOICE_ASSISTANT, "false") == "true"
+        carSensorsFlow.value = AppSettings.getString(app, KEY_CAR_SENSORS, "false") == "true"
+        seenSafetyWarningFlow.value = AppSettings.getString(app, KEY_SEEN_SAFETY_WARNING, "false") == "true"
     }
 
     fun setScale(value: Float) {
@@ -119,6 +165,21 @@ object CarSettings {
     fun setPipeAudio(on: Boolean) {
         pipeAudioFlow.value = on
         AppSettings.putString(app, KEY_PIPE_AUDIO, on.toString())
+    }
+
+    fun setExperimentalFeaturesEnabled(on: Boolean) {
+        experimentalFeaturesFlow.value = on
+        AppSettings.putString(app, KEY_EXPERIMENTAL_FEATURES, on.toString())
+    }
+
+    fun setVoiceAssistantEnabled(on: Boolean) {
+        voiceAssistantFlow.value = on
+        AppSettings.putString(app, KEY_VOICE_ASSISTANT, on.toString())
+    }
+
+    fun setCarSensorsEnabled(on: Boolean) {
+        carSensorsFlow.value = on
+        AppSettings.putString(app, KEY_CAR_SENSORS, on.toString())
     }
 
     fun setNightMode(mode: NightMode) {

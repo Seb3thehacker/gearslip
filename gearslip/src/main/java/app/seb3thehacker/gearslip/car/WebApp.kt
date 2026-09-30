@@ -86,6 +86,10 @@ fun WebApp(content: String) {
                     web?.evaluateJavascript(setFieldValueJs(updated), null)
                 },
                 onSubmit = { web?.evaluateJavascript(SUBMIT_FIELD_JS, null) },
+                onDismiss = {
+                    fieldText = null
+                    web?.evaluateJavascript(BLUR_FIELD_JS, null)
+                },
             )
         }
     }
@@ -144,6 +148,10 @@ private fun setFieldValueJs(value: String) = """
 // Fires a real Enter keydown first - the same event a site's own JS would see from a physical
 // keyboard - and only falls back to submitting the form directly if nothing handled it, so a
 // search-as-you-type page and a plain <form> both work without submitting twice.
+// Dismissing the host keyboard without blurring the page's own field would leave it focused,
+// so the next tap anywhere with a text cursor pops the keyboard straight back up.
+private const val BLUR_FIELD_JS = "document.activeElement && document.activeElement.blur();"
+
 private const val SUBMIT_FIELD_JS = """
     (function() {
         var el = document.activeElement;

@@ -1,7 +1,6 @@
 package app.seb3thehacker.gearslip.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,15 +11,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -80,11 +82,24 @@ private fun setupSteps(onRequestCallScreening: () -> Unit) = listOf(
 
 /** The full setup reference, behind the help button: what the one-time guide walks through, kept
  * here too so it can be reread without repeating the guide itself. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HelpScreen(onBack: () -> Unit, onRequestCallScreening: () -> Unit) {
+fun HelpScreen(onBack: () -> Unit, onRequestCallScreening: () -> Unit, onReplayTutorial: () -> Unit) {
     val steps = remember(onRequestCallScreening) { setupSteps(onRequestCallScreening) }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("How to connect") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
@@ -92,17 +107,11 @@ fun HelpScreen(onBack: () -> Unit, onRequestCallScreening: () -> Unit) {
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Spacer(Modifier.height(24.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.headlineMedium) }
-                Text(
-                    "How to connect",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
+            Spacer(Modifier.height(8.dp))
+            FilledTonalButton(onClick = onReplayTutorial, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                Text("Replay the guided tutorial")
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(24.dp))
             Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 steps.forEachIndexed { index, step ->
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -133,25 +142,6 @@ fun HelpScreen(onBack: () -> Unit, onRequestCallScreening: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(32.dp))
-        }
-    }
-}
-
-/** The small circular "?" button that opens [HelpScreen] from the top right of the home screen. */
-@Composable
-fun HelpButton(onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-    ) {
-        Box(Modifier.padding(10.dp), contentAlignment = Alignment.Center) {
-            Text(
-                "?",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
         }
     }
 }

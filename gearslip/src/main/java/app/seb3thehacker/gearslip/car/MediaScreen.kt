@@ -87,8 +87,11 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
     // The connection outlives this screen: the home screen's player is the same one.
     LaunchedEffect(app) { CarServices.openMedia(app) }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = onExit) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back to apps") }
             Text(app.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
@@ -117,7 +120,7 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
             }
             CarMedia.Phase.CONNECTING, CarMedia.Phase.IDLE -> Notice("Connecting to ${app.label}…", null)
             CarMedia.Phase.READY -> Row(
-                Modifier.fillMaxSize().padding(top = 6.dp),
+                Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 // The art rail sits at the top, level with the tab row beside it, on every tab -
@@ -172,9 +175,10 @@ private fun MediaTab(label: String, selected: Boolean, modifier: Modifier, onCli
  */
 @Composable
 internal fun LyricsPanel(now: NowPlaying, modifier: Modifier) {
+    val context = LocalContext.current
     val lyrics by produceState<LyricsState>(LyricsState.Loading, now.title, now.artist, now.album, now.durationMs) {
         value = LyricsState.Loading
-        value = Lyrics.find(now.title, now.artist, now.album, now.durationMs)
+        value = Lyrics.find(context, now.title, now.artist, now.album, now.durationMs)
             ?.let { LyricsState.Found(it) } ?: LyricsState.Missing
     }
     val list = rememberLazyListState()
@@ -273,7 +277,7 @@ private fun formatDuration(ms: Long): String {
  * for [NowPlayingExtras], since those are the one thing that isn't already always shown here.
  */
 @Composable
-private fun NowPlayingRail(now: NowPlaying, media: CarMedia, modifier: Modifier) {
+internal fun NowPlayingRail(now: NowPlaying, media: CarMedia, modifier: Modifier) {
     val context = LocalContext.current
     val art by produceState(now.art, now.art, now.artUri) {
         value = now.art ?: MediaArt.load(context, now.artUri)
@@ -293,7 +297,7 @@ private fun NowPlayingRail(now: NowPlaying, media: CarMedia, modifier: Modifier)
     BoxWithConstraints(modifier) {
         // Off the space actually available rather than a fixed dp value, so it doesn't overrun a
         // short car frame the way a flat size did on anything shorter than a phone screen.
-        val artSize = minOf(maxWidth, maxHeight * 0.45f).coerceAtLeast(96.dp)
+        val artSize = (minOf(maxWidth, maxHeight * 0.45f) * 1.2f).coerceAtLeast(96.dp)
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Surface(
                 shape = MaterialTheme.shapes.large,
@@ -441,7 +445,7 @@ private fun QueueRow(track: QueueTrack, media: CarMedia) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(52.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surface)) {
+            Box(Modifier.size(62.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surface)) {
                 icon?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             }
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
@@ -468,7 +472,7 @@ private fun EntryRow(entry: MediaEntry, media: CarMedia) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(52.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surface)) {
+            Box(Modifier.size(62.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surface)) {
                 icon?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             }
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
@@ -492,6 +496,7 @@ internal object MediaIcons {
     /** The 3x3 app grid; not in material-icons-core. */
     val Apps = icon("Apps", "M4,8h4L8,4L4,4v4zM10,20h4v-4h-4v4zM4,20h4v-4L4,16v4zM4,14h4v-4L4,10v4zM10,14h4v-4h-4v4zM16,4v4h4L20,4h-4zM10,8h4L14,4h-4v4zM16,14h4v-4h-4v4zM16,20h4v-4h-4v4z")
     val Previous = icon("SkipPrevious", "M6,6h2v12L6,18zM9.5,12l8.5,6V6z")
+    val Equalizer = icon("Equalizer", "M10,20h4L14,4h-4v16zM4,20h4v-8L4,12v8zM16,9v11h4L20,9h-4z")
 
     private fun icon(name: String, path: String) = ImageVector.Builder(
         name, 24.dp, 24.dp, 24f, 24f,

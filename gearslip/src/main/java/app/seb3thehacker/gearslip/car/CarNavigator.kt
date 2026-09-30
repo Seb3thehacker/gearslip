@@ -17,8 +17,18 @@ sealed interface CarScreen {
     /** Opened from the weather chip or the dashboard: now, the next hours and the week. */
     data object Weather : CarScreen
 
+    /** Everything the head unit's sensor channel has advertised and sent, raw. */
+    data object VehicleData : CarScreen
+
     /** The current media app, full size: browse, lyrics and controls. */
     data object Media : CarScreen
+
+    /**
+     * A templated app that isn't a navigation app - Spotify's own Car App Library service, among
+     * others - opened on its own screen rather than the Home map slot, which only a genuine
+     * navigation app can claim.
+     */
+    data object Browse : CarScreen
 
     /** [replyTo] is a notification key to open straight into its reply pane. */
     data class Notifications(val replyTo: String? = null) : CarScreen
@@ -78,6 +88,8 @@ class CarNavigator(startId: String) {
 
     fun media() { push(CarScreen.Media, "Media") }
 
+    fun browse(label: String) { push(CarScreen.Browse, label) }
+
     fun apps() { push(CarScreen.Apps, "Apps") }
 
     fun settings() { push(CarScreen.Settings, "Settings") }
@@ -85,6 +97,8 @@ class CarNavigator(startId: String) {
     fun dashboard() { push(CarScreen.Dashboard, "Dashboard") }
 
     fun weather() { push(CarScreen.Weather, "Weather") }
+
+    fun vehicleData() { push(CarScreen.VehicleData, "Vehicle data") }
 
     fun notifications(replyTo: String? = null) { push(CarScreen.Notifications(replyTo), "Notifications") }
 

@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,6 +29,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 
 /**
+ * Whether a [CarKeyboard] is on screen right now, so [CarUi] can give it the row of height the
+ * bottom nav bar normally holds instead of squeezing it in above - a driver typing has no use
+ * for Home/Apps/Settings shortcuts anyway, and the screen is small enough that the space matters.
+ */
+object CarKeyboardVisibility {
+    val state = mutableStateOf(false)
+}
+
+/**
  * A keyboard the host draws itself.
  *
  * Text entry in a car can't use the phone's IME: the car UI lives in a Presentation on a
@@ -35,7 +46,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
  * the same reasons, so this does too - large keys, no long-press, no prediction.
  *
  * It is a pure function of [text]: every key reports the new string and holds no state beyond
- * which layer is showing.
+ * which layer is showing. Laid out like a PC's QWERTY keyboard rather than a phone's: shift and
+ * backspace flank the letter block (top-right and bottom-left of it, same as a physical board),
+ * not the space bar, so a fumbled reach for space never lands on delete instead.
+ *
+ * [onDismiss] is null wherever there's no keyboard-shown state independent of the screen itself
+ * (a search template, sign-in) - there, the header's own back action is the only way out and no
+ * dismiss button is drawn.
  */
 @Composable
 fun CarKeyboard(
@@ -45,9 +62,15 @@ fun CarKeyboard(
     modifier: Modifier = Modifier,
     submitIcon: Boolean = true,
     submitImage: ImageVector? = null,
+    onDismiss: (() -> Unit)? = null,
 ) {
     var symbols by remember { mutableStateOf(false) }
     var shifted by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        CarKeyboardVisibility.state.value = true
+        onDispose { CarKeyboardVisibility.state.value = false }
+    }
 
     val rows = if (symbols) SYMBOL_ROWS else LETTER_ROWS
 
@@ -59,7 +82,7 @@ fun CarKeyboard(
             Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            rows.forEach { row ->
+            rows.dropLast(1).forEach { row ->
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -74,19 +97,40 @@ fun CarKeyboard(
                 }
             }
 
+            // The bottom letter row: shift and backspace bookend it, exactly where a physical
+            // keyboard puts them relative to the letter block, not down beside the space bar.
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (!symbols) {
+                    Key(if (shifted) "SHIFT" else "shift", Modifier.weight(1.6f)) { shifted = !shifted }
+                }
+                rows.last().forEach { key ->
+                    val label = if (shifted && !symbols) key.uppercase() else key
+                    Key(label, Modifier.weight(1f)) {
+                        onTextChange(text + label)
+                        shifted = false
+                    }
+                }
+                Key("⌫", Modifier.weight(1.6f)) {
+                    if (text.isNotEmpty()) onTextChange(text.dropLast(1))
+                }
+            }
+
+            // Control row: no backspace here - it stays with the letters above, not next to the
+            // key most likely to be hit right after it by mistake. Dismiss (when offered) is the
+            // last key, bottom-right corner of the keyboard.
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Key(if (symbols) "abc" else "?123", Modifier.weight(1.4f)) { symbols = !symbols }
-                if (!symbols) {
-                    Key(if (shifted) "SHIFT" else "shift", Modifier.weight(1.4f)) { shifted = !shifted }
-                }
-                Key("space", Modifier.weight(3f)) { onTextChange("$text ") }
-                Key("⌫", Modifier.weight(1.4f)) {
-                    if (text.isNotEmpty()) onTextChange(text.dropLast(1))
-                }
+                Key("space", Modifier.weight(if (onDismiss != null) 3.2f else 4f)) { onTextChange("$text ") }
                 SubmitKey(Modifier.weight(1.6f), submitIcon, submitImage, onSubmit)
+                if (onDismiss != null) {
+                    DismissKey(onDismiss, Modifier.weight(1.4f))
+                }
             }
         }
     }
@@ -111,6 +155,24 @@ private fun Key(label: String, modifier: Modifier = Modifier, onClick: () -> Uni
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
             )
+        }
+    }
+}
+
+@Composable
+private fun DismissKey(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(8.dp),
+        modifier = modifier.height(KEY_HEIGHT).clickable(onClick = onClick),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Close, contentDescription = "Hide keyboard")
         }
     }
 }

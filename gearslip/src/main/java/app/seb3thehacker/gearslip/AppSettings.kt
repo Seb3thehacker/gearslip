@@ -1,6 +1,8 @@
 package app.seb3thehacker.gearslip
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 
 /** User-facing preferences. Read fresh on every session, so changes apply on the next connect. */
 object AppSettings {
@@ -9,8 +11,8 @@ object AppSettings {
     private const val KEY_STARTUP_URL = "startup_url"
     private const val KEY_SEEN_COMPAT_WARNING = "seen_compat_warning"
     private const val KEY_SKIPPED_CERT_SETUP = "skipped_cert_setup"
-    private const val KEY_DEBUG_MODE = "debug_mode"
     private const val KEY_SEEN_PERMISSIONS_SETUP = "seen_permissions_setup"
+    private const val KEY_GEARSLIP_ENABLED = "gearslip_enabled"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -55,14 +57,27 @@ object AppSettings {
     }
 
     /**
-     * Debug mode: full protocol tracing in the log, and the developer screens (live logs, car
-     * preview) on the home screen. On by default while the project is pre-release.
+     * Whether Gearslip is allowed to claim the USB accessory connection. Off leaves the app
+     * installed but disables the GearslipUsbAccessory alias that answers
+     * USB_ACCESSORY_ATTACHED, so a real Android Auto head unit (or Google's own app) gets the
+     * connection instead - the two fight over it otherwise, since only one app can win the
+     * accessory handoff. The alias is separate from GearslipActivity itself - the activity that
+     * shows this very switch - so turning it off can't disable the screen you're looking at.
+     * On by default.
      */
-    fun debugMode(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_DEBUG_MODE, true)
+    fun gearslipEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_GEARSLIP_ENABLED, true)
 
-    fun setDebugMode(context: Context, value: Boolean) {
-        prefs(context).edit().putBoolean(KEY_DEBUG_MODE, value).apply()
-        GearslipLog.debug = value
+    fun setGearslipEnabled(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean(KEY_GEARSLIP_ENABLED, value).apply()
+        val appContext = context.applicationContext
+        val component = ComponentName(appContext.packageName, "${appContext.packageName}.GearslipUsbAccessory")
+        val state = if (value) {
+            PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+        } else {
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        }
+        context.applicationContext.packageManager
+            .setComponentEnabledSetting(component, state, PackageManager.DONT_KILL_APP)
     }
 }

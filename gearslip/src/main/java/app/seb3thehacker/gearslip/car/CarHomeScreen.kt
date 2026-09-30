@@ -25,8 +25,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,18 +52,22 @@ fun CarHome() {
     LaunchedEffect(phase) { if (phase == CarMedia.Phase.READY) CarServices.autoplayIfDue() }
 
     val navigator = LocalCarNavigator.current
-    val showLyrics = phase == CarMedia.Phase.READY && now.isActive && navigator.lyricsOpen
+    val splitScreen = phase == CarMedia.Phase.READY && now.isActive && navigator.lyricsOpen
 
-    Row(Modifier.fillMaxSize().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // No outer padding on any side, split screen or not - only the gap between the two panes
+    // when lyrics are sharing the screen with the map.
+    Row(
+        Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Box(
             Modifier
-                .weight(if (showLyrics) 2.1f else 1f)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(EMBEDDED_RADIUS)),
+                .weight(if (splitScreen) 2.1f else 1f)
+                .fillMaxHeight(),
         ) {
             MapPane(navStatus, frame)
         }
-        if (showLyrics) {
+        if (splitScreen) {
             LyricsColumn(now, Modifier.weight(1f).fillMaxHeight())
         }
     }
@@ -85,6 +87,7 @@ private fun MapPane(status: CarAppConnection.Status, frame: CarEnvironment.Frame
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val hasLast = CarSettings.lastNav.value != null
+        val hasNavApps by CarServices.hasNavApps.collectAsStateWithLifecycle()
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         when (status.phase) {
             CarAppConnection.Phase.BINDING, CarAppConnection.Phase.HANDSHAKE ->
@@ -94,24 +97,25 @@ private fun MapPane(status: CarAppConnection.Status, frame: CarEnvironment.Frame
                 status.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 TextButton(onClick = navigator::apps) { Text("Choose another app") }
             }
-            else -> {
+            else -> if (!hasNavApps) {
+                // Nothing to auto-select and nothing to pick from Car apps either - this is the
+                // only case worth a distinct screen, since every other IDLE case resolves itself.
+                Text("No mapping apps found.", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Install a navigation app that supports Android Auto and it will start here on its own.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else if (hasLast) {
                 // IDLE with a last app on record means the driver stopped it themselves - it will
                 // not come back on its own, so the screen must offer a way to bring it back rather
                 // than sit on a "starting" message that never resolves.
-                Text(
-                    if (hasLast) "Map stopped." else "No map app chosen yet.",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                if (hasLast) {
-                    TextButton(onClick = { scope.launch { CarServices.reconnectNav(frame) } }) { Text("Reopen") }
-                } else {
-                    Text(
-                        "Open Car apps and connect a navigation app; it will start here next time.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text("Map stopped.", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { scope.launch { CarServices.reconnectNav(frame) } }) { Text("Reopen") }
                 TextButton(onClick = { navigator.apps() }) { Text("Car apps") }
+            } else {
+                // Autostart is still picking one - a navigation app is installed, so this resolves
+                // to a "Starting..." state itself, in the next frame or two.
             }
         }
     }
@@ -126,7 +130,6 @@ private fun LyricsColumn(now: NowPlaying, modifier: Modifier) {
     val navigator = LocalCarNavigator.current
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(EMBEDDED_RADIUS),
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {

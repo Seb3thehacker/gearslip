@@ -55,6 +55,10 @@ android {
         }
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     // Keeps build output out of the module folder: <root>/build/gearslip/... instead of
     // <root>/gearslip/build/..., so everything this project produces lands under one
     // root-level build/ directory.

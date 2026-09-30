@@ -1,9 +1,13 @@
 package app.seb3thehacker.gearslip.car
 
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.Image
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -424,8 +428,15 @@ private fun standardFor(action: Action): Int? = when (action.type) {
     Action.TYPE_BACK -> CarIcon.TYPE_BACK
     Action.TYPE_PAN -> CarIcon.TYPE_PAN
     Action.TYPE_APP_ICON -> CarIcon.TYPE_APP_ICON
+    ACTION_TYPE_NOW_PLAYING -> ACTION_TYPE_NOW_PLAYING
     else -> null
 }
+
+/**
+ * The media "now playing" standard action, newer than the Car App Library we build against, so it
+ * has no named constant here. Spotify puts it in its header with no icon of its own.
+ */
+private const val ACTION_TYPE_NOW_PLAYING = 65542
 
 // --- icons ----------------------------------------------------------------------------------
 
@@ -437,7 +448,14 @@ private fun standardFor(action: Action): Int? = when (action.type) {
 @Composable
 internal fun CarGlyph(icon: CarIcon?, modifier: Modifier = Modifier, standard: Int? = null) {
     val context = LocalContext.current
-    val bitmap = icon.image(context)
+    // Off the main thread and cached per icon: loadDrawable() is a Binder round trip into the
+    // app's own process for a content:// icon, plus a bitmap decode - done synchronously on the
+    // composition thread for every tile on screen, that's what made a shelf of ten covers feel
+    // like it was hanging rather than loading.
+    val bitmapState by produceState<ImageBitmap?>(null, icon) {
+        value = withContext(Dispatchers.IO) { icon.image(context) }
+    }
+    val bitmap = bitmapState
     if (bitmap != null) {
         // An icon that names a tint (DEFAULT included) expects the host to colour it for the
         // surface it sits on; without this a white glyph vanishes on a light theme.
@@ -458,6 +476,7 @@ internal fun CarGlyph(icon: CarIcon?, modifier: Modifier = Modifier, standard: I
         CarIcon.TYPE_ALERT, CarIcon.TYPE_ERROR -> Icons.Filled.Warning
         // No four-way pan glyph in material-icons-core; this is the closest honest stand-in.
         CarIcon.TYPE_PAN -> Icons.Filled.Menu
+        ACTION_TYPE_NOW_PLAYING -> MediaIcons.Equalizer
         else -> null
     } ?: return
     Icon(vector, contentDescription = null, modifier = modifier)
@@ -500,7 +519,9 @@ internal fun ItemListColumn(
     }
 }
 
-/** A grid of large tappable tiles - what apps use for a home screen beside the map. */
+/** A grid of tappable tiles - what apps use for a home screen beside the map. Icons here are as
+ * often a small menu glyph (Organic Maps' Search, say) as real cover art, so the tile stays
+ * modest; [GridTile]'s own default is for the shelf case, where every tile is a photo. */
 @Composable
 internal fun GridItems(list: ItemList?, modifier: Modifier = Modifier) {
     val items = list?.items?.filterIsInstance<GridItem>().orEmpty()
@@ -512,32 +533,41 @@ internal fun GridItems(list: ItemList?, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        items(items) { item ->
-            Column(
-                Modifier
-                    .clickable { item.onClickDelegate.click("grid item") }
-                    .padding(vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                CarGlyph(item.image, Modifier.size(36.dp))
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    item.title.text(),
-                    style = ChromeType.label,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val subtitle = item.text.text()
-                if (subtitle.isNotEmpty()) {
-                    Text(
-                        subtitle,
-                        style = ChromeType.label,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+        items(items) { item -> GridTile(item, iconSize = 36.dp) }
+    }
+}
+
+/**
+ * One cover-art tile: an app's own icon over a title and optional subtitle. Shared by
+ * [GridItems] (a whole screen of tiles, [iconSize] scaled down there to suit a plain menu glyph)
+ * and a section's horizontal shelf, which carries the same [GridItem] type but scrolls sideways
+ * instead of wrapping into a grid and wants its full-size cover art.
+ */
+@Composable
+internal fun GridTile(item: GridItem, modifier: Modifier = Modifier, iconSize: androidx.compose.ui.unit.Dp = 144.dp) {
+    Column(
+        modifier
+            .clickable { item.onClickDelegate.click("grid item") }
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CarGlyph(item.image, Modifier.size(iconSize))
+        Spacer(Modifier.height(6.dp))
+        Text(
+            item.title.text(),
+            style = ChromeType.label,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        val subtitle = item.text.text()
+        if (subtitle.isNotEmpty()) {
+            Text(
+                subtitle,
+                style = ChromeType.label,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -629,6 +659,7 @@ internal class RowSelection(val selected: Boolean, val onPick: () -> Unit)
 
 internal fun Color.luminanceIsDark(): Boolean =
     (red * 0.299f + green * 0.587f + blue * 0.114f) < 0.5f
+
 
 
 /** True for a glyph drawn entirely in white (any transparency): a mask, not a picture. */

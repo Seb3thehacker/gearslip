@@ -90,6 +90,17 @@ private fun hasNotificationAccess(context: Context): Boolean {
 }
 
 private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<GuidePage> = buildList {
+    // --- Safety: always first, and never skipped by an already-granted check ---------
+    add(
+        GuidePage(
+            title = "Drive safely",
+            explanation = "This guide sets up the screen you will see mounted in your car. " +
+                "Gearslip is unofficial software: it is not made or reviewed by any carmaker, " +
+                "and it can fail without warning. Never interact with it while driving - set it " +
+                "up, mount the phone, then keep your attention on the road.",
+        ),
+    )
+
     // --- Permissions: skipped outright once already granted, nothing left to ask -----
     if (CarSettings.pipeAudio.value && !granted(context, arrayOf(Manifest.permission.RECORD_AUDIO))) {
         add(

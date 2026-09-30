@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -46,6 +48,9 @@ fun CarSettingsScreen() {
     val pipeAudio by CarSettings.pipeAudio.collectAsState()
     val autoplay by CarSettings.autoplay.collectAsState()
     val theme by CarSettings.appTheme.collectAsState()
+    val experimentalFeatures by CarSettings.experimentalFeaturesEnabled.collectAsState()
+    val voiceAssistant by CarSettings.voiceAssistantEnabled.collectAsState()
+    val carSensors by CarSettings.carSensorsEnabled.collectAsState()
     val display by CarEnvironment.display.collectAsState()
     val vehicle by CarEnvironment.vehicle.collectAsState()
     val context = LocalContext.current
@@ -110,6 +115,15 @@ fun CarSettingsScreen() {
 
         ScreenFit(vehicle)
 
+        ChoiceRow(
+            "Experimental features",
+            listOf(false to "Hide", true to "Show"),
+            experimentalFeatures,
+        ) { CarSettings.setExperimentalFeaturesEnabled(it) }
+        if (experimentalFeatures) {
+            ExperimentalFeaturesList(voiceAssistant, carSensors)
+        }
+
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Connection", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Info("Phone", "${Build.MANUFACTURER} ${Build.MODEL}")
@@ -141,6 +155,72 @@ private fun <T> ChoiceRow(title: String, options: List<Pair<T, String>>, selecte
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Individually-switched experimental features, shown once the driver has opted into
+ * experimental features as a whole. Each is its own row - a title, what it does, and a switch -
+ * so the list reads fine whether there's one entry or several.
+ */
+@Composable
+private fun ExperimentalFeaturesList(voiceAssistant: Boolean, carSensors: Boolean) {
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        ExperimentalFeatureRow(
+            title = "Voice assistant",
+            description = "Push-to-talk and the car's voice button start listening: navigate, " +
+                "play media, call, or open an app by saying so. Can mishear you or act on the " +
+                "wrong command - keep your eyes on the road, and confirm anything it does " +
+                "before you rely on it.",
+            warning = true,
+            checked = voiceAssistant,
+        ) { CarSettings.setVoiceAssistantEnabled(it) }
+
+        ExperimentalFeatureRow(
+            title = "Vehicle data",
+            description = "Adds a Vehicle data tile: a live, raw dump of the head unit's sensor " +
+                "channel. Field labels (speed, RPM, fuel...) are carried over from other " +
+                "reverse-engineering projects and unverified against this car - treat them as a " +
+                "guess, not a fact, until you've watched one change for yourself.",
+            checked = carSensors,
+        ) { CarSettings.setCarSensorsEnabled(it) }
+    }
+}
+
+@Composable
+private fun ExperimentalFeatureRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    warning: Boolean = false,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
     }
 }
@@ -182,6 +262,7 @@ private fun WebPageSetting() {
                     AppSettings.setStartupUrl(context, it)
                 },
                 onSubmit = { editing = false },
+                onDismiss = { editing = false },
             )
         }
     }

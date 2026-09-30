@@ -106,27 +106,55 @@ object ServiceDiscovery {
     )
 
     /**
-     * The head unit's touchscreen, from InputSourceService (Service field 4):
-     *   InputSourceService { keycodes = 1; repeated TouchScreen touchscreen = 2; ... }
+     * The head unit's touchscreen and button set, from InputSourceService (Service field 4):
+     *   InputSourceService { repeated int32 keycodes_supported = 1 [packed=true];
+     *                         repeated TouchScreen touchscreen = 2; ... }
      *   TouchScreen { required int32 width = 1; required int32 height = 2; type = 3; }
      *
      * Touch coordinates arrive in this space (1258x708 on the 2018 Uconnect) and must be
-     * scaled to the projected video size before injection.
+     * scaled to the projected video size before injection. [keycodesSupported] is what the
+     * head unit says it will actually send over the Input channel as key events (steering-wheel
+     * buttons, etc.) - not every unit reports the same set, so it's kept for diagnostics and to
+     * know ahead of time whether a button like voice/PTT is even wired up on this hardware.
      */
-    class InputService(val serviceId: Int, val touchWidth: Int, val touchHeight: Int)
+    class InputService(
+        val serviceId: Int,
+        val touchWidth: Int,
+        val touchHeight: Int,
+        val keycodesSupported: List<Int> = emptyList(),
+    )
 
     fun findInputService(response: ByteArray): InputService? {
         for (channel in Wire.allBytes(Wire.fields(response), 1)) {
             val service = Wire.fields(channel)
             val id = Wire.varint(service, 1)?.toInt() ?: continue
             val input = Wire.bytes(service, 4) ?: continue
-            val touch = Wire.bytes(Wire.fields(input), 2) ?: continue
+            val inputFields = Wire.fields(input)
+            val touch = Wire.bytes(inputFields, 2) ?: continue
             val touchFields = Wire.fields(touch)
             val width = Wire.varint(touchFields, 1)?.toInt() ?: continue
             val height = Wire.varint(touchFields, 2)?.toInt() ?: continue
-            return InputService(id, width, height)
+            val keycodes = Wire.bytes(inputFields, 1)?.let(::packedVarints).orEmpty()
+            return InputService(id, width, height, keycodes)
         }
         return null
+    }
+
+    /** Decodes a `[packed=true]` repeated varint field's raw bytes into individual values. */
+    private fun packedVarints(data: ByteArray): List<Int> = buildList {
+        var pos = 0
+        while (pos < data.size) {
+            var result = 0L
+            var shift = 0
+            while (pos < data.size) {
+                val b = data[pos].toInt() and 0xFF
+                result = result or ((b and 0x7F).toLong() shl shift)
+                pos++
+                if (b and 0x80 == 0) break
+                shift += 7
+            }
+            add(result.toInt())
+        }
     }
 
     fun findVideoService(response: ByteArray): VideoService? {
@@ -151,6 +179,31 @@ object ServiceDiscovery {
                 )
             }
             return VideoService(id, codecType, configs)
+        }
+        return null
+    }
+
+    /**
+     * The head unit's sensor feed, from SensorSourceService (Service field 5):
+     *   SensorSourceService { repeated SensorType sensors = 1; }
+     *   SensorType { required int32 type = 1; }
+     *
+     * Field numbers for what actually rides inside each SensorEvent once subscribed are not
+     * pinned down here - unlike video/audio/input, there's no independent source to check them
+     * against, so [CarSensors] shows the raw decode instead of trusting a guessed field map.
+     */
+    class SensorService(val serviceId: Int, val types: List<Int>)
+
+    fun findSensorService(response: ByteArray): SensorService? {
+        for (channel in Wire.allBytes(Wire.fields(response), 1)) {
+            val service = Wire.fields(channel)
+            val id = Wire.varint(service, 1)?.toInt() ?: continue
+            val sensorSource = Wire.bytes(service, 5) ?: continue
+            val types = Wire.allBytes(Wire.fields(sensorSource), 1).mapNotNull {
+                Wire.varint(Wire.fields(it), 1)?.toInt()
+            }
+            if (types.isEmpty()) continue
+            return SensorService(id, types)
         }
         return null
     }

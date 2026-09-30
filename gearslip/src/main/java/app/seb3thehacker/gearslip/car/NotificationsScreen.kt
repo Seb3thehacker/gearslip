@@ -220,7 +220,10 @@ private fun ReplyPane(n: CarNotification, onDone: () -> Unit) {
             Text(n.text.ifBlank { n.title }, style = MaterialTheme.typography.bodyLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
 
-        CarKeyboard(text, onTextChange = { text = it }, onSubmit = ::send, submitImage = Icons.AutoMirrored.Filled.Send)
+        CarKeyboard(
+            text, onTextChange = { text = it }, onSubmit = ::send,
+            submitImage = Icons.AutoMirrored.Filled.Send, onDismiss = onDone,
+        )
     }
 }
 

@@ -21,9 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +50,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.style.TextOverflow
+import app.seb3thehacker.gearslip.R
 import app.seb3thehacker.gearslip.media.CarMedia
 import app.seb3thehacker.gearslip.media.MediaArt
 import androidx.compose.ui.platform.LocalContext
@@ -58,7 +60,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
-import app.seb3thehacker.gearslip.host.CarAppConnection
 import app.seb3thehacker.gearslip.notify.CarNotifications
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.Dispatchers
@@ -102,6 +103,18 @@ fun CarUi() {
     // The map follows the light outside, whatever the app's own theme is set to.
     LaunchedEffect(darkOutside) { CarServices.nav.pushConfiguration() }
 
+    // The one place with a navigator and a frame to act a voice command on - CarAssistant itself
+    // only knows how to listen and speak, not what "open Spotify" means.
+    val frameForAssistant by CarEnvironment.frame.collectAsState()
+    LaunchedEffect(navigator) {
+        CarAssistant.pendingCommand.collect { heard ->
+            if (heard != null) {
+                val reply = AssistantCommands.handle(appContext, navigator, frameForAssistant, heard)
+                CarAssistant.reply(reply)
+            }
+        }
+    }
+
     CompositionLocalProvider(
         LocalDensity provides Density(base.density * scale, base.fontScale),
         LocalCarNavigator provides navigator,
@@ -131,7 +144,12 @@ fun CarUi() {
                     )
                 }
                 val screen = navigator.current
+                val safetyWarningSeen by CarSettings.hasSeenSafetyWarning.collectAsState()
                 Column(Modifier.fillMaxSize().padding(pad)) {
+                    if (!safetyWarningSeen) {
+                        CarSafetyWizard(onDone = CarSettings::markSafetyWarningSeen)
+                        return@Column
+                    }
                     // Header navigation (breadcrumb trail) - off for now, kept to tweak later.
                     // BreadcrumbBar(navigator)
                     Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -139,9 +157,11 @@ fun CarUi() {
                             CarScreen.Home -> CarHome()
                             CarScreen.Apps -> CarLauncher()
                             CarScreen.Media -> mediaApp?.let { MediaScreen(it) { navigator.back() } }
+                            CarScreen.Browse -> BrowseAppScreen(navigator)
                             CarScreen.Settings -> CarSettingsScreen()
                             CarScreen.Dashboard -> CarDashboardScreen()
                             CarScreen.Weather -> WeatherScreen()
+                            CarScreen.VehicleData -> VehicleDataScreen()
                             is CarScreen.Notifications -> NotificationsScreen(screen.replyTo)
                             is CarScreen.App -> CarApps.find(screen.id)?.content?.invoke()
                         }
@@ -151,11 +171,99 @@ fun CarUi() {
                         }
                         // Above the popup: a call is more urgent than any notification.
                         CallOverlay(Modifier.align(Alignment.TopCenter))
+                        AssistantOverlay(Modifier.align(Alignment.TopCenter))
+                        if (app.seb3thehacker.gearslip.BuildConfig.DEBUG) {
+                            // Bottom corner, not top: a screen's own header almost always puts
+                            // something in the top-right (settings, search, a Liked Songs
+                            // shortcut) and this badge used to sit right on top of it, hiding
+                            // whatever the screen drew there.
+                            DevBuildBadge(Modifier.align(Alignment.BottomEnd))
+                        }
                     }
-                    CarNavBar(navigator)
+                    // The keyboard takes the nav bar's row instead of squeezing in above it -
+                    // nothing on the nav bar is useful mid-type, and the screen is too small to
+                    // show both.
+                    val keyboardVisible by CarKeyboardVisibility.state
+                    if (!keyboardVisible) CarNavBar(navigator)
                 }
             }
         }
+    }
+}
+
+/**
+ * A single blocking screen, shown once per install before anything else the car screen can show -
+ * Home included. The phone's own setup guide carries the same warning, but a driver who plugs in
+ * without ever opening the phone app would otherwise never see it, on the one screen they are
+ * actually about to use while driving. [onDone] fires once, from its own button; there is no way
+ * to skip past this without tapping it.
+ */
+@Composable
+private fun CarSafetyWizard(onDone: () -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.fillMaxWidth().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                shape = MaterialTheme.shapes.extraLarge,
+            ) {
+                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Drive safely", style = ChromeType.headline, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Gearslip is unofficial software: it is not made or reviewed by any " +
+                            "carmaker, and it can fail without warning.",
+                        style = ChromeType.body,
+                    )
+                    Text(
+                        "Never interact with this screen while driving. Set the route or the " +
+                            "song before you go, then keep your attention on the road.",
+                        style = ChromeType.body,
+                    )
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+            Button(onClick = onDone, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                Text("I understand", style = ChromeType.body)
+            }
+        }
+    }
+}
+
+/**
+ * A templated app that isn't navigation, full size with its own title bar and Stop button - the
+ * same [CarAppStage] chrome the map uses on Home, just not embedded there. [CarServices.browse]
+ * is a connection of its own, so opening one of these never bumps the map off Home.
+ */
+@Composable
+private fun BrowseAppScreen(navigator: CarNavigator) {
+    val status by CarServices.browse.status.collectAsState()
+    val frame by CarEnvironment.frame.collectAsState()
+    CarAppStage(CarServices.browse, status, frame) {
+        CarServices.stopBrowse()
+        navigator.back()
+    }
+}
+
+/**
+ * Marks a debug build on the car screen itself, not just the phone's Home screen - the one
+ * that matters while driving, since a debug build is slower and less tested than what ships.
+ */
+@Composable
+private fun DevBuildBadge(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.padding(6.dp),
+        color = MaterialTheme.colorScheme.error,
+        contentColor = MaterialTheme.colorScheme.onError,
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Text(
+            "DEV BUILD",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+        )
     }
 }
 
@@ -216,12 +324,6 @@ private fun CarNavBar(navigator: CarNavigator) {
     val weather by Weather.state.collectAsState()
     val weatherData = (weather as? WeatherState.Ready)?.data
 
-    // The one app that's actually open and not otherwise reachable from this bar: media has its
-    // own pill already, so the only "open app" icon worth showing is whichever map is connected.
-    val navStatus by CarServices.nav.status.collectAsState()
-    val lastNav by CarSettings.lastNav.collectAsState()
-    val openMapComponent = lastNav?.takeIf { navStatus.phase == CarAppConnection.Phase.RUNNING }
-
     val context = LocalContext.current
     val pinnedIds by CarSettings.pinnedApps.collectAsState()
     val entries by produceState(LauncherCache.entries ?: emptyList(), context) {
@@ -239,14 +341,16 @@ private fun CarNavBar(navigator: CarNavigator) {
                 // breadcrumb trail is how you retrace your steps, but reaching for either of
                 // these two from three screens deep in a media app shouldn't mean reading it
                 // first.
-                NavItem(Icons.Filled.Home, navigator.current == CarScreen.Home) { navigator.home() }
+                NavItem(ImageVector.vectorResource(R.drawable.navigation_24), navigator.current == CarScreen.Home) { navigator.home() }
                 Spacer(Modifier.width(6.dp))
                 NavItem(MediaIcons.Apps, navigator.current == CarScreen.Apps) { navigator.apps() }
-
-                openMapComponent?.let { component ->
+                val experimentalFeatures by CarSettings.experimentalFeaturesEnabled.collectAsState()
+                val voiceEnabled by CarSettings.voiceAssistantEnabled.collectAsState()
+                if (experimentalFeatures && voiceEnabled) {
                     Spacer(Modifier.width(6.dp))
-                    NavAppIcon(component, contentDescription = "Map", onClick = navigator::home)
+                    NavAssistantIcon()
                 }
+
                 pinnedEntries.forEach { entry ->
                     Spacer(Modifier.width(6.dp))
                     entry.componentId?.let { id ->
@@ -332,6 +436,28 @@ private fun NavChip(selected: Boolean, onClick: () -> Unit, content: @Composable
             .padding(horizontal = 10.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) { content() }
+}
+
+/**
+ * Between Apps and whatever's actually open, not with the clock/battery group on the right - a
+ * driver reaches for it right after deciding "not a tap for this", same gesture family as the
+ * two buttons beside it.
+ */
+@Composable
+private fun NavAssistantIcon() {
+    val state by CarAssistant.state.collectAsState()
+    val scheme = MaterialTheme.colorScheme
+    val active = state.phase != CarAssistant.Phase.IDLE
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (active) scheme.secondaryContainer else scheme.surfaceContainer)
+            .clickable { CarAssistant.start() }
+            .padding(12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        MicGlyph(Modifier.size(28.dp))
+    }
 }
 
 @Composable

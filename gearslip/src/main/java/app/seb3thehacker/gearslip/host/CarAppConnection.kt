@@ -8,6 +8,7 @@ import android.content.ServiceConnection
 import android.content.res.Configuration
 import android.graphics.Rect
 import android.location.Location
+import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -94,18 +95,25 @@ class CarAppConnection(private val context: Context) {
     /** Whose icon the header shows for the standard app-icon action. */
     val appPackage: String? get() = component?.packageName
 
+    /** Which app is bound right now, if any - lets a caller tell "still this one" from "a new one". */
+    val connectedComponent: ComponentName? get() = component
+
     private var frameWidth = 800
     private var frameHeight = 480
     private var frameDensity = 160
 
+    /** A destination to navigate to as soon as the app is created; see [navigateTo]. */
+    private var pendingDestination: String? = null
+
     // --- connection ---------------------------------------------------------------------
 
-    fun connect(app: TemplateApp, width: Int, height: Int, densityDpi: Int) {
+    fun connect(app: TemplateApp, width: Int, height: Int, densityDpi: Int, destination: String? = null) {
         disconnect()
         frameWidth = width
         frameHeight = height
         frameDensity = densityDpi
         component = app.component
+        pendingDestination = destination
         update { Status(phase = Phase.BINDING, app = app.label) }
 
         val intent = Intent(CarAppService.SERVICE_INTERFACE).setComponent(app.component)
@@ -196,6 +204,7 @@ class CarAppConnection(private val context: Context) {
         _panMode.value = false
         surfaceCallback = null
         component = null
+        pendingDestination = null
         _template.value = null
         update { Status() }
     }
@@ -242,9 +251,31 @@ class CarAppConnection(private val context: Context) {
     private fun onHandshakeAccepted() {
         val app = carApp ?: return
         GearslipLog.i("host: handshake accepted; creating the app")
-        val intent = Intent(Intent.ACTION_MAIN).setComponent(component)
+        val intent = pendingDestination?.let { navigateIntent(it) }
+            ?: Intent(Intent.ACTION_MAIN).setComponent(component)
+        pendingDestination = null
         call("onAppCreate", onValue = { onCreated() }) {
             app.onAppCreate(carHost, intent, carConfiguration(), it)
+        }
+    }
+
+    /**
+     * "navigate to X" deep link, the same one Android Auto's own Assistant integration sends -
+     * [ACTION_NAVIGATE] with the destination as a `geo:` search query, rather than anything
+     * app-specific.
+     */
+    private fun navigateIntent(destination: String) =
+        Intent(CarContext.ACTION_NAVIGATE, Uri.parse("geo:0,0?q=" + Uri.encode(destination)))
+            .setComponent(component)
+
+    /**
+     * Sends a fresh destination to an app that's already running, instead of tearing it down
+     * and rebuilding the whole session - see [app.seb3thehacker.gearslip.car.CarServices.connectNav].
+     */
+    fun navigateTo(destination: String) {
+        val app = carApp ?: return
+        call("onNewIntent", onValue = {}) {
+            app.onNewIntent(navigateIntent(destination), it)
         }
     }
 

@@ -32,9 +32,9 @@ object GearslipLog {
     private var file: File? = null
 
     /**
-     * Set from [AppSettings.debugMode]. Off drops the noisy trace output (hex dumps, and
-     * logcat copies of info lines); warnings, errors and the file copy are always kept, so a
-     * crash report is never empty.
+     * Off drops the noisy trace output (hex dumps, and logcat copies of info lines); warnings,
+     * errors and the file copy are always kept, so a crash report is never empty. Always on for
+     * now, while the project is pre-release.
      */
     @Volatile var debug = true
 
@@ -47,13 +47,11 @@ object GearslipLog {
     val version: StateFlow<Int> = liveVersion
 
     fun init(context: Context) {
-        debug = AppSettings.debugMode(context)
         val dir = context.getExternalFilesDir(null) ?: return
         val name = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         file = File(dir, "gearslip-$name.log")
         i("log file: ${file?.absolutePath}")
         SessionReport.init(context)
-        i("debug mode: $debug")
     }
 
     fun snapshot(): List<String> = synchronized(live) { live.toList() }

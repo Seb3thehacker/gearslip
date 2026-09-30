@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +51,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Warning
 import app.seb3thehacker.gearslip.host.KnownApps
 import app.seb3thehacker.gearslip.host.CarAppCatalog
 import app.seb3thehacker.gearslip.host.TemplateApp
@@ -67,6 +69,8 @@ private class Tile(
     val verified: Boolean = false,
     /** Known not to work; drawn with a red X instead of being left off the launcher. */
     val broken: Boolean = false,
+    /** Starts and can be used, but rough enough not to call working; drawn with a yellow mark. */
+    val partial: Boolean = false,
     val pinned: Boolean = false,
     /** Null for the built-in tiles (Web, Screen sharing, Settings) - nothing to pin them as. */
     val onLongClick: (() -> Unit)? = null,
@@ -100,8 +104,19 @@ internal object LauncherCache {
             context.packageManager.getApplicationIcon(pkg).toBitmap(128, 128).asImageBitmap()
         }.getOrNull()
 
-        val nav = CarAppCatalog.installed(context).map { Entry(it.label, iconOf(it.component.packageName), template = it) }
-        val media = MediaCatalog.installed(context).map { Entry(it.label, iconOf(it.component.packageName), media = it) }
+        val navApps = CarAppCatalog.installed(context)
+        val mediaApps = MediaCatalog.installed(context)
+        // Some apps (Spotify among them) ship both a Car App Library template and a legacy
+        // MediaBrowserService, which otherwise land as two identically-labeled tiles with no
+        // way to tell them apart. They're genuinely different screens - browsing versus Now
+        // Playing - so only the label needs disambiguating, not the tile itself.
+        val mediaPackages = mediaApps.map { it.component.packageName }.toSet()
+
+        val nav = navApps.map {
+            val label = if (it.component.packageName in mediaPackages) "${it.label} · Browse" else it.label
+            Entry(label, iconOf(it.component.packageName), template = it)
+        }
+        val media = mediaApps.map { Entry(it.label, iconOf(it.component.packageName), media = it) }
         return (nav + media).sortedBy { it.label.lowercase() }.also { entries = it }
     }
 }
@@ -115,7 +130,15 @@ fun warmLauncherApps(context: Context) { LauncherCache.load(context, force = tru
  * kind of app.
  */
 internal fun launchEntry(entry: Entry, navigator: CarNavigator, frame: CarEnvironment.Frame) {
-    entry.template?.let { CarServices.connectNav(it, frame); navigator.home() }
+    entry.template?.let {
+        if (it.isNavigation) {
+            CarServices.connectNav(it, frame)
+            navigator.home()
+        } else {
+            CarServices.connectBrowse(it, frame)
+            navigator.browse(entry.label)
+        }
+    }
     entry.media?.let { CarServices.openMedia(it); navigator.media() }
 }
 
@@ -132,18 +155,27 @@ fun CarLauncher() {
     }
 
     val pinned by CarSettings.pinnedApps.collectAsState()
+    val experimentalFeatures by CarSettings.experimentalFeaturesEnabled.collectAsState()
+    val carSensorsEnabled by CarSettings.carSensorsEnabled.collectAsState()
 
-    val tiles = listOf(
-        Tile("Web", glyph = Icons.Filled.Search) { navigator.open("web") },
-        Tile("Screen sharing", glyph = Icons.Filled.Share) { navigator.open("phone") },
-        Tile("Phone", glyph = Icons.Filled.Call) { navigator.open("dialer") },
-    ) + installed.map { entry ->
+    val leadingTiles = buildList {
+        add(Tile("Web", glyph = Icons.Filled.Search) { navigator.open("web") })
+        add(Tile("Screen sharing", glyph = Icons.Filled.Share) { navigator.open("phone") })
+        add(Tile("Phone", glyph = Icons.Filled.Call) { navigator.open("dialer") })
+        // Experimental: raw, unverified sensor labels - see CarSensors.
+        if (experimentalFeatures && carSensorsEnabled) {
+            add(Tile("Vehicle data", glyph = Icons.Filled.Info) { navigator.vehicleData() })
+        }
+    }
+
+    val tiles = leadingTiles + installed.map { entry ->
         val pkg = entry.template?.component?.packageName ?: entry.media?.component?.packageName
         val id = entry.componentId
         Tile(
             entry.label, entry.icon,
             verified = pkg != null && KnownApps.works(pkg),
             broken = pkg != null && KnownApps.isBroken(pkg),
+            partial = pkg != null && KnownApps.isPartial(pkg),
             pinned = id != null && id in pinned,
             onLongClick = id?.let { { CarSettings.togglePin(it) } },
         ) { launchEntry(entry, navigator, frame) }
@@ -159,27 +191,38 @@ fun CarLauncher() {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(tiles) { AppTile(it) }
-        if (tiles.any { it.verified }) {
-            item(span = { GridItemSpan(maxLineSpan) }) { VerifiedLegend() }
+        if (tiles.any { it.verified || it.broken || it.partial }) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                BadgeLegend(
+                    verified = tiles.any { it.verified },
+                    partial = tiles.any { it.partial },
+                    broken = tiles.any { it.broken },
+                )
+            }
         }
     }
 }
 
-/** Says what the check mark on a tile means, once, under the grid. */
+/** Says what each badge on a tile means, once, under the grid - only the ones actually in use. */
 @Composable
-private fun VerifiedLegend() {
-    Row(
+private fun BadgeLegend(verified: Boolean, partial: Boolean, broken: Boolean) {
+    Column(
         Modifier.fillMaxWidth().padding(top = 4.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        VerifiedBadge(16.dp)
+        if (verified) LegendRow(size = 16.dp, badge = { VerifiedBadge(it) }, text = "Tested and working with Gearslip")
+        if (partial) LegendRow(size = 16.dp, badge = { PartialBadge(it) }, text = "Runs, but not cleanly, with Gearslip")
+        if (broken) LegendRow(size = 16.dp, badge = { BrokenBadge(it) }, text = "Doesn't work with Gearslip yet")
+    }
+}
+
+@Composable
+private fun LegendRow(size: androidx.compose.ui.unit.Dp, badge: @Composable (androidx.compose.ui.unit.Dp) -> Unit, text: String) {
+    Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        badge(size)
         Spacer(Modifier.width(8.dp))
-        Text(
-            "Tested and working with Gearslip",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -202,6 +245,17 @@ private fun BrokenBadge(size: androidx.compose.ui.unit.Dp, modifier: Modifier = 
         contentAlignment = Alignment.Center,
     ) {
         Icon(Icons.Filled.Close, contentDescription = "Doesn't work with Gearslip", tint = Color.White, modifier = Modifier.size(size * 0.66f))
+    }
+}
+
+/** A yellow disc with a warning mark: neither the check nor the X, since this app runs but isn't clean about it. */
+@Composable
+private fun PartialBadge(size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(size).background(Color(0xFFF9A825), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Filled.Warning, contentDescription = "Works, but not cleanly, with Gearslip", tint = Color.White, modifier = Modifier.size(size * 0.6f))
     }
 }
 
@@ -246,6 +300,9 @@ private fun AppTile(tile: Tile) {
             }
             if (tile.broken) {
                 BrokenBadge(24.dp, Modifier.align(Alignment.TopEnd).padding(8.dp))
+            }
+            if (tile.partial) {
+                PartialBadge(24.dp, Modifier.align(Alignment.TopEnd).padding(8.dp))
             }
         }
     }

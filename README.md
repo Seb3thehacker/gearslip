@@ -13,9 +13,6 @@ and Gearslip renders that template natively on the car screen. Nothing is mirror
 the phone. For apps without a car interface, Gearslip offers a separate screen-sharing
 mode.
 
-The author reverse-engineered the protocol for interoperability, so that a client other
-than Google's own can talk to a car head unit.
-
 ## Features
 
 - **Phone calls.** Dial from a keypad, or search your contacts, then confirm before the

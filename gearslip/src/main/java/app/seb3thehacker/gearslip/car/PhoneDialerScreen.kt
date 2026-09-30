@@ -50,14 +50,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** A phone contact with at least one number, as read off the device's contacts. */
-private data class Contact(val name: String, val number: String)
+internal data class Contact(val name: String, val number: String)
 
 private val CALL_PERMISSIONS = arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_CONTACTS)
 
-private fun hasCallPermissions(context: Context): Boolean =
+/** Also used by [AssistantCommands] for "call <name>". */
+internal fun hasCallPermissions(context: Context): Boolean =
     CALL_PERMISSIONS.all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
-private fun loadContacts(context: Context): List<Contact> {
+internal fun loadContacts(context: Context): List<Contact> {
     if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return emptyList()
     val out = mutableListOf<Contact>()
     val projection = arrayOf(
@@ -80,7 +81,7 @@ private fun loadContacts(context: Context): List<Contact> {
     return out.distinctBy { it.number }
 }
 
-private fun placeCall(context: Context, number: String) {
+internal fun placeCall(context: Context, number: String) {
     if (number.isBlank()) return
     if (context.checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) return
     runCatching {
@@ -266,7 +267,12 @@ private fun ContactsList(context: Context) {
             }
         }
         if (searching) {
-            CarKeyboard(query, onTextChange = { query = it }, onSubmit = { searching = false })
+            CarKeyboard(
+                query,
+                onTextChange = { query = it },
+                onSubmit = { searching = false },
+                onDismiss = { searching = false },
+            )
         }
     }
 

@@ -35,7 +35,16 @@ object KnownApps {
     private val broken = setOf(
         "com.google.android.apps.messaging", // Google Messages
         "com.waze",                          // Waze
+        "com.generalmagic.magicearth",       // Magic Earth: never gets past connecting
     )
 
     fun isBroken(packageName: String): Boolean = packageName in broken
+
+    /** Shown on the launcher with a yellow mark: starts and can be used, but not cleanly enough to call working. */
+    private val partial = setOf(
+        "app.vela", // Vela Maps: connects and draws, but rough enough not to call it working yet
+        "com.spotify.music", // Spotify: Now Playing tile works, browse tile rejects Gearslip as a host
+    )
+
+    fun isPartial(packageName: String): Boolean = packageName in partial
 }

@@ -60,7 +60,6 @@ fun CarAppStage(
             AppSurface(connection, frame, template, Modifier.fillMaxSize())
         }
         TemplateChrome(template, Modifier.fillMaxSize().padding(top = if (embedded) 0.dp else CHROME_BAR))
-        if (embedded) CornerMask(EMBEDDED_RADIUS, MaterialTheme.colorScheme.background)
         if (!embedded) ChromeBar(status, onDisconnect, Modifier.align(Alignment.TopCenter))
     }
 }
@@ -160,30 +159,6 @@ private fun ChromeBar(
             }
             TextButton(onClick = onDisconnect) { Text("Stop", color = Color.White) }
         }
-    }
-}
-
-/** Corner radius of the home screen's map pane and player. */
-val EMBEDDED_RADIUS = 18.dp
-
-/**
- * Rounds the corners of a SurfaceView, which Compose cannot clip: the app draws into its own
- * layer, so the corners are covered from above with the surrounding colour instead.
- */
-@Composable
-private fun CornerMask(radius: androidx.compose.ui.unit.Dp, color: Color) {
-    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-        val bounds = androidx.compose.ui.geometry.Rect(0f, 0f, size.width, size.height)
-        val cut = androidx.compose.ui.graphics.Path().apply {
-            addRect(bounds)
-            addRoundRect(
-                androidx.compose.ui.geometry.RoundRect(
-                    bounds, androidx.compose.ui.geometry.CornerRadius(radius.toPx()),
-                ),
-            )
-            fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
-        }
-        drawPath(cut, color)
     }
 }
 

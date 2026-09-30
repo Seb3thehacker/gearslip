@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import app.seb3thehacker.gearslip.GearslipLog
 
 /**
  * Lets a hosted navigation app keep receiving the phone's location while Gearslip is not on screen.
@@ -34,7 +35,16 @@ class LocationKeepAlive : Service() {
             .setContentTitle("Gearslip is sharing location with the car map")
             .setOngoing(true)
             .build()
-        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        // The system can refuse a location-type foreground service if Gearslip is no longer in
+        // an eligible state by the time this runs - the phone screen locking mid-session is the
+        // common case. That refusal throws, and left uncaught it takes the whole app down with
+        // it; a nav app losing its background location fix is a small loss next to that.
+        runCatching {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        }.onFailure {
+            GearslipLog.w("location keep-alive: could not start the foreground service - ${it.message}")
+            stopSelf()
+        }
         return START_NOT_STICKY
     }
 

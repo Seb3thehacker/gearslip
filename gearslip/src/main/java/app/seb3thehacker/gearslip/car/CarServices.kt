@@ -2,13 +2,17 @@ package app.seb3thehacker.gearslip.car
 
 import android.content.ComponentName
 import android.content.Context
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
 import app.seb3thehacker.gearslip.audio.CarAudio
 import app.seb3thehacker.gearslip.host.CarAppCatalog
 import app.seb3thehacker.gearslip.host.CarAppConnection
+import app.seb3thehacker.gearslip.host.KnownApps
 import app.seb3thehacker.gearslip.host.TemplateApp
 import app.seb3thehacker.gearslip.media.CarMedia
 import app.seb3thehacker.gearslip.media.MediaApp
 import app.seb3thehacker.gearslip.media.MediaCatalog
+import app.seb3thehacker.gearslip.notify.GearslipNotificationListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,8 +33,22 @@ object CarServices {
     val nav: CarAppConnection by lazy { CarAppConnection(requireNotNull(context)) }
     val media: CarMedia by lazy { CarMedia(requireNotNull(context)) }
 
+    /**
+     * A second, independent connection for templated apps that aren't navigation apps - Spotify's
+     * own Car App Library service is the first of these. Kept apart from [nav] so opening one
+     * can never bump the map off Home: this one gets its own screen ([CarScreen.Browse]) instead.
+     */
+    val browse: CarAppConnection by lazy { CarAppConnection(requireNotNull(context)) }
+
     private val _mediaApp = MutableStateFlow<MediaApp?>(null)
     val mediaApp: StateFlow<MediaApp?> = _mediaApp.asStateFlow()
+
+    /**
+     * Whether the phone has any navigation app installed at all. True until [autostart] has
+     * actually checked, so the home screen never flashes "none found" before it knows.
+     */
+    private val _hasNavApps = MutableStateFlow(true)
+    val hasNavApps: StateFlow<Boolean> = _hasNavApps.asStateFlow()
 
     /** Set when the driver stops the map by hand, so going Home doesn't immediately restart it. */
     private var navStopped = false
@@ -40,14 +58,25 @@ object CarServices {
         context = appContext.applicationContext
         app.seb3thehacker.gearslip.notify.CarMotion.start(appContext)
         app.seb3thehacker.gearslip.call.CarCalls.start(appContext)
+        CarAssistant.init(appContext)
     }
 
     // --- map -----------------------------------------------------------------------------
 
-    fun connectNav(app: TemplateApp, frame: CarEnvironment.Frame) {
+    /**
+     * [destination] is a search query to start navigating to right away - "navigate to X with Y"
+     * from the voice assistant - left null for a plain app launch. An app that's already the one
+     * running gets the destination sent to its live session instead of being torn down and
+     * rebuilt, same as [CarAppConnection.navigateTo] documents.
+     */
+    fun connectNav(app: TemplateApp, frame: CarEnvironment.Frame, destination: String? = null) {
         navStopped = false
         CarSettings.setLastNav(app.component.flattenToString())
-        nav.connect(app, frame.width, frame.height, frame.densityDpi)
+        if (destination != null && nav.connectedComponent == app.component) {
+            nav.navigateTo(destination)
+        } else {
+            nav.connect(app, frame.width, frame.height, frame.densityDpi, destination)
+        }
     }
 
     fun stopNav() {
@@ -59,6 +88,17 @@ object CarServices {
     suspend fun reconnectNav(frame: CarEnvironment.Frame) {
         navStopped = false
         autostart(frame)
+    }
+
+    // --- browse (non-navigation templated apps) -------------------------------------------
+
+    /** Opens a templated app that isn't navigation, on its own screen - never on Home. */
+    fun connectBrowse(app: TemplateApp, frame: CarEnvironment.Frame) {
+        browse.connect(app, frame.width, frame.height, frame.densityDpi)
+    }
+
+    fun stopBrowse() {
+        browse.disconnect()
     }
 
     // --- media ---------------------------------------------------------------------------
@@ -91,22 +131,55 @@ object CarServices {
         val ctx = context ?: return
 
         if (!navStopped && nav.status.value.phase == CarAppConnection.Phase.IDLE) {
+            val navApps = withContext(Dispatchers.IO) { CarAppCatalog.installed(ctx) }
+                .filter { it.isNavigation }
+            _hasNavApps.value = navApps.isNotEmpty()
+            // Never auto-pick one already known to fail outright - a driver who plugs in should
+            // land on a map, not on the one tile marked with a red X.
+            val candidates = navApps.filterNot { KnownApps.isBroken(it.component.packageName) }
             val last = CarSettings.lastNav.value
-            val app = last?.let { id ->
-                withContext(Dispatchers.IO) { CarAppCatalog.installed(ctx) }
-                    .firstOrNull { it.component == ComponentName.unflattenFromString(id) }
-            }
+            // The one used last, or - first run, nothing on record yet - whichever comes first:
+            // a driver who plugs in for the first time shouldn't have to go pick one by hand
+            // before the map shows up at all.
+            val lastComponent = last?.let(ComponentName::unflattenFromString)
+            val app = candidates.firstOrNull { it.component == lastComponent } ?: candidates.firstOrNull()
             if (app != null) connectNav(app, frame)
         }
 
         if (_mediaApp.value == null) {
-            val last = CarSettings.lastMedia.value
-            val app = last?.let { id ->
-                withContext(Dispatchers.IO) { MediaCatalog.installed(ctx) }
-                    .firstOrNull { it.component == ComponentName.unflattenFromString(id) }
+            val catalog = withContext(Dispatchers.IO) { MediaCatalog.installed(ctx) }
+            // Something already playing on the phone wins over whatever was last used in the car -
+            // a driver who started a song before plugging in shouldn't have to go open its tile by
+            // hand just to see what's already going.
+            val playing = withContext(Dispatchers.IO) { currentlyPlaying(ctx, catalog) }
+            if (playing != null) {
+                openMedia(playing)
+            } else {
+                val last = CarSettings.lastMedia.value
+                val app = last?.let { id -> catalog.firstOrNull { it.component == ComponentName.unflattenFromString(id) } }
+                if (app != null) openMedia(app, autoplay = CarSettings.autoplay.value)
             }
-            if (app != null) openMedia(app, autoplay = CarSettings.autoplay.value)
         }
+    }
+
+    /**
+     * Whichever known car media app has an actively playing session right now, system-wide - not
+     * just the one Gearslip itself last connected to. Reading another app's session needs
+     * notification access, the same permission [app.seb3thehacker.gearslip.media.CarMedia]
+     * already asks for to control apps that won't share their library.
+     */
+    private fun currentlyPlaying(ctx: Context, catalog: List<MediaApp>): MediaApp? {
+        val manager = ctx.getSystemService(MediaSessionManager::class.java)
+        val listener = ComponentName(ctx, GearslipNotificationListener::class.java)
+        val sessions = try {
+            manager.getActiveSessions(listener)
+        } catch (e: SecurityException) {
+            return null
+        }
+        val playingPackages = sessions
+            .filter { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+            .map { it.packageName }
+        return playingPackages.firstNotNullOfOrNull { pkg -> catalog.firstOrNull { it.component.packageName == pkg } }
     }
 
     /** The car went away: nothing should keep running for a screen that no longer exists. */
@@ -115,6 +188,8 @@ object CarServices {
         app.seb3thehacker.gearslip.call.CarCalls.stop()
         runCatching { nav.disconnect() }
         runCatching { media.disconnect() }
+        runCatching { browse.disconnect() }
+        CarAssistant.cancel()
         CarAudio.release()
         _mediaApp.value = null
         navStopped = false

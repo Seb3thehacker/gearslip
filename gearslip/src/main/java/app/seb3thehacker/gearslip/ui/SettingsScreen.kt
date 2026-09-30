@@ -22,10 +22,12 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -37,12 +39,14 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.CertProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -73,6 +77,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(32.dp),
         ) {
             Spacer(Modifier.height(0.dp))
+            GearslipEnabledSection()
             CertificateSection()
             Spacer(Modifier.height(16.dp))
         }
@@ -87,6 +92,31 @@ private fun SectionTitle(text: String) {
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.primary,
     )
+}
+
+/** Off, a stock Android Auto app or head unit answers the USB connection instead of Gearslip. */
+@Composable
+private fun GearslipEnabledSection() {
+    val context = LocalContext.current
+    var enabled by remember { mutableStateOf(AppSettings.gearslipEnabled(context)) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionTitle("Gearslip")
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Enabled", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Switch(checked = enabled, onCheckedChange = {
+                enabled = it
+                AppSettings.setGearslipEnabled(context, it)
+            })
+        }
+        if (!enabled) {
+            Text(
+                "Off - stock Android Auto can take the USB connection instead.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 @Composable

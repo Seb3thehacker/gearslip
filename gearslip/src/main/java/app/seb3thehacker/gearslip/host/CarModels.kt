@@ -33,6 +33,16 @@ import java.util.concurrent.TimeUnit
 fun CarText?.text(): String = this?.takeIf { !it.isEmpty }?.toCharSequence()?.toString().orEmpty()
 
 /**
+ * Icons keep coming back under fresh [CarIcon]/IconCompat objects - every template refetch
+ * deserializes its own copies over the binder - so caching by object identity would never hit.
+ * [describe] is stable across those copies for the same underlying icon (same URI or resource),
+ * which is what makes it usable as a cache key. Capacity is in entries, not bytes: cover art at
+ * car-screen size is small and a shelf plus its sections stays well under a hundred distinct
+ * icons on screen at once.
+ */
+private val iconCache = android.util.LruCache<String, ImageBitmap>(200)
+
+/**
  * Loads an icon the app described.
  *
  * A [CarIcon] is either a standard type the host is expected to draw itself, or an IconCompat
@@ -41,10 +51,38 @@ fun CarText?.text(): String = this?.takeIf { !it.isEmpty }?.toCharSequence()?.to
  */
 fun CarIcon?.image(context: Context): ImageBitmap? {
     val icon = this?.icon ?: return null
-    val drawable: Drawable = runCatching { icon.loadDrawable(context) }.getOrNull() ?: return null
-    val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: ICON_FALLBACK_PX
-    val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: ICON_FALLBACK_PX
-    return runCatching { drawable.toBitmap(width, height).asImageBitmap() }.getOrNull()
+    val key = icon.describe()
+    iconCache.get(key)?.let { return it }
+    val drawable: Drawable = runCatching { icon.loadDrawable(context) }
+        .onFailure { GearslipLog.w("icon: loadDrawable threw for ${icon.describe()}: ${it.javaClass.simpleName}: ${it.message}") }
+        .getOrNull()
+        ?: run {
+            GearslipLog.w("icon: loadDrawable returned null for ${icon.describe()}")
+            return null
+        }
+    val rawWidth = drawable.intrinsicWidth.takeIf { it > 0 } ?: ICON_FALLBACK_PX
+    val rawHeight = drawable.intrinsicHeight.takeIf { it > 0 } ?: ICON_FALLBACK_PX
+    // A handful of apps (Spotify's search glyph, 12x12) hand over an icon so small it turns to
+    // mush once Compose stretches it up to button size. Rasterizing it larger here instead lets
+    // Android's own bitmap scaler do that smoothing while the source is still a Drawable, rather
+    // than Compose scaling an already-tiny texture at draw time.
+    val scale = (ICON_FALLBACK_PX.toFloat() / maxOf(rawWidth, rawHeight)).coerceAtLeast(1f)
+    val width = (rawWidth * scale).toInt()
+    val height = (rawHeight * scale).toInt()
+    val bitmap = runCatching { drawable.toBitmap(width, height).asImageBitmap() }
+        .onFailure { GearslipLog.w("icon: toBitmap threw for ${icon.describe()}: ${it.javaClass.simpleName}: ${it.message}") }
+        .getOrNull() ?: return null
+    iconCache.put(key, bitmap)
+    return bitmap
+}
+
+/** Enough of an [androidx.core.graphics.drawable.IconCompat] to tell log lines apart without dumping the whole object. */
+private fun androidx.core.graphics.drawable.IconCompat.describe(): String = when (type) {
+    androidx.core.graphics.drawable.IconCompat.TYPE_URI,
+    androidx.core.graphics.drawable.IconCompat.TYPE_URI_ADAPTIVE_BITMAP,
+    -> "uri=$uri"
+    androidx.core.graphics.drawable.IconCompat.TYPE_RESOURCE -> "resource=$resPackage:$resId"
+    else -> "type=$type"
 }
 
 /** Standard icons carry no bitmap - the host draws its own, so callers need to know which. */

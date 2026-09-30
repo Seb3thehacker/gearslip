@@ -2,7 +2,11 @@ package app.seb3thehacker.gearslip
 
 import android.os.Build
 import app.seb3thehacker.gearslip.audio.AudioLink
+import app.seb3thehacker.gearslip.car.CarAssistant
 import app.seb3thehacker.gearslip.car.CarEnvironment
+import app.seb3thehacker.gearslip.car.CarSensors
+import app.seb3thehacker.gearslip.car.CarServices
+import app.seb3thehacker.gearslip.car.CarSettings
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -50,6 +54,8 @@ class GearslipRunner(
     @Volatile private var framesSent = 0
     @Volatile private var dropped = 0
     @Volatile private var inputChannelId: Int = -1
+    @Volatile private var sensorChannelId: Int = -1
+    private var sensorTypes: List<Int> = emptyList()
     @Volatile private var audioLink: AudioLink? = null
     private var audioMessagesSeen = 0
     private var touchWidth = 0
@@ -111,6 +117,7 @@ class GearslipRunner(
         videoSource = null
         audioLink?.close()
         audioLink = null
+        CarSensors.clear()
         projection?.onProjectionStopped()
         SessionStatus.disconnected()
     }
@@ -142,6 +149,8 @@ class GearslipRunner(
                 onVideoMessage(messageId, body)
             } else if (frame.channel == inputChannelId) {
                 onInputMessage(messageId, body)
+            } else if (frame.channel == sensorChannelId) {
+                onSensorMessage(messageId, body)
             } else if (frame.channel == audioLink?.channelId) {
                 // The audio channel is the one still being reverse-engineered, and its first few
                 // replies are what tell us why. Raw bytes for those, then quiet.
@@ -350,6 +359,7 @@ class GearslipRunner(
 
         openChannel(video.serviceId)
         startAudioChannel(serviceDiscoveryResponse)
+        startSensorChannel(serviceDiscoveryResponse)
 
         val input = ServiceDiscovery.findInputService(serviceDiscoveryResponse)
         if (input == null) {
@@ -360,7 +370,7 @@ class GearslipRunner(
             touchHeight = input.touchHeight
             log.i(
                 "input service: channel=${input.serviceId} touchscreen=" +
-                    "${input.touchWidth}x${input.touchHeight}",
+                    "${input.touchWidth}x${input.touchHeight} keycodes=${input.keycodesSupported}",
             )
             openChannel(input.serviceId)
         }
@@ -395,6 +405,57 @@ class GearslipRunner(
         openChannel(media.serviceId)
     }
 
+    /**
+     * Every sensor type the head unit advertised, subscribed to at once - there is no screen
+     * to pick and choose yet, this is meant to show everything reachable. [CarSensors] answers
+     * every request with "unsupported" today per BUILDING_APPS.md's line to third-party apps, but
+     * that's a promise made to apps Gearslip hosts, not to what Gearslip itself may ask a real
+     * head unit for over this same channel.
+     */
+    private fun startSensorChannel(serviceDiscoveryResponse: ByteArray) {
+        val sensors = ServiceDiscovery.findSensorService(serviceDiscoveryResponse)
+        if (sensors == null) {
+            log.i("no sensor service advertised - this head unit offers no vehicle data channel")
+            return
+        }
+        sensorChannelId = sensors.serviceId
+        sensorTypes = sensors.types
+        log.i("sensor service: channel=${sensors.serviceId} types=${sensors.types}")
+        CarSensors.onDiscovered(sensors.types)
+        openChannel(sensors.serviceId)
+    }
+
+    private fun onSensorMessage(messageId: Int, body: ByteArray) {
+        when (messageId) {
+            MSG_CHANNEL_OPEN_RESPONSE -> {
+                val status = Protobuf.readInt32Field(body, 1)
+                log.i("<- ChannelOpenResponse (sensor): status=$status")
+                if (status != 0) {
+                    log.w("head unit refused the sensor channel (status=$status)")
+                    return
+                }
+                // SensorRequest { required int32 sensor_type = 1; }
+                sensorTypes.forEach { type ->
+                    send(
+                        MSG_SENSOR_START_REQUEST, Protobuf.varintField(1, type.toLong()),
+                        encrypted = true, channel = sensorChannelId,
+                    )
+                    log.i("-> SensorStartRequest(sensor_type=$type)")
+                }
+            }
+
+            MSG_SENSOR_START_RESPONSE ->
+                log.i("<- SensorStartResponse: status=${Protobuf.readInt32Field(body, 1)}")
+
+            MSG_SENSOR_EVENT_INDICATION -> {
+                CarSensors.onEvent(body)
+                log.i("<- SensorEvent:\n" + Protobuf.describe(body))
+            }
+
+            else -> log.i("<- unhandled sensor message id=$messageId (${body.size} bytes)")
+        }
+    }
+
     private fun openChannel(serviceId: Int) {
         val request = Protobuf.varintField(1, 0L) +          // priority (sint32 zigzag: 0 -> 0)
             Protobuf.varintField(2, serviceId.toLong())      // service_id
@@ -425,9 +486,9 @@ class GearslipRunner(
 
             MSG_INPUT_REPORT -> {
                 val report = Wire.fields(body)
+                Wire.bytes(report, 4)?.let(::onKeyEvent)
                 val touch = Wire.bytes(report, 3) ?: Wire.bytes(report, 7)
                 if (touch == null) {
-                    log.i("<- InputReport with no touch payload (key or rotary event)")
                     return
                 }
                 val touchFields = Wire.fields(touch)
@@ -457,6 +518,39 @@ class GearslipRunner(
             }
 
             else -> log.i("<- unhandled input message id=$messageId (${body.size} bytes)")
+        }
+    }
+
+    /**
+     * Steering-wheel and head-unit buttons: InputReport.key_event (field 4), shaped as
+     *   KeyEvent { repeated Key keys = 1; }
+     *   Key { keycode = 1; down = 2; metastate = 3; longpress = 4; }
+     *
+     * Acted on the down edge only, so one press is one action. These are the same numeric
+     * codes as android.view.KeyEvent (the head unit reuses Android's own keycode space), which
+     * is why they line up with the constants below without needing a translation table.
+     */
+    private fun onKeyEvent(keyEvent: ByteArray) {
+        for (key in Wire.allBytes(Wire.fields(keyEvent), 1)) {
+            val fields = Wire.fields(key)
+            val keycode = Wire.varint(fields, 1)?.toInt() ?: continue
+            val down = Wire.varint(fields, 2) == 1L
+            if (!down) continue
+            log.i("<- key event: keycode=$keycode")
+            when (keycode) {
+                KEYCODE_MEDIA_PLAY_PAUSE -> CarServices.media.togglePlay()
+                KEYCODE_MEDIA_NEXT -> CarServices.media.next()
+                KEYCODE_MEDIA_PREVIOUS -> CarServices.media.previous()
+                KEYCODE_VOICE_ASSIST, KEYCODE_SEARCH -> {
+                    if (CarSettings.experimentalFeaturesEnabled.value && CarSettings.voiceAssistantEnabled.value) {
+                        log.i("voice/PTT button pressed - starting the assistant")
+                        CarAssistant.start()
+                    } else {
+                        log.i("voice/PTT button pressed - assistant is off in settings, ignoring")
+                    }
+                }
+                else -> log.i("unhandled keycode=$keycode")
+            }
         }
     }
 
@@ -823,6 +917,12 @@ class GearslipRunner(
         const val MSG_VIDEO_FOCUS_REQUEST = 32775
         const val MSG_VIDEO_FOCUS_NOTIFICATION = 32776
 
+        // aap_protobuf/service/sensor/... - same "first specific message on this channel type
+        // starts at 0x8000" numbering as media/input above.
+        const val MSG_SENSOR_START_REQUEST = 32768
+        const val MSG_SENSOR_START_RESPONSE = 32769
+        const val MSG_SENSOR_EVENT_INDICATION = 32770
+
         const val STREAM_MEDIA = 3
         const val CODEC_H264_BP = 3
         const val VIDEO_FOCUS_PROJECTED = 1
@@ -830,6 +930,14 @@ class GearslipRunner(
         const val MSG_INPUT_REPORT = 32769
         const val ACTION_DOWN = 0
         const val ACTION_UP = 1
+
+        // android.view.KeyEvent codes the head unit re-sends as-is (aap_protobuf's KeyCode.proto
+        // mirrors Android's own keycode space).
+        const val KEYCODE_SEARCH = 84
+        const val KEYCODE_MEDIA_PLAY_PAUSE = 85
+        const val KEYCODE_MEDIA_NEXT = 87
+        const val KEYCODE_MEDIA_PREVIOUS = 88
+        const val KEYCODE_VOICE_ASSIST = 231
         const val ACK_STALL_MS = 2_000L
         const val AUDIO_TRACE_MESSAGES = 6
         const val PERIODIC_KEYFRAME_MS = 5_000L

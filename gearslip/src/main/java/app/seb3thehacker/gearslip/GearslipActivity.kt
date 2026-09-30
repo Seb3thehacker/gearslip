@@ -256,10 +256,13 @@ class GearslipActivity : ComponentActivity(), Projection {
     }
 
     private fun start(accessory: UsbAccessory) {
-        if (worker?.isAlive == true) {
-            GearslipLog.w("a run is already in progress")
-            return
-        }
+        // A fresh ATTACHED intent means the system wants a new session, whatever state the old
+        // one is in - closing first guarantees openAccessory() below never fights a descriptor
+        // this same process forgot to release. The old worker thread often isn't alive by this
+        // point anyway (its read loop already died when the head unit dropped the transport),
+        // but the accessory it opened was never explicitly closed, which is what actually blocks
+        // a re-open - a dead thread does not release the file descriptor on its own.
+        closeAccessory()
         describe(accessory)
 
         val manager = getSystemService(UsbManager::class.java)

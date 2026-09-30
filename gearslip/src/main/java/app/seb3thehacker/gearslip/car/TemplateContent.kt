@@ -1,9 +1,11 @@
 package app.seb3thehacker.gearslip.car
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -20,6 +23,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.car.app.model.GridItem
 import androidx.car.app.model.GridTemplate
 import androidx.car.app.model.Item
 import androidx.car.app.model.ItemList
@@ -67,7 +72,13 @@ import app.seb3thehacker.gearslip.host.textChanged
  * the same function either way - the only difference is how much room they get.
  */
 @Composable
-fun ContentTemplate(template: Template?, modifier: Modifier = Modifier, autoStartPane: Boolean = false) {
+fun ContentTemplate(
+    template: Template?,
+    modifier: Modifier = Modifier,
+    autoStartPane: Boolean = false,
+    ownActionsElsewhere: Boolean = false,
+    tabId: String = "",
+) {
     when (template) {
         null -> Unit
         is ListTemplate -> ListContent(template, modifier)
@@ -78,7 +89,7 @@ fun ContentTemplate(template: Template?, modifier: Modifier = Modifier, autoStar
         is SearchTemplate -> SearchContent(template, modifier)
         is SignInTemplate -> SignInContent(template, modifier)
         is TabTemplate -> TabContent(template, modifier)
-        is SectionedItemTemplate -> SectionedContent(template, modifier)
+        is SectionedItemTemplate -> SectionedContent(template, modifier, showActionsInHeader = !ownActionsElsewhere, tabId = tabId)
         is MediaPlaybackTemplate -> MediaPlaybackContent(template, modifier)
         else -> UnsupportedChrome(template, modifier)
     }
@@ -374,43 +385,65 @@ private fun Callout(value: String, modifier: Modifier) {
 @Composable
 private fun TabContent(template: TabTemplate, modifier: Modifier) {
     val active = template.activeTabContentId
-    ContentSurface(modifier) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp)
-                .verticalScrollNone(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            template.headerAction?.let { ActionButton(it) }
-            template.tabs.forEach { tab ->
-                val selected = tab.contentId == active
-                Surface(
-                    color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceContainerHighest,
-                    contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSurface,
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.clickable {
-                        template.tabCallbackDelegate.tabSelected(tab.contentId)
-                    },
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+    val innerTemplate = template.tabContents?.template
+    // A sectioned tab's own actions (search, a Liked Songs shortcut) belong on the same line as
+    // the tabs themselves - a real Android Auto host's header row, not a second near-empty row
+    // underneath it that SectionedContent would otherwise draw just to hold them.
+    val trailingActions = (innerTemplate as? SectionedItemTemplate)?.actions.orEmpty().filter { it.isDrawable() }
+    Box(modifier) {
+        ContentSurface(Modifier.fillMaxSize()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .verticalScrollNone(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                template.headerAction?.let { ActionButton(it) }
+                template.tabs.forEach { tab ->
+                    val selected = tab.contentId == active
+                    Surface(
+                        color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceContainerHighest,
+                        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurface,
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.clickable {
+                            template.tabCallbackDelegate.tabSelected(tab.contentId)
+                        },
                     ) {
-                        tab.icon?.let {
-                            CarGlyph(it, Modifier.size(20.dp))
-                            Spacer(Modifier.width(6.dp))
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            tab.icon?.let {
+                                CarGlyph(it, Modifier.size(20.dp))
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text(tab.title.text(), style = ChromeType.label, maxLines = 1)
                         }
-                        Text(tab.title.text(), style = ChromeType.label, maxLines = 1)
                     }
                 }
             }
+            if (template.isLoading) Loading()
+            else ContentTemplate(
+                innerTemplate,
+                Modifier.weight(1f),
+                ownActionsElsewhere = trailingActions.isNotEmpty(),
+                tabId = active.orEmpty(),
+            )
         }
-        if (template.isLoading) Loading()
-        else ContentTemplate(template.tabContents?.template, Modifier.weight(1f))
+        // Bottom-left, not on the tab row: a driver's hand rests near the bottom of the screen,
+        // and the tab row is already busy with the tabs themselves.
+        if (trailingActions.isNotEmpty()) {
+            Row(
+                Modifier.align(Alignment.BottomStart).padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                trailingActions.forEach { ActionButton(it) }
+            }
+        }
     }
 }
 
@@ -420,45 +453,65 @@ private fun Modifier.verticalScrollNone(): Modifier = this
 // --- sectioned items --------------------------------------------------------------------------
 
 /**
+ * A section's items ([SectionRows]) are cached for the life of the process, keyed off the
+ * foreground app and, when nested under a tab, the tab - so flipping back to a shelf already
+ * seen this drive is instant instead of re-asking the app over the binder. Bounded and in
+ * memory only, so it costs nothing on disk and disappears with the process.
+ */
+private val sectionCache = android.util.LruCache<String, List<Item>>(64)
+
+/**
  * Sections fetch their items across the binder on demand rather than carrying them, so each one
- * is asked for its full range once and the answer is held while the section is on screen.
+ * is asked for its full range once and the answer is held while the section is on screen (and,
+ * via [sectionCache], for the rest of the drive).
  */
 @Composable
-private fun SectionedContent(template: SectionedItemTemplate, modifier: Modifier) {
+private fun SectionedContent(template: SectionedItemTemplate, modifier: Modifier, showActionsInHeader: Boolean = true, tabId: String = "") {
+    val appPackage = CarServices.nav.appPackage.orEmpty()
     ContentSurface(modifier) {
+        // The app's own actions (Spotify's search and Liked Songs shortcut, for two) come from
+        // template.actions, not the header - but a bottom-of-content row is wrong for a driver
+        // reaching for it. Normally the header's own end-actions slot is where a real Android
+        // Auto host puts these; nested under a TabTemplate, though, TabContent already drew them
+        // on the tab row itself, so showActionsInHeader is false and this header stays title-only
+        // (and usually collapses to nothing, since a tab's own content carries no separate title).
         HeaderBar(
             headerTitle(template.header, ""),
             template.header?.startHeaderAction,
-            template.header?.endHeaderActions.orEmpty(),
+            template.header?.endHeaderActions.orEmpty() + if (showActionsInHeader) template.actions.orEmpty() else emptyList(),
         )
         if (template.isLoading) {
             Loading()
             return@ContentSurface
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            template.sections.forEach { section ->
+            template.sections.forEachIndexed { index, section ->
                 PaneTitle(section.title.text())
-                SectionRows(section)
+                SectionRows(section, "$appPackage/$tabId/$index/${section.title.text()}")
             }
         }
-        ActionRow(template.actions.orEmpty(), Modifier.padding(12.dp))
     }
 }
 
 @Composable
-private fun SectionRows(section: Section<*>) {
-    var items by remember(section) { mutableStateOf<List<Item>>(emptyList()) }
+private fun SectionRows(section: Section<*>, cacheKey: String) {
+    var items by remember(section) { mutableStateOf(sectionCache.get(cacheKey).orEmpty()) }
 
     LaunchedEffect(section) {
+        if (sectionCache.get(cacheKey) != null) return@LaunchedEffect
         val delegate = section.itemsDelegate
-        val size = runCatching { delegate.size }.getOrDefault(0)
+        val sizeResult = runCatching { delegate.size }
+        val size = sizeResult.getOrDefault(0)
+        sizeResult.onFailure { GearslipLog.w("host: section.itemsDelegate.size threw: ${it.javaClass.simpleName}: ${it.message}") }
         if (size <= 0) return@LaunchedEffect
         runCatching {
             delegate.requestItemRange(0, size - 1, object : OnDoneCallback {
                 override fun onSuccess(response: Bundleable?) {
                     val value = response?.let { runCatching { it.get() }.getOrNull() }
                     @Suppress("UNCHECKED_CAST")
-                    items = (value as? List<Item>).orEmpty()
+                    val fetched = (value as? List<Item>).orEmpty()
+                    items = fetched
+                    sectionCache.put(cacheKey, fetched)
                 }
 
                 override fun onFailure(response: Bundleable) =
@@ -472,31 +525,59 @@ private fun SectionRows(section: Section<*>) {
         if (message.isNotEmpty()) Text(message, Modifier.padding(14.dp), style = ChromeType.body)
         return
     }
-    items.filterIsInstance<CarRow>().forEach { RowItem(it) }
+    // A section's items are homogeneous in practice - one kind or the other - but nothing in
+    // the API guarantees that, so both are handled rather than assuming whichever the app
+    // happened to send first.
+    val rows = items.filterIsInstance<CarRow>()
+    val tiles = items.filterIsInstance<GridItem>()
+    rows.forEach { RowItem(it) }
+    if (tiles.isNotEmpty()) {
+        // A plain scrollable Row, not LazyRow: the car screen renders into a VirtualDisplay
+        // Presentation rather than a normal window, and LazyRow's SubcomposeLayout measures to
+        // zero height there even with an explicit size - a handful of tiles per shelf makes the
+        // lost virtualization no real loss.
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            tiles.forEach { tile -> GridTile(tile, Modifier.width(180.dp)) }
+        }
+    }
 }
 
 // --- media ----------------------------------------------------------------------------------
 
 /**
- * Media playback is drawn from the app's MediaSession rather than from the template, which
- * carries only a header. Gearslip has no media channel yet, so this says so plainly instead of
- * showing an empty player.
+ * The template itself carries only a header - real Android Auto hosts draw this screen from the
+ * app's MediaSession instead, which is exactly what [CarServices.media] already does for the
+ * media-app launcher and the bottom bar. Reusing [NowPlayingRail] here rather than a "not
+ * supported" placeholder means an app whose own now-playing template Gearslip lands on (like
+ * Spotify's "Liked Songs" screen) still gets working transport controls.
  */
 @Composable
 private fun MediaPlaybackContent(template: MediaPlaybackTemplate, modifier: Modifier) {
+    val media = CarServices.media
+    val now by media.now.collectAsState()
     ContentSurface(modifier) {
         HeaderBar(
             headerTitle(template.header, ""),
             template.header?.startHeaderAction,
             template.header?.endHeaderActions.orEmpty(),
         )
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(
-                "Playback controls come from the app's media session,\nwhich Gearslip doesn't carry yet.",
-                style = ChromeType.body,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
+        if (now.title.isNotEmpty()) {
+            NowPlayingRail(now, media, Modifier.weight(1f).fillMaxWidth())
+        } else {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(
+                    "Nothing playing yet.",
+                    style = ChromeType.body,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,27 +13,30 @@ import androidx.compose.foundation.layout.size
 import android.content.Context
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.SessionStatus
 
 @Composable
@@ -44,8 +48,6 @@ fun HomeScreen(
     onDisconnect: () -> Unit,
 ) {
     val status by SessionStatus.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    var debug by remember { mutableStateOf(AppSettings.debugMode(context)) }
 
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         Column(
@@ -60,80 +62,87 @@ fun HomeScreen(
                     .verticalScroll(rememberScrollState()),
             ) {
                 Spacer(Modifier.height(24.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column {
-                        Text(
-                            "Gearslip",
-                            style = MaterialTheme.typography.displayLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                        Text(
-                            "v${LocalContext.current.appVersionName()}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    HelpButton(onClick = onOpenHelp)
-                }
-                Spacer(Modifier.height(16.dp))
-                StatusCard(status)
-                Spacer(Modifier.height(24.dp))
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Debug mode", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            if (debug) "Full protocol logging, live logs and car preview."
-                            else "Quiet logging. Warnings and errors are still recorded.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    Text(
+                        "Gearslip",
+                        style = MaterialTheme.typography.displayLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.size(56.dp),
+                    ) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Settings", modifier = Modifier.size(40.dp))
                     }
-                    Switch(checked = debug, onCheckedChange = {
-                        debug = it
-                        AppSettings.setDebugMode(context, it)
-                    })
                 }
+                Text(
+                    "v${LocalContext.current.appVersionName()}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(16.dp))
+                StatusCard(status)
                 Spacer(Modifier.height(16.dp))
             }
 
-            // Actions sit at the bottom, where a thumb reaches them.
-            Column(
-                Modifier.padding(vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+            // Sits at the bottom, where a thumb reaches it.
+            Column(Modifier.padding(vertical = 16.dp)) {
                 val live = status.phase == SessionStatus.Phase.CONNECTING ||
                     status.phase == SessionStatus.Phase.PROJECTING
                 if (live) {
                     Button(onClick = onDisconnect, modifier = Modifier.fillMaxWidth().height(56.dp)) {
                         Text("Disconnect")
                     }
+                    Spacer(Modifier.height(16.dp))
                 }
-                if (!live && debug) {
-                    FilledTonalButton(
-                        onClick = onOpenCarPreview,
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                    ) {
-                        Text("Car preview")
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (debug) {
-                        FilledTonalButton(onClick = onOpenLogs, modifier = Modifier.weight(1f).height(56.dp)) {
-                            Text("Live logs")
+
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.extraLarge) {
+                    Column {
+                        if (!live) {
+                            ActionRow(Icons.Filled.PlayArrow, "Car preview", onOpenCarPreview)
+                            RowDivider()
                         }
-                    }
-                    OutlinedButton(onClick = onOpenSettings, modifier = Modifier.weight(1f).height(56.dp)) {
-                        Text("Settings")
+                        ActionRow(Icons.Filled.List, "Live logs", onOpenLogs)
+                        RowDivider()
+                        ActionRow(Icons.Filled.Info, "Connection help", onOpenHelp)
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ActionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun RowDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.outlineVariant,
+    )
 }
 
 @Composable
