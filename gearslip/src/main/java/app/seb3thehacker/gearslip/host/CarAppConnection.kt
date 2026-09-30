@@ -108,7 +108,9 @@ class CarAppConnection(private val context: Context) {
     // --- connection ---------------------------------------------------------------------
 
     fun connect(app: TemplateApp, width: Int, height: Int, densityDpi: Int, destination: String? = null) {
-        disconnect()
+        // Keeps the location hold through a reconnect: stopping and restarting the service can be
+        // refused once the phone is locked, leaving the new app without location.
+        disconnect(keepLocation = true)
         frameWidth = width
         frameHeight = height
         frameDensity = densityDpi
@@ -133,8 +135,9 @@ class CarAppConnection(private val context: Context) {
         }
         binding = connection
 
-        LocationKeepAlive.start(context)
-        val bind = {
+        val bind = bind@{
+            // Replaced by another connect (or a disconnect) while waiting on the location service.
+            if (binding !== connection) return@bind
             var bindError: Throwable? = null
             val bound = runCatching {
                 context.bindService(intent, connection, Context.BIND_AUTO_CREATE or LocationKeepAlive.BIND_INCLUDE_CAPABILITIES)
@@ -151,8 +154,19 @@ class CarAppConnection(private val context: Context) {
             }
         }
 
-        bind()
+        // BIND_INCLUDE_CAPABILITIES only lends the location capability Gearslip holds at bind
+        // time, so the keep-alive has to be running first - a nav app that starts its own
+        // location service before then is refused, and MapQuest crashes on that.
+        if (holdsLocation) {
+            bind()
+        } else {
+            holdsLocation = true
+            LocationKeepAlive.acquire(context) { bind() }
+        }
     }
+
+    /** Whether this connection has a hold on [LocationKeepAlive]. */
+    private var holdsLocation = false
 
     /**
      * A service that names a permission can only be bound by an app holding it. Some navigation apps
@@ -187,7 +201,9 @@ class CarAppConnection(private val context: Context) {
         return "$kind at $step: ${firstLine.substringAfterLast("Exception: ", firstLine)}"
     }
 
-    fun disconnect() {
+    fun disconnect() = disconnect(keepLocation = false)
+
+    private fun disconnect(keepLocation: Boolean) {
         lent?.let { sendSurfaceDestroyed(it) }
         lent = null
         val carApp = this.carApp
@@ -195,7 +211,10 @@ class CarAppConnection(private val context: Context) {
             runCatching { carApp.onAppPause(noop("onAppPause")) }
             runCatching { carApp.onAppStop(noop("onAppStop")) }
         }
-        LocationKeepAlive.stop(context)
+        if (holdsLocation && !keepLocation) {
+            holdsLocation = false
+            LocationKeepAlive.release(context)
+        }
         binding?.let { runCatching { context.unbindService(it) } }
         binding = null
         this.carApp = null

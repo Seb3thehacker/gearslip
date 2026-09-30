@@ -1,7 +1,6 @@
 package app.seb3thehacker.gearslip.car
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import app.seb3thehacker.gearslip.car.theme.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -403,15 +402,12 @@ private fun TabContent(template: TabTemplate, modifier: Modifier) {
                 template.headerAction?.let { ActionButton(it) }
                 template.tabs.forEach { tab ->
                     val selected = tab.contentId == active
-                    Surface(
-                        color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceContainerHighest,
-                        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSurface,
+                    GsIconBox(
+                        onClick = { template.tabCallbackDelegate.tabSelected(tab.contentId) },
+                        colors = if (selected) GsColors(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+                        else GsColors(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurface),
                         shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.clickable {
-                            template.tabCallbackDelegate.tabSelected(tab.contentId)
-                        },
+                        latched = selected,
                     ) {
                         Row(
                             Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -553,7 +549,7 @@ private fun SectionRows(section: Section<*>, cacheKey: String) {
 /**
  * The template itself carries only a header - real Android Auto hosts draw this screen from the
  * app's MediaSession instead, which is exactly what [CarServices.media] already does for the
- * media-app launcher and the bottom bar. Reusing [NowPlayingRail] here rather than a "not
+ * media-app launcher and the bottom bar. Reusing [NowPlayingPage] here rather than a "not
  * supported" placeholder means an app whose own now-playing template Gearslip lands on (like
  * Spotify's "Liked Songs" screen) still gets working transport controls.
  */
@@ -568,7 +564,7 @@ private fun MediaPlaybackContent(template: MediaPlaybackTemplate, modifier: Modi
             template.header?.endHeaderActions.orEmpty(),
         )
         if (now.title.isNotEmpty()) {
-            NowPlayingRail(now, media, Modifier.weight(1f).fillMaxWidth())
+            NowPlayingPage(now, media, Modifier.weight(1f).fillMaxWidth())
         } else {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(

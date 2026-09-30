@@ -1,9 +1,9 @@
 package app.seb3thehacker.gearslip.car
 
+import app.seb3thehacker.gearslip.car.theme.*
 import android.graphics.Rect
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -274,26 +273,20 @@ private fun TravelEstimateBar(estimate: TravelEstimate, modifier: Modifier = Mod
             Modifier.padding(start = 8.dp, end = 18.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                    // Not a disconnect: the connection stays up and the app decides its own next
-                    // screen. Ending navigation is its own call, separate from a back press - a
-                    // back press only pops the on-screen card, leaving the app still believing it
-                    // is navigating (so a freshly picked destination silently does nothing); this
-                    // is the call that actually clears that flag on the app's side.
-                    .clickable { CarServices.nav.stopNavigating() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = "Stop navigating",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            // Not a disconnect: the connection stays up and the app decides its own next screen.
+            // Ending navigation is its own call, separate from a back press - a back press only
+            // pops the on-screen card, leaving the app still believing it is navigating (so a
+            // freshly picked destination silently does nothing); this is the call that actually
+            // clears that flag on the app's side.
+            GsIconButton(
+                Icons.Filled.Close,
+                "Stop navigating",
+                { CarServices.nav.stopNavigating() },
+                colors = GsColors(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurface),
+                size = 40.dp,
+                iconSize = 20.dp,
+                shape = CircleShape,
+            )
             Spacer(Modifier.width(10.dp))
             Column {
                 if (time.isNotEmpty()) {

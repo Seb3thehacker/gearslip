@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.car
 
+import app.seb3thehacker.gearslip.car.theme.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 
 /**
@@ -138,11 +138,11 @@ fun CarKeyboard(
 
 @Composable
 private fun Key(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+    GsIconBox(
+        onClick = onClick,
+        modifier = modifier.height(KEY_HEIGHT),
+        colors = GsColors(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurface),
         shape = RoundedCornerShape(8.dp),
-        modifier = modifier.height(KEY_HEIGHT).clickable(onClick = onClick),
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -161,11 +161,11 @@ private fun Key(label: String, modifier: Modifier = Modifier, onClick: () -> Uni
 
 @Composable
 private fun DismissKey(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    GsIconBox(
+        onClick = onClick,
+        modifier = modifier.height(KEY_HEIGHT),
+        colors = GsColors(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurfaceVariant),
         shape = RoundedCornerShape(8.dp),
-        modifier = modifier.height(KEY_HEIGHT).clickable(onClick = onClick),
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -179,11 +179,11 @@ private fun DismissKey(onClick: () -> Unit, modifier: Modifier = Modifier) {
 
 @Composable
 private fun SubmitKey(modifier: Modifier, search: Boolean, image: ImageVector?, onClick: () -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
+    GsIconBox(
+        onClick = onClick,
+        modifier = modifier.height(KEY_HEIGHT),
+        colors = GsColors(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary),
         shape = RoundedCornerShape(8.dp),
-        modifier = modifier.height(KEY_HEIGHT).clickable(onClick = onClick),
     ) {
         Row(
             Modifier.fillMaxWidth(),

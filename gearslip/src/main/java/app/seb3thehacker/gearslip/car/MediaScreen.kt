@@ -1,5 +1,8 @@
 package app.seb3thehacker.gearslip.car
 
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import app.seb3thehacker.gearslip.car.theme.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
@@ -27,10 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,7 +47,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
@@ -87,67 +89,98 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
     // The connection outlives this screen: the home screen's player is the same one.
     LaunchedEffect(app) { CarServices.openMedia(app) }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onExit) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back to apps") }
-            Text(app.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.weight(1f))
-            AudioBadge(capture)
+    val art = rememberArt(now)
+
+    // The art's colour behind everything, header included; the buttons keep their own.
+    Surface(Modifier.fillMaxSize(), color = rememberArtColor(art, MaterialTheme.colorScheme.background, darkLightness = 0.15f, lightLightness = 0.9f)) {
+        if (phase != CarMedia.Phase.READY) {
+            Column(Modifier.fillMaxSize()) {
+                AppIdentity(app, onExit, Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                when (phase) {
+                    CarMedia.Phase.REJECTED -> when (rejection) {
+                        CarMedia.Rejection.NEEDS_NOTIFICATION_ACCESS -> Notice(
+                            "${app.label} keeps its library to itself.",
+                            "Gearslip can still control it once it has Notification access on the phone. " +
+                                "Allow it under Settings > Notifications > Notification access.",
+                            action = "Open on phone" to {
+                                val app = context.applicationContext
+                                runCatching {
+                                    app.startActivity(
+                                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }
+                            },
+                        )
+                        CarMedia.Rejection.REFUSED -> Notice(
+                            "${app.label} would not let Gearslip browse it.",
+                            "Some media apps only accept Google's own host.",
+                        )
+                    }
+                    else -> Notice("Connecting to ${app.label}…", null)
+                }
+            }
+            return@Surface
         }
 
-        when (phase) {
-            CarMedia.Phase.REJECTED -> when (rejection) {
-                CarMedia.Rejection.NEEDS_NOTIFICATION_ACCESS -> Notice(
-                    "${app.label} keeps its library to itself.",
-                    "Gearslip can still control it once it has Notification access on the phone. " +
-                        "Allow it under Settings > Notifications > Notification access.",
-                    action = "Open on phone" to {
-                        val app = context.applicationContext
-                        runCatching {
-                            app.startActivity(
-                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
-                        }
-                    },
-                )
-                CarMedia.Rejection.REFUSED -> Notice(
-                    "${app.label} would not let Gearslip browse it.",
-                    "Some media apps only accept Google's own host.",
-                )
+        // Two columns, split the same way on every tab so nothing jumps when switching: the app
+        // and the art (or, beside a list, the compact player) on the left; the tabs across the
+        // top of the right column, over whatever the tab shows.
+        Row(
+            Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            Column(Modifier.weight(0.8f).fillMaxHeight()) {
+                AppIdentity(app, onExit)
+                Spacer(Modifier.height(12.dp))
+                if (tab == Tab.NOW_PLAYING) {
+                    CoverArt(art, Modifier.weight(1f).fillMaxWidth())
+                } else {
+                    CompactPlayer(now, media, Modifier.weight(1f).fillMaxWidth())
+                }
+                AudioBadge(capture)
             }
-            CarMedia.Phase.CONNECTING, CarMedia.Phase.IDLE -> Notice("Connecting to ${app.label}…", null)
-            CarMedia.Phase.READY -> Row(
-                Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                // The art rail sits at the top, level with the tab row beside it, on every tab -
-                // not under a full-width tab bar the way it used to be. Transport and the
-                // progress bar stay on it always; only the app's extra buttons (shuffle, repeat,
-                // like) are exclusive to the "Now playing" tab's own content area, since those are
-                // the one thing that isn't already always visible here.
-                NowPlayingRail(now, media, Modifier.width(220.dp).fillMaxHeight())
-                Column(Modifier.weight(1f).fillMaxHeight()) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        MediaTab("Now playing", tab == Tab.NOW_PLAYING, Modifier.weight(1f)) { tab = Tab.NOW_PLAYING }
-                        MediaTab("Browse", tab == Tab.BROWSE, Modifier.weight(1f)) { tab = Tab.BROWSE }
-                        MediaTab("Up next", tab == Tab.QUEUE, Modifier.weight(1f)) { tab = Tab.QUEUE }
-                        MediaTab("Lyrics", tab == Tab.LYRICS, Modifier.weight(1f)) { tab = Tab.LYRICS }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        when (tab) {
-                            Tab.NOW_PLAYING -> NowPlayingExtras(now, media, Modifier.fillMaxSize())
-                            Tab.BROWSE -> BrowsePanel(browse, media, app.label, Modifier.fillMaxSize())
-                            Tab.QUEUE -> QueuePanel(queue, now, media, Modifier.fillMaxSize())
-                            Tab.LYRICS -> LyricsPanel(now, Modifier.fillMaxSize())
-                        }
+            Column(Modifier.weight(1.2f).fillMaxHeight()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MediaTab("Now playing", tab == Tab.NOW_PLAYING, Modifier.weight(1f)) { tab = Tab.NOW_PLAYING }
+                    MediaTab("Browse", tab == Tab.BROWSE, Modifier.weight(1f)) { tab = Tab.BROWSE }
+                    MediaTab("Up next", tab == Tab.QUEUE, Modifier.weight(1f)) { tab = Tab.QUEUE }
+                    MediaTab("Lyrics", tab == Tab.LYRICS, Modifier.weight(1f)) { tab = Tab.LYRICS }
+                }
+                Spacer(Modifier.height(12.dp))
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when (tab) {
+                        Tab.NOW_PLAYING -> NowPlayingControls(now, media, Modifier.fillMaxSize())
+                        Tab.BROWSE -> BrowsePanel(browse, media, app.label, Modifier.fillMaxSize())
+                        Tab.QUEUE -> QueuePanel(queue, now, media, Modifier.fillMaxSize())
+                        Tab.LYRICS -> LyricsPanel(now, Modifier.fillMaxSize())
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Back, then which app this is: its own icon and its name, quieter than the song title - the
+ * name alone in big bold type read as one more heading fighting the track for attention.
+ */
+@Composable
+private fun AppIdentity(app: MediaApp, onExit: () -> Unit, modifier: Modifier = Modifier) {
+    val icon = remember(app) { findEntry(app.component.flattenToString())?.icon }
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        GsIconButton(Icons.Filled.ArrowBack, "Back", onExit, size = 44.dp)
+        Spacer(Modifier.width(14.dp))
+        icon?.let {
+            Image(it, null, Modifier.size(26.dp).clip(RoundedCornerShape(7.dp)))
+            Spacer(Modifier.width(10.dp))
+        }
+        Text(
+            app.label.lowercase().replaceFirstChar { it.titlecase() },
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -156,16 +189,21 @@ private enum class Tab { NOW_PLAYING, BROWSE, QUEUE, LYRICS }
 /** A bigger, easier-to-hit tab than a plain [TextButton] - this row is the only navigation on the screen. */
 @Composable
 private fun MediaTab(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
+    GsIconBox(
         onClick = onClick,
-        modifier = modifier.height(48.dp),
+        modifier = modifier.height(44.dp),
+        colors = if (selected) GsColors(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        else GsColors(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurface),
         shape = MaterialTheme.shapes.large,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+        latched = selected,
     ) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-        }
+        Text(
+            label,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -174,7 +212,11 @@ private fun MediaTab(label: String, selected: Boolean, modifier: Modifier, onCli
  * the current line in the accent colour; unsynced ones are plain scrolling text.
  */
 @Composable
-internal fun LyricsPanel(now: NowPlaying, modifier: Modifier) {
+internal fun LyricsPanel(
+    now: NowPlaying,
+    modifier: Modifier,
+    lineStyle: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.titleLarge,
+) {
     val context = LocalContext.current
     val lyrics by produceState<LyricsState>(LyricsState.Loading, now.title, now.artist, now.album, now.durationMs) {
         value = LyricsState.Loading
@@ -208,7 +250,7 @@ internal fun LyricsPanel(now: NowPlaying, modifier: Modifier) {
                 itemsIndexed(lines) { index, line ->
                     Text(
                         line.text.ifEmpty { " " },
-                        style = MaterialTheme.typography.titleLarge,
+                        style = lineStyle,
                         fontWeight = if (index == current) FontWeight.Bold else FontWeight.Normal,
                         color = when {
                             !state.result.synced -> MaterialTheme.colorScheme.onSurface
@@ -255,115 +297,97 @@ private fun Notice(title: String, detail: String?, action: Pair<String, () -> Un
         }
         action?.let { (label, run) ->
             Spacer(Modifier.height(12.dp))
-            androidx.compose.material3.FilledTonalButton(onClick = run) { Text(label) }
+            GsButton(onClick = run, tone = GsTone.Tonal) { Text(label) }
         }
     }
-}
-
-/** "1:05" for under a minute past the hour, "1:01:05" once an hour is involved. */
-private fun formatDuration(ms: Long): String {
-    val totalSeconds = (ms / 1000).coerceAtLeast(0)
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds) else "%d:%02d".format(minutes, seconds)
 }
 
 // --- now playing -----------------------------------------------------------------------------
 
 /**
- * The art rail beside every tab: art, title, transport and the seek bar - always visible no
- * matter which tab is open. Only the app's extra buttons (shuffle, repeat, like) are held back
- * for [NowPlayingExtras], since those are the one thing that isn't already always shown here.
+ * The now-playing view on its own, for places with no tabs around it (an app's own
+ * now-playing template): the cover on the left, [NowPlayingControls] on the right.
  */
 @Composable
-internal fun NowPlayingRail(now: NowPlaying, media: CarMedia, modifier: Modifier) {
-    val context = LocalContext.current
-    val art by produceState(now.art, now.art, now.artUri) {
-        value = now.art ?: MediaArt.load(context, now.artUri)
+internal fun NowPlayingPage(now: NowPlaying, media: CarMedia, modifier: Modifier) {
+    Row(
+        modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        CoverArt(rememberArt(now), Modifier.weight(0.8f).fillMaxHeight())
+        NowPlayingControls(now, media, Modifier.weight(1.2f).fillMaxHeight())
     }
-    var position by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(now) {
-        while (true) {
-            position = now.currentPosition()
-            kotlinx.coroutines.delay(500)
+}
+
+/** The cover, as big a square as its space allows, centred in it. */
+@Composable
+private fun CoverArt(art: android.graphics.Bitmap?, modifier: Modifier) {
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shadowElevation = 6.dp,
+            modifier = Modifier.size(minOf(maxWidth, maxHeight)),
+        ) {
+            art?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         }
     }
+}
 
-    // Whether the progress bar (and its duration text) is showing depends on whether the app has
-    // reported a duration yet, which can arrive a beat after everything else - so this rail's
-    // content height isn't fixed. A plain fillMaxHeight Column just clips whatever doesn't fit
-    // once that row appears; scrolling means it's always reachable instead.
-    BoxWithConstraints(modifier) {
-        // Off the space actually available rather than a fixed dp value, so it doesn't overrun a
-        // short car frame the way a flat size did on anything shorter than a phone screen.
-        val artSize = (minOf(maxWidth, maxHeight * 0.45f) * 1.2f).coerceAtLeast(96.dp)
-        Column(Modifier.verticalScroll(rememberScrollState())) {
-            Surface(
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(artSize),
-            ) {
-                art?.let {
-                    Image(it.asImageBitmap(), null, Modifier.fillMaxSize().clip(MaterialTheme.shapes.large), contentScale = ContentScale.Crop)
-                }
-            }
-            Spacer(Modifier.height(16.dp))
+/**
+ * Everything about the track and every control for it, read top to bottom: title and artist,
+ * the seek bar, the transport, then like, shuffle and repeat as big icon-only buttons.
+ */
+@Composable
+private fun NowPlayingControls(now: NowPlaying, media: CarMedia, modifier: Modifier) {
+    Column(
+        modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
+    ) {
+        Column {
+            Text(
+                now.title.ifEmpty { "Nothing playing" },
+                style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                listOf(now.artist, now.album).filter { it.isNotEmpty() }.joinToString(" - "),
+                style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            now.error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, maxLines = 2) }
+        }
+        PlayerProgress(now, media, Modifier.fillMaxWidth())
+        TransportRow(now, media, skip = 60.dp, modifier = Modifier.fillMaxWidth())
+        PlayModeRow(now, media, size = 56.dp, modifier = Modifier.fillMaxWidth(), maxOther = 2)
+    }
+}
+
+/**
+ * The player beside the browse list, the queue and the lyrics: no art, which the list needs the
+ * room for, just what's playing, the seek bar and the controls.
+ */
+@Composable
+private fun CompactPlayer(now: NowPlaying, media: CarMedia, modifier: Modifier) {
+    Column(
+        modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Column {
             Text(
                 now.title.ifEmpty { "Nothing playing" },
                 style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
             Text(
-                listOf(now.artist, now.album).filter { it.isNotEmpty() }.joinToString(" - "),
+                now.artist,
                 style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            now.error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, maxLines = 2) }
-            Spacer(Modifier.height(16.dp))
-
-            if (now.durationMs > 0) {
-                WavyProgress(
-                    fraction = position.toFloat() / now.durationMs,
-                    playing = now.state == PlaybackState.STATE_PLAYING,
-                    onSeek = { media.seek((it * now.durationMs).toLong()) },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(formatDuration(position), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(formatDuration(now.durationMs), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Spacer(Modifier.height(12.dp))
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                IconButton(onClick = media::previous, enabled = now.canDo(PlaybackState.ACTION_SKIP_TO_PREVIOUS), modifier = Modifier.size(56.dp)) {
-                    Icon(MediaIcons.Previous, "Previous", Modifier.size(32.dp))
-                }
-                FilledIconButton(onClick = media::togglePlay, modifier = Modifier.size(68.dp)) {
-                    Icon(if (now.playing) MediaIcons.Pause else Icons.Filled.PlayArrow, if (now.playing) "Pause" else "Play", Modifier.size(40.dp))
-                }
-                IconButton(onClick = media::next, enabled = now.canDo(PlaybackState.ACTION_SKIP_TO_NEXT), modifier = Modifier.size(56.dp)) {
-                    Icon(MediaIcons.Next, "Next", Modifier.size(32.dp))
-                }
-            }
         }
-    }
-}
-
-/**
- * The "Now playing" tab's own content: just the app's extra buttons (shuffle, repeat, like), by
- * name - their icons are resources inside the app's own package, so there's nothing to draw but
- * the label. Transport and progress already live on [NowPlayingRail], visible on every tab.
- */
-@Composable
-private fun NowPlayingExtras(now: NowPlaying, media: CarMedia, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.Center) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            now.custom.take(3).forEach { action ->
-                TextButton(onClick = { media.custom(action) }) { Text(action.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            }
-        }
+        PlayerProgress(now, media, Modifier.fillMaxWidth())
+        TransportRow(now, media, skip = 52.dp, modifier = Modifier.fillMaxWidth())
+        PlayModeRow(now, media, size = 48.dp, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -378,7 +402,7 @@ private fun BrowsePanel(browse: app.seb3thehacker.gearslip.media.BrowseState, me
         if (media.canGoUp || browse.trail.isNotEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (media.canGoUp) {
-                    IconButton(onClick = media::up) { Icon(Icons.Filled.ArrowBack, "Up") }
+                    GsIconButton(Icons.Filled.ArrowBack, "Up", media::up)
                 }
                 browse.trail.lastOrNull()?.let {
                     Text(
@@ -408,7 +432,7 @@ private fun BrowsePanel(browse: app.seb3thehacker.gearslip.media.BrowseState, me
 
 /**
  * Whatever the app has queued up, starting right after the track that's playing now - not the
- * whole queue from the top, which would just repeat what [NowPlayingRail] already shows. Apps
+ * whole queue from the top, which would just repeat what the player beside it already shows. Apps
  * that never publish a queue (many don't) show an empty notice rather than a permanently blank tab.
  */
 @Composable
@@ -482,7 +506,7 @@ private fun EntryRow(entry: MediaEntry, media: CarMedia) {
                 }
             }
             if (entry.browsable && entry.playable) {
-                IconButton(onClick = { media.playAll(entry) }) { Icon(Icons.Filled.PlayArrow, "Play") }
+                GsIconButton(Icons.Filled.PlayArrow, "Play", { media.playAll(entry) })
             }
             if (entry.browsable) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
         }
@@ -497,8 +521,13 @@ internal object MediaIcons {
     val Apps = icon("Apps", "M4,8h4L8,4L4,4v4zM10,20h4v-4h-4v4zM4,20h4v-4L4,16v4zM4,14h4v-4L4,10v4zM10,14h4v-4h-4v4zM16,4v4h4L20,4h-4zM10,8h4L14,4h-4v4zM16,14h4v-4h-4v4zM16,20h4v-4h-4v4z")
     val Previous = icon("SkipPrevious", "M6,6h2v12L6,18zM9.5,12l8.5,6V6z")
     val Equalizer = icon("Equalizer", "M10,20h4L14,4h-4v16zM4,20h4v-8L4,12v8zM16,9v11h4L20,9h-4z")
+    val Shuffle = icon("Shuffle", "M10.59,9.17L5.41,4 4,5.41l5.17,5.17 1.42,-1.41zM14.5,4l2.04,2.04L4,18.59 5.41,20 17.96,7.46 20,9.5L20,4h-5.5zM14.83,13.41l-1.41,1.41 3.13,3.13L14.5,20L20,20v-5.5l-2.04,2.04 -3.13,-3.13z")
+    val Repeat = icon("Repeat", "M7,7h10v3l4,-4 -4,-4v3L5,5v6h2L7,7zM17,17L7,17v-3l-4,4 4,4v-3h12v-6h-2v4z")
+    val RepeatOne = icon("RepeatOne", "M7,7h10v3l4,-4 -4,-4v3L5,5v6h2L7,7zM17,17L7,17v-3l-4,4 4,4v-3h12v-6h-2v4zM13,15L13,9h-1l-2,1v1h1.5v4L13,15z")
+    /** A screen with a filled right-hand panel: "put the player beside the map". */
+    val DockRight = icon("DockRight", "M2,4h20v16H2zM4,6h10v12H4z", PathFillType.EvenOdd)
 
-    private fun icon(name: String, path: String) = ImageVector.Builder(
+    private fun icon(name: String, path: String, fillType: PathFillType = PathFillType.NonZero) = ImageVector.Builder(
         name, 24.dp, 24.dp, 24f, 24f,
-    ).addPath(addPathNodes(path), fill = SolidColor(androidx.compose.ui.graphics.Color.Black)).build()
+    ).addPath(addPathNodes(path), pathFillType = fillType, fill = SolidColor(androidx.compose.ui.graphics.Color.Black)).build()
 }

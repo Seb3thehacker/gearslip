@@ -30,10 +30,15 @@ sealed interface CarScreen {
      */
     data object Browse : CarScreen
 
+    /** A messaging app's recent conversations, read from the notifications it posts. */
+    data class Messages(val packageName: String) : CarScreen
+
     /** [replyTo] is a notification key to open straight into its reply pane. */
     data class Notifications(val replyTo: String? = null) : CarScreen
     data class App(val id: String) : CarScreen
 }
+
+enum class SidePanel { NONE, CONTROLS, LYRICS }
 
 /** One step on the breadcrumb trail: the screen it shows and the word for it in the trail. */
 data class Crumb(val screen: CarScreen, val label: String)
@@ -76,15 +81,38 @@ class CarNavigator(startId: String) {
     }
 
     /**
-     * The nav bar's now-playing pill is the player everywhere; this is only whether the home
-     * screen is additionally showing lyrics for it in the column beside the map. Toggled by the
-     * pill's own lyrics button, so it means the same thing wherever the pill is visible, even
-     * though only the home screen actually has the room to show it.
+     * What the column beside the map on Home is showing, if anything. The player lives in one
+     * place at a time: with [SidePanel.CONTROLS] it moves into the column and the nav bar's pill
+     * steps aside; with [SidePanel.LYRICS] the column is all lyrics and the pill comes back.
+     * Every other screen has no room for the column, so there the pill stays in the nav bar.
      */
-    var lyricsOpen by mutableStateOf(false)
+    var sidePanel by mutableStateOf(SidePanel.NONE)
         private set
 
-    fun toggleLyrics() { lyricsOpen = !lyricsOpen }
+    /**
+     * The pill's dock button: moves the player beside the map, going Home first if need be. With
+     * lyrics already there it swaps them for the controls; with the controls there it closes.
+     */
+    fun togglePlayerDock() {
+        if (current != CarScreen.Home) {
+            sidePanel = SidePanel.CONTROLS
+            home()
+            return
+        }
+        sidePanel = if (sidePanel == SidePanel.CONTROLS) SidePanel.NONE else SidePanel.CONTROLS
+    }
+
+    fun showSideLyrics() { sidePanel = SidePanel.LYRICS }
+
+    fun closeSidePanel() { sidePanel = SidePanel.NONE }
+
+    /** Component id of the app whose long-press menu (pin, close) is open, or null. */
+    var appMenu by mutableStateOf<String?>(null)
+        private set
+
+    fun showAppMenu(componentId: String) { appMenu = componentId }
+
+    fun dismissAppMenu() { appMenu = null }
 
     fun media() { push(CarScreen.Media, "Media") }
 
@@ -100,7 +128,12 @@ class CarNavigator(startId: String) {
 
     fun vehicleData() { push(CarScreen.VehicleData, "Vehicle data") }
 
-    fun notifications(replyTo: String? = null) { push(CarScreen.Notifications(replyTo), "Notifications") }
+    fun messages(packageName: String, label: String) { push(CarScreen.Messages(packageName), label) }
+
+    /** The list lives on the dashboard; only a reply gets a screen of its own. */
+    fun notifications(replyTo: String? = null) {
+        if (replyTo == null) dashboard() else push(CarScreen.Notifications(replyTo), "Reply")
+    }
 
     fun open(id: String) { push(CarScreen.App(id), CarApps.find(id)?.label ?: id) }
 

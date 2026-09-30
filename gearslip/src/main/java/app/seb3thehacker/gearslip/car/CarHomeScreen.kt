@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.car
 
+import app.seb3thehacker.gearslip.car.theme.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,12 +14,40 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import android.support.v4.media.session.PlaybackStateCompat
+import app.seb3thehacker.gearslip.R
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import android.media.session.PlaybackState
+import app.seb3thehacker.gearslip.media.MediaArt
+import kotlinx.coroutines.delay
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import app.seb3thehacker.gearslip.media.ArtColor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -35,11 +64,11 @@ import app.seb3thehacker.gearslip.media.NowPlaying
 import kotlinx.coroutines.launch
 
 /**
- * The home screen: the map on the left, lyrics on the right when asked for.
+ * The home screen: the map on the left, the docked player on the right when asked for.
  *
- * The map is whatever navigation app was used last, brought back on its own. Playback itself is
- * controlled from the nav bar's pill everywhere, including here - this column only opens when the
- * pill's lyrics button is on, and closes itself back to a full-width map once nothing is playing.
+ * The map is whatever navigation app was used last, brought back on its own. The player sits in
+ * the nav bar's pill until its dock button moves it here; the column closes itself back to a
+ * full-width map once nothing is playing.
  */
 @Composable
 fun CarHome() {
@@ -52,10 +81,11 @@ fun CarHome() {
     LaunchedEffect(phase) { if (phase == CarMedia.Phase.READY) CarServices.autoplayIfDue() }
 
     val navigator = LocalCarNavigator.current
-    val splitScreen = phase == CarMedia.Phase.READY && now.isActive && navigator.lyricsOpen
+    val panel = navigator.sidePanel
+    val splitScreen = phase == CarMedia.Phase.READY && now.isActive && panel != SidePanel.NONE
 
     // No outer padding on any side, split screen or not - only the gap between the two panes
-    // when lyrics are sharing the screen with the map.
+    // when the player is sharing the screen with the map.
     Row(
         Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -68,7 +98,8 @@ fun CarHome() {
             MapPane(navStatus, frame)
         }
         if (splitScreen) {
-            LyricsColumn(now, Modifier.weight(1f).fillMaxHeight())
+            val side = Modifier.weight(1f).fillMaxHeight()
+            if (panel == SidePanel.LYRICS) SideLyrics(now, side) else DockedPlayer(now, side)
         }
     }
 }
@@ -95,7 +126,7 @@ private fun MapPane(status: CarAppConnection.Status, frame: CarEnvironment.Frame
             CarAppConnection.Phase.REJECTED, CarAppConnection.Phase.FAILED -> {
                 Text("${status.app ?: "The map app"} would not start.", style = MaterialTheme.typography.titleMedium)
                 status.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                TextButton(onClick = navigator::apps) { Text("Choose another app") }
+                GsButton(onClick = navigator::apps, tone = GsTone.Tonal) { Text("Choose another app") }
             }
             else -> if (!hasNavApps) {
                 // Nothing to auto-select and nothing to pick from Car apps either - this is the
@@ -111,8 +142,8 @@ private fun MapPane(status: CarAppConnection.Status, frame: CarEnvironment.Frame
                 // not come back on its own, so the screen must offer a way to bring it back rather
                 // than sit on a "starting" message that never resolves.
                 Text("Map stopped.", style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { scope.launch { CarServices.reconnectNav(frame) } }) { Text("Reopen") }
-                TextButton(onClick = { navigator.apps() }) { Text("Car apps") }
+                GsButton(onClick = { scope.launch { CarServices.reconnectNav(frame) } }, tone = GsTone.Tonal) { Text("Reopen") }
+                GsButton(onClick = { navigator.apps() }, tone = GsTone.Tonal) { Text("Car apps") }
             } else {
                 // Autostart is still picking one - a navigation app is installed, so this resolves
                 // to a "Starting..." state itself, in the next frame or two.
@@ -122,32 +153,96 @@ private fun MapPane(status: CarAppConnection.Status, frame: CarEnvironment.Frame
 }
 
 /**
- * Lyrics for whatever the nav bar's pill is playing, beside the map. Transport controls live in
- * the pill itself now, not here - this column has exactly one job.
+ * The player, docked beside the map: art, title, progress, transport, then like, shuffle, repeat
+ * and lyrics. While it's here the nav bar's pill steps aside on Home, so the controls never show
+ * twice. The X sends it back to the nav bar.
  */
 @Composable
-private fun LyricsColumn(now: NowPlaying, modifier: Modifier) {
+private fun DockedPlayer(now: NowPlaying, modifier: Modifier) {
     val navigator = LocalCarNavigator.current
-    Surface(
-        modifier = modifier,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    val media = CarServices.media
+    val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    val art by produceState(now.art, now.art, now.artUri) { value = now.art ?: MediaArt.load(context, now.artUri) }
+
+    Surface(modifier = modifier, color = rememberArtColor(art, MaterialTheme.colorScheme.surfaceVariant)) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(12.dp)) {
+            // Whatever height the controls below leave over, so the art grows on a taller
+            // screen and shrinks rather than pushing the buttons off a short one.
+            val artSize = minOf(maxWidth - 44.dp, maxHeight - 250.dp).coerceIn(56.dp, 200.dp)
+            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.fillMaxWidth()) {
+                    // Art opens the full media screen, same as on the pill.
+                    Box(
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .size(artSize)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(scheme.surface)
+                            .clickable { navigator.media() },
+                    ) {
+                        art?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                    }
+                    GsIconButton(
+                        Icons.Filled.Close, "Back to the nav bar", navigator::closeSidePanel,
+                        Modifier.align(Alignment.TopEnd), size = 36.dp, iconSize = 20.dp,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
                 Text(
-                    now.title.ifEmpty { "Lyrics" },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                    now.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                IconButton(onClick = navigator::toggleLyrics, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.Close, "Hide lyrics", Modifier.size(20.dp))
+                Text(
+                    now.artist, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                if (now.durationMs > 0) {
+                    PlayerProgress(now, media, Modifier.fillMaxWidth().padding(vertical = 2.dp), showTimes = false)
+                } else {
+                    Spacer(Modifier.height(10.dp))
+                }
+                TransportRow(now, media, skip = 48.dp, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(10.dp))
+                PlayModeRow(now, media, size = 42.dp, modifier = Modifier.fillMaxWidth()) {
+                    GsIconButton(
+                        ImageVector.vectorResource(R.drawable.lyrics_24), "Lyrics", navigator::showSideLyrics,
+                        size = 42.dp, iconSize = 22.dp,
+                    )
                 }
             }
-            Spacer(Modifier.height(4.dp))
-            LyricsPanel(now, Modifier.weight(1f).fillMaxWidth())
+        }
+    }
+}
+
+/**
+ * Lyrics alone beside the map, big enough to read at a glance. No art: that space goes to a
+ * larger title and artist instead. The player goes back to the nav bar meanwhile, whose dock
+ * button swaps these back out for the controls.
+ */
+@Composable
+private fun SideLyrics(now: NowPlaying, modifier: Modifier) {
+    val navigator = LocalCarNavigator.current
+    val context = LocalContext.current
+    val art by produceState(now.art, now.art, now.artUri) { value = now.art ?: MediaArt.load(context, now.artUri) }
+    Surface(modifier = modifier, color = rememberArtColor(art, MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        now.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        now.artist, style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                GsIconButton(Icons.Filled.Close, "Hide lyrics", navigator::closeSidePanel, size = 36.dp, iconSize = 20.dp)
+            }
+            Spacer(Modifier.height(12.dp))
+            LyricsPanel(now, Modifier.weight(1f).fillMaxWidth(), lineStyle = MaterialTheme.typography.headlineSmall)
         }
     }
 }

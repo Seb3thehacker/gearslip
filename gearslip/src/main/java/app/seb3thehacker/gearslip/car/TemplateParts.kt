@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.car
 
+import app.seb3thehacker.gearslip.car.theme.*
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.material3.LocalContentColor
@@ -300,15 +301,17 @@ internal fun ActionButton(action: Action, large: Boolean = false, modifier: Modi
     }
     val hasGlyph = action.icon != null || action.type != Action.TYPE_CUSTOM
 
-    Surface(
-        color = background,
-        contentColor = content,
-        shape = if (title.isEmpty()) androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(if (large) 28.dp else 24.dp),
-        modifier = modifier.clickable(enabled = action.isEnabled) {
+    GsIconBox(
+        onClick = {
             if (action.type == Action.TYPE_BACK) CarServices.nav.backPressed()
             else if (action.type == Action.TYPE_PAN) CarServices.nav.setPanMode(!panOn)
             else action.onClickDelegate?.click("action")
         },
+        modifier = modifier,
+        colors = GsColors(background, content),
+        enabled = action.isEnabled,
+        shape = if (title.isEmpty()) androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(if (large) 28.dp else 24.dp),
+        latched = active,
     ) {
         if (large && title.isNotEmpty()) {
             // The label sits dead centre on the button; the icon hangs off the left edge, so the
@@ -368,13 +371,14 @@ internal fun AutoStartButton(action: Action, modifier: Modifier = Modifier) {
     val content = if (custom) Color.White else MaterialTheme.colorScheme.onPrimary
     val hasGlyph = action.icon != null
 
-    Surface(
+    GsIconBox(
+        onClick = { fire() },
+        modifier = modifier.fillMaxWidth(),
         // An unfilled track, solid, not the button's own colour dimmed with alpha - so the map
         // behind never shows through however much of the five seconds is left.
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        contentColor = content,
+        colors = GsColors(MaterialTheme.colorScheme.surfaceContainerHighest, content),
+        enabled = action.isEnabled,
         shape = RoundedCornerShape(28.dp),
-        modifier = modifier.fillMaxWidth().clickable(enabled = action.isEnabled) { fire() },
     ) {
         androidx.compose.foundation.layout.Box {
             // The countdown itself: a plain fill sweeping left to right underneath the label.

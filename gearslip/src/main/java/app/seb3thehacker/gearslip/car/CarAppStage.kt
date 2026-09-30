@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.car
 
+import app.seb3thehacker.gearslip.car.theme.*
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -13,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -157,7 +157,7 @@ private fun ChromeBar(
                 }.joinToString(" - ")
                 Text(detail, style = MaterialTheme.typography.bodySmall)
             }
-            TextButton(onClick = onDisconnect) { Text("Stop", color = Color.White) }
+            GsButton(onClick = onDisconnect, tone = GsTone.Tonal) { Text("Stop") }
         }
     }
 }

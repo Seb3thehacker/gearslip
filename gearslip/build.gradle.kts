@@ -34,6 +34,7 @@ android {
         targetSdk = 37
         versionCode = 5
         versionName = "0.0.05-alpha"
+        manifestPlaceholders["appLabel"] = "Gearslip"
     }
 
     signingConfigs {
@@ -52,6 +53,14 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release")
+        }
+        // Its own package, so a dev build installs beside the release one instead of over it.
+        // Signed with the release key when it's here: both builds declare the car template
+        // permission, and Android refuses a second app declaring it under a different key.
+        debug {
+            applicationIdSuffix = ".dev"
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+            manifestPlaceholders["appLabel"] = "Gearslip Dev"
         }
     }
 
@@ -108,6 +117,7 @@ dependencies {
     // their Bundleables deserialize into.
     implementation(libs.androidx.car.app)
     implementation(libs.androidx.car.app.projected)
+    implementation(libs.androidx.media)
     testImplementation(libs.junit)
 }
 

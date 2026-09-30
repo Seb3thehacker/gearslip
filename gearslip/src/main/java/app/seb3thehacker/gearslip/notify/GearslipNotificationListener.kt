@@ -3,6 +3,7 @@ package app.seb3thehacker.gearslip.notify
 import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import androidx.core.app.NotificationCompat
 import androidx.core.graphics.drawable.toBitmap
 
 /**
@@ -41,20 +42,37 @@ class GearslipNotificationListener : NotificationListenerService() {
             ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
         if (title.isBlank() && text.isBlank()) return
 
+        val style = runCatching { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n) }.getOrNull()
+        // In MessagingStyle a message with no sender is the phone owner's own.
+        val me = style?.user?.name?.toString()
+        val lines = style?.messages.orEmpty().takeLast(MAX_LINES).mapNotNull { m ->
+            val body = m.text?.toString()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val sender = m.person?.name?.toString()?.takeIf { it.isNotBlank() && it != me }
+            ChatLine(sender, body, m.timestamp)
+        }
+
         CarNotifications.post(
             CarNotification(
                 key = sbn.key,
                 id = CarNotifications.nextId(),
+                packageName = sbn.packageName,
                 appLabel = appLabel(sbn.packageName),
-                title = title,
-                text = text,
+                title = style?.conversationTitle?.toString()?.takeIf { it.isNotBlank() } ?: title,
+                text = lines.lastOrNull()?.text ?: text,
                 postedAt = sbn.postTime,
                 icon = icon(sbn),
                 reply = replyOf(n),
+                lines = lines,
+                isGroup = style?.isGroupConversation == true,
+                markRead = markReadOf(n),
             ),
             quiet,
         )
     }
+
+    private fun markReadOf(n: Notification): Notification.Action? =
+        (n.actions.orEmpty().toList() + Notification.WearableExtender(n).actions)
+            .firstOrNull { it.actionIntent != null && it.semanticAction == Notification.Action.SEMANTIC_ACTION_MARK_AS_READ }
 
     private fun appLabel(packageName: String): String = runCatching {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString()
@@ -79,6 +97,7 @@ class GearslipNotificationListener : NotificationListenerService() {
 
     private companion object {
         const val ICON_PX = 96
+        const val MAX_LINES = 8
         val QUIET_CATEGORIES = setOf(
             Notification.CATEGORY_TRANSPORT,
             Notification.CATEGORY_PROGRESS,

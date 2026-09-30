@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import app.seb3thehacker.gearslip.GearslipLog
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 /**
  * Turns the Car App Library's model objects into things Compose can draw.
@@ -102,9 +103,16 @@ fun CarColor?.color(dark: Boolean, default: Color): Color = when (this?.type) {
     else -> default
 }
 
-/** "500 ft", "2.4 mi" - the app picks the unit, the host formats it. */
+/**
+ * "500 ft", "2.4 mi". The app picks the unit and its rounding; when that's the other system from
+ * the one chosen in Gearslip's settings, the distance is converted and rounded here instead.
+ */
 fun Distance?.display(): String {
     val distance = this ?: return ""
+    val appImperial = displayUnit in setOf(Distance.UNIT_MILES, Distance.UNIT_MILES_P1, Distance.UNIT_FEET, Distance.UNIT_YARDS)
+    val appMetric = displayUnit in setOf(Distance.UNIT_METERS, Distance.UNIT_KILOMETERS, Distance.UNIT_KILOMETERS_P1)
+    val imperial = app.seb3thehacker.gearslip.car.CarSettings.imperial()
+    if ((imperial && appMetric) || (!imperial && appImperial)) return convertDistance(distance.meters(), imperial)
     val unit = when (displayUnit) {
         Distance.UNIT_METERS -> "m"
         Distance.UNIT_KILOMETERS, Distance.UNIT_KILOMETERS_P1 -> "km"
@@ -119,6 +127,32 @@ fun Distance?.display(): String {
         else -> 0
     }
     return "%.${decimals}f $unit".format(distance.displayDistance)
+}
+
+private fun Distance.meters(): Double = displayDistance * when (displayUnit) {
+    Distance.UNIT_KILOMETERS, Distance.UNIT_KILOMETERS_P1 -> 1000.0
+    Distance.UNIT_MILES, Distance.UNIT_MILES_P1 -> 1609.344
+    Distance.UNIT_FEET -> 0.3048
+    Distance.UNIT_YARDS -> 0.9144
+    else -> 1.0
+}
+
+/**
+ * Rounded the way a nav app would: feet in steps of 50 under a tenth of a mile, metres in steps
+ * of 10 (50 past 300) under a kilometre, one decimal under 10 miles or km, whole numbers above.
+ */
+private fun convertDistance(meters: Double, imperial: Boolean): String {
+    if (imperial) {
+        val miles = meters / 1609.344
+        if (miles < 0.1) return "${(meters / 0.3048 / 50).roundToInt() * 50} ft"
+        return if (miles < 10) "%.1f mi".format(miles) else "%.0f mi".format(miles)
+    }
+    if (meters < 1000) {
+        val step = if (meters < 300) 10 else 50
+        return "${(meters / step).roundToInt() * step} m"
+    }
+    val km = meters / 1000
+    return if (km < 10) "%.1f km".format(km) else "%.0f km".format(km)
 }
 
 /** "18 min" from the app's remaining-time estimate. */

@@ -18,10 +18,10 @@ local.properties
 *.keystore
 keystore.properties
 
-# Local investigation script; not meant for the public repo.
 /docs/cert-sweep.sh
 archive/
 CLAUDE.md
 *.pdf
 extraction/
 .claude/
+todo

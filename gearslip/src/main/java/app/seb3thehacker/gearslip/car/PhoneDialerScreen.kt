@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.car
 
+import app.seb3thehacker.gearslip.car.theme.*
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -20,17 +21,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -102,21 +100,25 @@ fun PhoneDialerScreen() {
     var tab by remember { mutableStateOf(TAB_CONTACTS) }
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(
-            "Phone",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(vertical = 4.dp),
-        )
+        // The tabs share the title's row, so the list and keypad get the height back.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Phone",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            if (hasPermissions) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DialerTab("Contacts", tab == TAB_CONTACTS, Modifier.width(140.dp)) { tab = TAB_CONTACTS }
+                    DialerTab("Keypad", tab == TAB_KEYPAD, Modifier.width(140.dp)) { tab = TAB_KEYPAD }
+                }
+            }
+        }
 
         if (!hasPermissions) {
             MissingPermission(context)
             return@Column
-        }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DialerTab("Contacts", tab == TAB_CONTACTS, Modifier.weight(1f)) { tab = TAB_CONTACTS }
-            DialerTab("Keypad", tab == TAB_KEYPAD, Modifier.weight(1f)) { tab = TAB_KEYPAD }
         }
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -134,7 +136,7 @@ private fun MissingPermission(context: Context) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        FilledTonalButton(onClick = {
+        GsButton(tone = GsTone.Tonal, onClick = {
             context.startActivity(
                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
             )
@@ -144,16 +146,15 @@ private fun MissingPermission(context: Context) {
 
 @Composable
 private fun DialerTab(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
+    GsIconBox(
         onClick = onClick,
-        modifier = modifier.height(52.dp),
+        modifier = modifier.height(44.dp),
+        colors = if (selected) GsColors(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        else GsColors(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurface),
         shape = MaterialTheme.shapes.large,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+        latched = selected,
     ) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-        }
+        Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
     }
 }
 
@@ -193,19 +194,17 @@ private fun Keypad(context: Context) {
                 }
             }
             Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(
+                GsButton(
                     onClick = { if (number.isNotEmpty()) number = number.dropLast(1) },
+                    tone = GsTone.Tonal,
                     enabled = number.isNotEmpty(),
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                ) { Text("⌫") }
-                FilledIconButton(
+                ) { Text("⌫", style = MaterialTheme.typography.titleLarge) }
+                GsIconBox(
                     onClick = { placeCall(context, number) },
+                    colors = gsColors(GsTone.Primary),
                     enabled = number.isNotEmpty(),
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
                 ) { Icon(Icons.Filled.Call, "Call") }
             }
         }
@@ -214,15 +213,13 @@ private fun Keypad(context: Context) {
 
 @Composable
 private fun KeypadButton(digit: String, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier,
+    GsIconBox(
+        onClick,
+        modifier,
+        colors = GsColors(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurface),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Text(digit, style = MaterialTheme.typography.titleLarge)
-        }
+        Text(digit, style = MaterialTheme.typography.titleLarge)
     }
 }
 
@@ -315,10 +312,10 @@ private fun ConfirmCallOverlay(contact: Contact, onConfirm: () -> Unit, onDismis
                 Text("Call ${contact.name}?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(contact.number, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(56.dp)) {
+                    GsButton(onClick = onDismiss, tone = GsTone.Outline, modifier = Modifier.weight(1f).height(56.dp)) {
                         Text("Cancel", style = MaterialTheme.typography.titleMedium)
                     }
-                    Button(onClick = onConfirm, modifier = Modifier.weight(1f).height(56.dp)) {
+                    GsButton(onClick = onConfirm, modifier = Modifier.weight(1f).height(56.dp)) {
                         Text("Call", style = MaterialTheme.typography.titleMedium)
                     }
                 }

@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.car
 
+import app.seb3thehacker.gearslip.car.theme.*
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.seb3thehacker.gearslip.car.theme.GsColors
+import app.seb3thehacker.gearslip.car.theme.GsIconBox
+import app.seb3thehacker.gearslip.car.theme.GsThemes
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.ui.CertSummary
 import kotlinx.coroutines.Dispatchers
@@ -45,9 +49,11 @@ fun CarSettingsScreen() {
     val scale by CarSettings.scale.collectAsState()
     val open by CarSettings.openOnConnect.collectAsState()
     val night by CarSettings.nightMode.collectAsState()
+    val units by CarSettings.units.collectAsState()
     val pipeAudio by CarSettings.pipeAudio.collectAsState()
     val autoplay by CarSettings.autoplay.collectAsState()
     val theme by CarSettings.appTheme.collectAsState()
+    val uiTheme by CarSettings.uiTheme.collectAsState()
     val experimentalFeatures by CarSettings.experimentalFeaturesEnabled.collectAsState()
     val voiceAssistant by CarSettings.voiceAssistantEnabled.collectAsState()
     val carSensors by CarSettings.carSensorsEnabled.collectAsState()
@@ -86,10 +92,22 @@ fun CarSettingsScreen() {
         ) { CarSettings.setAppTheme(it) }
 
         ChoiceRow(
+            "Button style",
+            GsThemes.builtIn.map { it.id to it.name },
+            uiTheme,
+        ) { CarSettings.setUiTheme(it) }
+
+        ChoiceRow(
             "Map day/night",
             listOf(NightMode.AUTO to "Auto", NightMode.DAY to "Day", NightMode.NIGHT to "Night"),
             night,
         ) { CarSettings.setNightMode(it) }
+
+        ChoiceRow(
+            "Units",
+            listOf(Units.AUTO to "Auto", Units.IMPERIAL to "Imperial (mi, ft, °F)", Units.METRIC to "Metric (km, m, °C)"),
+            units,
+        ) { CarSettings.setUnits(it) }
 
         ChoiceRow(
             "Autoplay on connect",
@@ -141,18 +159,17 @@ private fun <T> ChoiceRow(title: String, options: List<Pair<T, String>>, selecte
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             options.forEach { (value, label) ->
                 val on = value == selected
-                Surface(
+                val scheme = MaterialTheme.colorScheme
+                GsIconBox(
                     onClick = { onSelect(value) },
                     modifier = Modifier
                         .weight(1f)
                         .height(64.dp),
-                    shape = MaterialTheme.shapes.large,
-                    color = if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    colors = if (on) GsColors(scheme.primaryContainer, scheme.onPrimaryContainer)
+                    else GsColors(scheme.surfaceContainerHigh, scheme.onSurface),
+                    latched = on,
                 ) {
-                    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                        Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
-                    }
+                    Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
                 }
             }
         }
@@ -301,7 +318,7 @@ private fun ScreenFit(vehicle: String) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Button(
+        GsButton(
             onClick = {
                 val ok = app.seb3thehacker.gearslip.VehicleProfiles.saveInsets(context, vehicle, insets)
                 saved = if (ok) "Saved to $vehicle" else "Could not save"
@@ -332,14 +349,12 @@ private fun Stepper(label: String, value: Int, onStep: (Int) -> Unit) {
 
 @Composable
 private fun StepButton(text: String, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
+    GsIconBox(
         onClick = onClick,
         modifier = modifier.height(64.dp),
+        colors = GsColors(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurface),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Text(text, style = MaterialTheme.typography.titleLarge)
-        }
+        Text(text, style = MaterialTheme.typography.titleLarge)
     }
 }

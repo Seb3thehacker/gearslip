@@ -58,7 +58,7 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
             .windowInsetsPadding(WindowInsets.statusBars)
             .consumeWindowInsets(WindowInsets.statusBars),
     ) {
-        if (BuildConfig.DEBUG) DevBuildBanner()
+        if (BuildConfig.DEBUG && screen != Screen.CAR_PREVIEW) DevBuildBanner()
 
         Column(Modifier.weight(1f)) {
             when (screen) {

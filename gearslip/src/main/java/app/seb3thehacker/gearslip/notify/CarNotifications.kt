@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.update
 /** How a notification can be answered: the action the app attached, and the field it fills. */
 class ReplyTarget(val action: Notification.Action, val input: android.app.RemoteInput)
 
+/** One message of a conversation. [sender] is null for the phone's owner ("You"). */
+data class ChatLine(val sender: String?, val text: String, val at: Long)
+
 /**
  * One notification as the car shows it. Only what the car UI needs is kept - the phone's
  * Notification object stays with the listener, apart from the reply action.
@@ -24,6 +27,7 @@ data class CarNotification(
     val key: String,
     /** Unique per post, so an update to an already-shown notification still counts as new. */
     val id: Long,
+    val packageName: String,
     val appLabel: String,
     val title: String,
     val text: String,
@@ -32,6 +36,12 @@ data class CarNotification(
     /** Null when the app offered no reply, or once the notification has left the phone. */
     val reply: ReplyTarget?,
     val replied: Boolean = false,
+    /** The thread's recent messages, oldest first, when the app posts it as a conversation. */
+    val lines: List<ChatLine> = emptyList(),
+    val isGroup: Boolean = false,
+    /** The app's own "mark as read" action, fired once the driver has opened the thread. */
+    val markRead: Notification.Action? = null,
+    val read: Boolean = false,
 )
 
 /**
@@ -83,11 +93,16 @@ object CarNotifications {
 
     /** The phone dismissed it. It stays in history, but its reply intent is no longer trustworthy. */
     fun gone(key: String) {
-        _history.update { list -> list.map { if (it.key == key) it.copy(reply = null) else it } }
+        _history.update { list -> list.map { if (it.key == key) it.copy(reply = null, markRead = null) else it } }
     }
 
     fun dismissPopup(id: Long) {
         _popup.update { if (it?.id == id) null else it }
+    }
+
+    /** While an app's own messages screen is up, its new messages land there, not in a popup. */
+    fun dismissPopupFrom(packageName: String) {
+        _popup.update { if (it?.packageName == packageName) null else it }
     }
 
     /** Called while the notification screen is showing: nothing is unread there. */
@@ -100,6 +115,22 @@ object CarNotifications {
         _history.value = emptyList()
         _popup.value = null
         _unread.value = 0
+    }
+
+    /**
+     * Fires the app's own "mark as read", which also clears it from the phone - and with it the
+     * reply action, so this is the driver's call, not something done on opening the thread.
+     */
+    fun markThreadRead(context: Context, notification: CarNotification): Boolean {
+        val action = notification.markRead ?: return false
+        return try {
+            action.actionIntent.send(context, 0, Intent())
+            _history.update { list -> list.map { if (it.key == notification.key) it.copy(read = true, markRead = null) else it } }
+            true
+        } catch (e: PendingIntent.CanceledException) {
+            GearslipLog.w("notify: ${notification.appLabel} withdrew its mark-as-read")
+            false
+        }
     }
 
     /** Fills the app's reply field and fires its action. Returns false if the app has withdrawn it. */

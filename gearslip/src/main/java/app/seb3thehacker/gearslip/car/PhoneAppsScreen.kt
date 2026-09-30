@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.car
 
+import app.seb3thehacker.gearslip.car.theme.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -96,19 +96,18 @@ private fun TouchRelayWarning() {
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
-            Button(onClick = { PhoneApps.openAccessibilitySettings(context) }) { Text("Open") }
+            GsButton(onClick = { PhoneApps.openAccessibilitySettings(context) }) { Text("Open") }
         }
     }
 }
 
 @Composable
 private fun PhoneAppTile(app: PhoneApp, onClick: () -> Unit) {
-    Surface(
+    GsIconBox(
         onClick = onClick,
         modifier = Modifier.height(120.dp),
+        colors = GsColors(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant),
         shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
     ) {
         Column(
             Modifier.fillMaxSize().padding(8.dp),

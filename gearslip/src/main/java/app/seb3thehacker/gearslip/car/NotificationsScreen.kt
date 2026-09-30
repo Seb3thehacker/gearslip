@@ -1,9 +1,9 @@
 package app.seb3thehacker.gearslip.car
 
+import app.seb3thehacker.gearslip.car.theme.*
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -23,10 +21,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -35,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -52,34 +48,40 @@ import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 
-/** The notification history, with a reply pane for anything the sending app lets us answer. */
+/**
+ * Replying to one notification. The list itself lives on the dashboard (see
+ * [NotificationsSection]); with nothing to reply to, this is just the dashboard.
+ */
 @Composable
 fun NotificationsScreen(replyTo: String?) {
     val history by CarNotifications.history.collectAsState()
-    var replying by remember(replyTo) { mutableStateOf(replyTo) }
-
-    // Anything arriving while this is open is being looked at, so it never counts as unread.
-    LaunchedEffect(history) { CarNotifications.markRead() }
-
-    val target = history.firstOrNull { it.key == replying && it.reply != null }
+    val navigator = LocalCarNavigator.current
+    val target = history.firstOrNull { it.key == replyTo && it.reply != null }
     if (target != null) {
-        ReplyPane(target, onDone = { replying = null })
+        ReplyPane(target, onDone = navigator::back)
     } else {
-        NotificationList(history, onReply = { replying = it.key })
+        CarDashboardScreen()
     }
 }
 
+/**
+ * The notification history, under the calendar on the dashboard. Replying opens its own pane.
+ * Anything arriving while this is on screen is being looked at, so it never counts as unread.
+ */
 @Composable
-private fun NotificationList(history: List<CarNotification>, onReply: (CarNotification) -> Unit) {
+fun NotificationsSection() {
+    val history by CarNotifications.history.collectAsState()
     val listening by CarNotifications.listening.collectAsState()
+    val navigator = LocalCarNavigator.current
     val context = LocalContext.current.applicationContext
+    LaunchedEffect(history) { CarNotifications.markRead() }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "Notifications",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f),
             )
             if (history.isNotEmpty()) TextButton(onClick = CarNotifications::clear) { Text("Clear all") }
@@ -94,22 +96,21 @@ private fun NotificationList(history: List<CarNotification>, onReply: (CarNotifi
         }
 
         if (history.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Nothing yet. New notifications from the phone will show up here.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                "Nothing yet. New notifications from the phone will show up here.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         } else {
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(history, key = { it.key }) { NotificationRow(it, onReply) }
+            history.forEach { n ->
+                key(n.key) { NotificationRow(n) { navigator.notifications(replyTo = it.key) } }
             }
         }
     }
 }
 
 @Composable
-private fun AccessBanner(onOpen: () -> Unit) {
+internal fun AccessBanner(onOpen: () -> Unit) {
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.errorContainer,
@@ -127,7 +128,7 @@ private fun AccessBanner(onOpen: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
-            Button(onClick = onOpen) { Text("Open") }
+            GsButton(onClick = onOpen) { Text("Open") }
         }
     }
 }
@@ -160,14 +161,14 @@ private fun NotificationRow(n: CarNotification, onReply: (CarNotification) -> Un
             }
             when {
                 n.replied -> Icon(Icons.Filled.Check, contentDescription = "Replied", tint = MaterialTheme.colorScheme.primary)
-                n.reply != null -> FilledTonalButton(onClick = { onReply(n) }) { Text("Reply") }
+                n.reply != null -> GsButton(onClick = { onReply(n) }, tone = GsTone.Tonal) { Text("Reply") }
             }
         }
     }
 }
 
 @Composable
-private fun NotificationIcon(n: CarNotification, size: androidx.compose.ui.unit.Dp = 44.dp) {
+internal fun NotificationIcon(n: CarNotification, size: androidx.compose.ui.unit.Dp = 44.dp) {
     val icon = n.icon
     if (icon != null) {
         Image(icon.asImageBitmap(), contentDescription = null, modifier = Modifier.size(size).clip(RoundedCornerShape(10.dp)))
@@ -194,7 +195,7 @@ private fun ReplyPane(n: CarNotification, onDone: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+            GsIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onDone)
             Surface(
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -250,7 +251,7 @@ fun NotificationPopup(modifier: Modifier = Modifier) {
         modifier = modifier
             .padding(top = 8.dp)
             .fillMaxWidth(0.7f)
-            .clickable { navigator.notifications() },
+            .clickable { navigator.dashboard() },
     ) {
         Row(
             Modifier.padding(12.dp),
@@ -268,11 +269,9 @@ fun NotificationPopup(modifier: Modifier = Modifier) {
                 }
             }
             if (n.reply != null) {
-                FilledTonalButton(onClick = { navigator.notifications(replyTo = n.key) }) { Text("Reply") }
+                GsButton(onClick = { navigator.notifications(replyTo = n.key) }, tone = GsTone.Tonal) { Text("Reply") }
             }
-            IconButton(onClick = { CarNotifications.dismissPopup(n.id) }) {
-                Icon(Icons.Filled.Close, contentDescription = "Dismiss")
-            }
+            GsIconButton(Icons.Filled.Close, "Dismiss", { CarNotifications.dismissPopup(n.id) })
         }
     }
 }

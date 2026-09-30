@@ -1,16 +1,9 @@
 # License
 
-Gearslip is licensed under the **GNU Affero General Public License v3.0** (see `LICENSE`).
+Gearslip is licensed under the GNU Affero General Public License v3.0. The full text is in `LICENSE`.
 
-In short: you're free to use, run, and modify it. If you modify it — or run a modified
-version as a service others use over a network — the AGPL requires you to make your source
-changes available on the same terms. That obligation follows the code even when you don't
-redistribute a binary, which is what makes the AGPL fit for something that can run as a
-background service.
+You may use, run, and modify Gearslip freely. If you distribute a modified version, or let others use one over a network, you must publish your changes under the same license. The obligation follows the code even when you hand out no binary, which suits software that runs as a background service.
 
 ## Commercial licensing
 
-If the AGPL's terms don't work for you — for example, you want to use Gearslip privately
-without being required to publish your changes — a separate commercial license is available
-directly from the author. Terms (including any restrictions on modification) are set on a
-case-by-case basis. Contact me though Matrix (on my profile) to discuss one.
+If the AGPL's terms don't work for you, the author sells a separate commercial license. The usual case is a company that wants to use Gearslip privately without publishing its changes. Terms, including any limits on modification, are set case by case. Contact me on Matrix; the address is on my profile.

@@ -1,5 +1,7 @@
 package app.seb3thehacker.gearslip.car
 
+import androidx.compose.foundation.shape.CircleShape
+import app.seb3thehacker.gearslip.car.theme.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,9 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -98,12 +98,14 @@ private fun IncomingCall(s: CallUiState.Ringing, onAnswer: () -> Unit, onDecline
 @Composable
 private fun CallButton(icon: ImageVector, label: String, color: Color, enabled: Boolean, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        FilledIconButton(
-            onClick = onClick,
+        GsIconButton(
+            icon, label, onClick,
+            colors = GsColors(color, Color.White),
             enabled = enabled,
-            modifier = Modifier.size(72.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = color, contentColor = Color.White),
-        ) { Icon(icon, contentDescription = label, modifier = Modifier.size(30.dp)) }
+            size = 72.dp,
+            iconSize = 30.dp,
+            shape = CircleShape,
+        )
         Spacer(Modifier.height(8.dp))
         Text(label, style = MaterialTheme.typography.labelLarge)
     }

@@ -117,6 +117,14 @@ object CarServices {
         if (CarSettings.pipeAudio.value) CarAudio.request()
     }
 
+    /** Closes the media app from the car: stops what it's playing and drops the connection. */
+    fun closeMedia() {
+        if (media.now.value.playing) media.togglePlay()
+        media.disconnect()
+        _mediaApp.value = null
+        autoplayPending = false
+    }
+
     /** Called once the media app is connected: starts playback if that was asked for. */
     fun autoplayIfDue() {
         if (!autoplayPending) return

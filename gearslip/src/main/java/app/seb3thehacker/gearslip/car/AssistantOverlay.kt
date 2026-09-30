@@ -1,10 +1,9 @@
 package app.seb3thehacker.gearslip.car
 
+import app.seb3thehacker.gearslip.car.theme.*
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,10 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,10 +22,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import app.seb3thehacker.gearslip.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -77,15 +72,13 @@ fun AssistantOverlay(modifier: Modifier = Modifier) {
                 }
             }
             if (state.missingPermission) {
-                FilledTonalButton(onClick = {
+                GsButton(tone = GsTone.Tonal, onClick = {
                     context.startActivity(
                         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
                     )
                 }) { Text("Grant") }
             }
-            IconButton(onClick = CarAssistant::cancel) {
-                Icon(Icons.Filled.Close, contentDescription = "Dismiss")
-            }
+            GsIconButton(Icons.Filled.Close, "Dismiss", CarAssistant::cancel)
         }
     }
 }
@@ -107,37 +100,8 @@ private fun PulsingMic(listening: Boolean, modifier: Modifier = Modifier) {
     // the glyph itself doesn't need to animate for this to read clearly on a glance.
 }
 
-/**
- * A mic capsule on a small stand, drawn rather than a vector asset - the trimmed core icon set
- * this project ships (see [ChargingGlyph]'s doc comment) has no microphone.
- */
+/** The assistant's mic, from `R.drawable.mic_24`, tinted with the current content colour. */
 @Composable
 fun MicGlyph(modifier: Modifier = Modifier) {
-    val tint = LocalContentColor.current
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val capsuleWidth = w * 0.42f
-        val capsuleHeight = h * 0.58f
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset((w - capsuleWidth) / 2f, 0f),
-            size = Size(capsuleWidth, capsuleHeight),
-            cornerRadius = CornerRadius(capsuleWidth / 2f),
-        )
-        val standStroke = h * 0.09f
-        val standTop = capsuleHeight * 0.85f
-        val standBottom = h * 0.82f
-        drawArc(
-            color = tint,
-            startAngle = 20f,
-            sweepAngle = 140f,
-            useCenter = false,
-            topLeft = Offset(w * 0.14f, standTop - h * 0.06f),
-            size = Size(w * 0.72f, h * 0.5f),
-            style = Stroke(width = standStroke),
-        )
-        drawLine(tint, Offset(w / 2f, standBottom - h * 0.05f), Offset(w / 2f, standBottom), strokeWidth = standStroke)
-        drawLine(tint, Offset(w * 0.30f, standBottom), Offset(w * 0.70f, standBottom), strokeWidth = standStroke)
-    }
+    Icon(ImageVector.vectorResource(R.drawable.mic_24), contentDescription = "Assistant", modifier = modifier)
 }

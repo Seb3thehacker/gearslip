@@ -22,7 +22,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.produceState
-import androidx.compose.foundation.clickable
+import app.seb3thehacker.gearslip.car.theme.GsColors
+import app.seb3thehacker.gearslip.car.theme.GsIconBox
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -43,7 +44,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
- * Opened from the nav bar clock: the week's calendar and the current weather, at a glance. Both
+ * Opened from the nav bar clock: the current weather, the week's calendar and the phone's
+ * notifications, at a glance. The first two
  * need permissions granted on the phone (READ_CALENDAR, location) - if either was declined
  * this just shows an empty state instead of asking again from inside the car UI.
  */
@@ -61,6 +63,7 @@ fun CarDashboardScreen() {
         Text("Today", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         WeatherCard(context)
         AgendaCard(context)
+        NotificationsSection()
     }
 }
 
@@ -70,10 +73,10 @@ private fun WeatherCard(context: Context) {
     val navigator = LocalCarNavigator.current
     LaunchedEffect(Unit) { Weather.refresh(context) }
 
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    GsIconBox(
+        onClick = { navigator.weather() },
+        colors = GsColors(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurface),
         shape = MaterialTheme.shapes.extraLarge,
-        modifier = Modifier.clickable { navigator.weather() },
     ) {
         Row(
             Modifier.fillMaxWidth().padding(20.dp),

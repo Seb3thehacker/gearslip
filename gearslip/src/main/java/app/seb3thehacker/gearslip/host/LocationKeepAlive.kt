@@ -9,7 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import app.seb3thehacker.gearslip.GearslipLog
 
 /**
@@ -41,12 +43,22 @@ class LocationKeepAlive : Service() {
         // it; a nav app losing its background location fix is a small loss next to that.
         runCatching {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        }.onSuccess {
+            settle(State.ON)
         }.onFailure {
             GearslipLog.w("location keep-alive: could not start the foreground service - ${it.message}")
+            settle(State.FAILED)
             stopSelf()
         }
         return START_NOT_STICKY
     }
+
+    override fun onDestroy() {
+        if (state == State.ON) state = State.OFF
+        super.onDestroy()
+    }
+
+    enum class State { OFF, STARTING, ON, FAILED }
 
     companion object {
         private const val CHANNEL = "gearslip_location"
@@ -55,14 +67,73 @@ class LocationKeepAlive : Service() {
         /** Public flag value; the constant itself is hidden from the SDK. */
         const val BIND_INCLUDE_CAPABILITIES = 0x1000
 
-        fun start(context: Context) {
-            val granted = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
-                PackageManager.PERMISSION_GRANTED
-            if (granted) runCatching { context.startForegroundService(Intent(context, LocationKeepAlive::class.java)) }
+        private val main = Handler(Looper.getMainLooper())
+
+        @Volatile var state = State.OFF
+            private set
+
+        /** Each connected car app holds one; the service stops only when the last lets go. */
+        private var holders = 0
+        private val waiting = mutableListOf<() -> Unit>()
+
+        /**
+         * Takes a hold on the service, starting it if it isn't running, and calls [ready] (on the
+         * main thread) once it's running, has failed, or [timeoutMs] has passed - whichever comes
+         * first. A nav app bound before this has settled has no location capability to borrow,
+         * and some (MapQuest) crash outright when their own location service is refused.
+         */
+        fun acquire(context: Context, timeoutMs: Long = 3_000, ready: () -> Unit) {
+            main.post {
+                holders++
+                if (state == State.OFF || state == State.FAILED) begin(context.applicationContext)
+                if (state != State.STARTING) {
+                    ready()
+                    return@post
+                }
+                var done = false
+                val once = { if (!done) { done = true; ready() } }
+                waiting += once
+                main.postDelayed({
+                    if (!done) GearslipLog.w("location keep-alive: still not running after ${timeoutMs}ms, binding anyway")
+                    waiting.remove(once)
+                    once()
+                }, timeoutMs)
+            }
         }
 
-        fun stop(context: Context) {
-            context.stopService(Intent(context, LocationKeepAlive::class.java))
+        /** Lets go of one hold; the last one stops the service. */
+        fun release(context: Context) {
+            main.post {
+                holders = (holders - 1).coerceAtLeast(0)
+                if (holders > 0) return@post
+                context.stopService(Intent(context, LocationKeepAlive::class.java))
+                state = State.OFF
+            }
+        }
+
+        private fun begin(context: Context) {
+            val granted = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                GearslipLog.w("location keep-alive: no location permission, car maps won't get a fix in the background")
+                settle(State.FAILED)
+                return
+            }
+            state = State.STARTING
+            runCatching { context.startForegroundService(Intent(context, LocationKeepAlive::class.java)) }
+                .onFailure {
+                    GearslipLog.w("location keep-alive: start refused - ${it.message}")
+                    settle(State.FAILED)
+                }
+        }
+
+        private fun settle(to: State) {
+            main.post {
+                state = to
+                val run = waiting.toList()
+                waiting.clear()
+                run.forEach { it() }
+            }
         }
     }
 }

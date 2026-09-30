@@ -2,10 +2,15 @@ package app.seb3thehacker.gearslip.car
 
 import android.content.Context
 import app.seb3thehacker.gearslip.AppSettings
+import app.seb3thehacker.gearslip.car.theme.GsTheme
+import app.seb3thehacker.gearslip.car.theme.GsThemes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 enum class NightMode { AUTO, DAY, NIGHT }
+
+/** Distances and temperatures. [AUTO] goes by the phone's region. */
+enum class Units { AUTO, IMPERIAL, METRIC }
 
 /** The car UI's own colours. Separate from [NightMode], which is about the light outside (the map). */
 enum class AppTheme { PHONE, LIGHT, DARK }
@@ -24,11 +29,13 @@ object CarSettings {
     private const val KEY_LAST_MEDIA = "car_last_media"
     private const val KEY_AUTOPLAY = "car_autoplay"
     private const val KEY_THEME = "car_app_theme"
+    private const val KEY_UI_THEME = "car_ui_theme"
     private const val KEY_PINNED = "car_pinned_apps"
     private const val KEY_EXPERIMENTAL_FEATURES = "car_experimental_features"
     private const val KEY_VOICE_ASSISTANT = "car_voice_assistant"
     private const val KEY_CAR_SENSORS = "car_sensors_enabled"
     private const val KEY_SEEN_SAFETY_WARNING = "car_seen_safety_warning"
+    private const val KEY_UNITS = "car_units"
 
     /** How many shortcuts the nav bar makes room for; a driver reaching for one needs it to
      * still be on the bar, not off the edge of a long list. */
@@ -48,11 +55,31 @@ object CarSettings {
     private val autoplayFlow = MutableStateFlow(false)
     private val themeFlow = MutableStateFlow(AppTheme.PHONE)
     val appTheme: StateFlow<AppTheme> = themeFlow
+    private val uiThemeFlow = MutableStateFlow(GsThemes.default.id)
+
+    /** Id of the [GsTheme] controls are drawn in; an unknown id falls back to the default. */
+    val uiTheme: StateFlow<String> = uiThemeFlow
     private val pinnedFlow = MutableStateFlow<Set<String>>(emptySet())
     private val experimentalFeaturesFlow = MutableStateFlow(false)
     private val voiceAssistantFlow = MutableStateFlow(false)
     private val carSensorsFlow = MutableStateFlow(false)
     private val seenSafetyWarningFlow = MutableStateFlow(false)
+    private val unitsFlow = MutableStateFlow(Units.AUTO)
+
+    val units: StateFlow<Units> = unitsFlow
+
+    /** Whether to show miles, feet and °F; [Units.AUTO] follows the countries that still use them. */
+    fun imperial(): Boolean = when (unitsFlow.value) {
+        Units.IMPERIAL -> true
+        Units.METRIC -> false
+        Units.AUTO -> java.util.Locale.getDefault().country in setOf("US", "LR", "MM")
+    }
+
+    fun setUnits(units: Units) {
+        unitsFlow.value = units
+        AppSettings.putString(app, KEY_UNITS, units.name)
+        Weather.refresh(app, force = true)
+    }
 
     /** Flattened component names of the apps long-pressed onto the nav bar as shortcuts. */
     val pinnedApps: StateFlow<Set<String>> = pinnedFlow
@@ -119,6 +146,7 @@ object CarSettings {
         themeFlow.value = runCatching {
             AppTheme.valueOf(AppSettings.getString(app, KEY_THEME, AppTheme.PHONE.name))
         }.getOrDefault(AppTheme.PHONE)
+        uiThemeFlow.value = AppSettings.getString(app, KEY_UI_THEME, GsThemes.default.id)
         autoplayFlow.value = AppSettings.getString(app, KEY_AUTOPLAY, "false") == "true"
         pipeAudioFlow.value = AppSettings.getString(app, KEY_PIPE_AUDIO, "true") == "true"
         nightFlow.value = runCatching {
@@ -130,6 +158,9 @@ object CarSettings {
         voiceAssistantFlow.value = AppSettings.getString(app, KEY_VOICE_ASSISTANT, "false") == "true"
         carSensorsFlow.value = AppSettings.getString(app, KEY_CAR_SENSORS, "false") == "true"
         seenSafetyWarningFlow.value = AppSettings.getString(app, KEY_SEEN_SAFETY_WARNING, "false") == "true"
+        unitsFlow.value = runCatching {
+            Units.valueOf(AppSettings.getString(app, KEY_UNITS, Units.AUTO.name))
+        }.getOrDefault(Units.AUTO)
     }
 
     fun setScale(value: Float) {
@@ -155,6 +186,11 @@ object CarSettings {
     fun setAppTheme(theme: AppTheme) {
         themeFlow.value = theme
         AppSettings.putString(app, KEY_THEME, theme.name)
+    }
+
+    fun setUiTheme(id: String) {
+        uiThemeFlow.value = id
+        AppSettings.putString(app, KEY_UI_THEME, id)
     }
 
     fun setAutoplay(on: Boolean) {

@@ -13,20 +13,28 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.foundation.layout.BoxScope
+import androidx.car.app.model.CarIcon
+import androidx.car.app.navigation.model.NavigationTemplate
+import androidx.car.app.navigation.model.RoutingInfo
+import app.seb3thehacker.gearslip.host.CarAppConnection
+import app.seb3thehacker.gearslip.host.display
+import app.seb3thehacker.gearslip.host.text
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,6 +48,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.animation.animateContentSize
+import android.media.session.PlaybackState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +65,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.style.TextOverflow
 import app.seb3thehacker.gearslip.R
+import app.seb3thehacker.gearslip.car.theme.GsColors
+import app.seb3thehacker.gearslip.car.theme.GsIconBox
+import app.seb3thehacker.gearslip.car.theme.GsIconButton
+import app.seb3thehacker.gearslip.car.theme.GsButton
+import app.seb3thehacker.gearslip.car.theme.GsTone
+import app.seb3thehacker.gearslip.car.theme.gsColors
+import app.seb3thehacker.gearslip.car.theme.GsThemes
+import app.seb3thehacker.gearslip.car.theme.LocalGsTheme
 import app.seb3thehacker.gearslip.media.CarMedia
 import app.seb3thehacker.gearslip.media.MediaArt
 import androidx.compose.ui.platform.LocalContext
@@ -79,6 +99,7 @@ fun CarUi() {
     val scale by CarSettings.scale.collectAsState()
     val phoneDark by CarEnvironment.phoneDark.collectAsState()
     val appTheme by CarSettings.appTheme.collectAsState()
+    val uiThemeId by CarSettings.uiTheme.collectAsState()
     val mediaApp by CarServices.mediaApp.collectAsState()
     val darkOutside by CarEnvironment.darkOutside.collectAsState()
     val appContext = LocalContext.current.applicationContext
@@ -120,6 +141,7 @@ fun CarUi() {
         LocalCarNavigator provides navigator,
         LocalDarkOutside provides darkOutside,
         LocalMapControlsWake provides controlsWake,
+        LocalGsTheme provides GsThemes.byId(uiThemeId),
     ) {
         MaterialTheme(colorScheme = colors) {
             Surface(
@@ -145,7 +167,8 @@ fun CarUi() {
                 }
                 val screen = navigator.current
                 val safetyWarningSeen by CarSettings.hasSeenSafetyWarning.collectAsState()
-                Column(Modifier.fillMaxSize().padding(pad)) {
+                Box(Modifier.fillMaxSize().padding(pad)) {
+                Column(Modifier.fillMaxSize()) {
                     if (!safetyWarningSeen) {
                         CarSafetyWizard(onDone = CarSettings::markSafetyWarningSeen)
                         return@Column
@@ -163,10 +186,11 @@ fun CarUi() {
                             CarScreen.Weather -> WeatherScreen()
                             CarScreen.VehicleData -> VehicleDataScreen()
                             is CarScreen.Notifications -> NotificationsScreen(screen.replyTo)
+                            is CarScreen.Messages -> MessagesScreen(screen.packageName)
                             is CarScreen.App -> CarApps.find(screen.id)?.content?.invoke()
                         }
-                        // The history screen is already showing them, so it needs no popup.
-                        if (screen !is CarScreen.Notifications) {
+                        // The dashboard is already listing them, so it needs no popup.
+                        if (screen !is CarScreen.Notifications && screen != CarScreen.Dashboard) {
                             NotificationPopup(Modifier.align(Alignment.TopCenter))
                         }
                         // Above the popup: a call is more urgent than any notification.
@@ -185,6 +209,9 @@ fun CarUi() {
                     // show both.
                     val keyboardVisible by CarKeyboardVisibility.state
                     if (!keyboardVisible) CarNavBar(navigator)
+                }
+                // Over everything, nav bar included: a long press on an app, anywhere.
+                AppMenu(navigator, rememberRunningApps())
                 }
             }
         }
@@ -224,7 +251,7 @@ private fun CarSafetyWizard(onDone: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(24.dp))
-            Button(onClick = onDone, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            GsButton(onClick = onDone, modifier = Modifier.fillMaxWidth().height(56.dp)) {
                 Text("I understand", style = ChromeType.body)
             }
         }
@@ -281,9 +308,7 @@ private fun BreadcrumbBar(navigator: CarNavigator) {
         Modifier.fillMaxWidth().height(40.dp).padding(start = 2.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = navigator::back, modifier = Modifier.size(36.dp)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", Modifier.size(20.dp))
-        }
+        GsIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", navigator::back, size = 32.dp, iconSize = 20.dp)
         Spacer(Modifier.width(2.dp))
         trail.forEachIndexed { index, crumb ->
             val isLast = index == trail.lastIndex
@@ -324,15 +349,13 @@ private fun CarNavBar(navigator: CarNavigator) {
     val weather by Weather.state.collectAsState()
     val weatherData = (weather as? WeatherState.Ready)?.data
 
-    val context = LocalContext.current
     val pinnedIds by CarSettings.pinnedApps.collectAsState()
-    val entries by produceState(LauncherCache.entries ?: emptyList(), context) {
-        value = LauncherCache.entries ?: withContext(Dispatchers.IO) { LauncherCache.load(context) }
-    }
+    val entries = rememberAllEntries()
     val pinnedEntries = remember(entries, pinnedIds) {
         pinnedIds.mapNotNull { id -> entries.find { it.componentId == id } }
     }
     val frame by CarEnvironment.frame.collectAsState()
+    val running = rememberRunningApps()
 
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         BoxWithConstraints(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 10.dp)) {
@@ -351,21 +374,49 @@ private fun CarNavBar(navigator: CarNavigator) {
                     NavAssistantIcon()
                 }
 
-                pinnedEntries.forEach { entry ->
-                    Spacer(Modifier.width(6.dp))
-                    entry.componentId?.let { id ->
-                        NavAppIcon(id, contentDescription = entry.label) { launchEntry(entry, navigator, frame) }
-                    }
-                }
+                // Pinned shortcuts, then whatever else is open right now. A pinned app that's also
+                // open stays in its pinned spot, marked with a dot, instead of showing up twice.
+                val runningEntries = running.keys
+                    .filter { it !in pinnedIds }
+                    .mapNotNull { id -> entries.find { it.componentId == id } }
+                if (pinnedEntries.isNotEmpty() || runningEntries.isNotEmpty()) NavDivider()
+                pinnedEntries.forEach { entry -> NavEntryIcon(entry, running, navigator, frame) }
+                if (pinnedEntries.isNotEmpty() && runningEntries.isNotEmpty()) NavDivider()
+                runningEntries.forEach { entry -> NavEntryIcon(entry, running, navigator, frame) }
 
-                Box(Modifier.weight(1f).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
-                    NavNowPlaying(navigator, selected = navigator.current == CarScreen.Media)
+                // Next turn first, off the map only; the player shares the space when it fits,
+                // and gives way to the turn when it doesn't.
+                val turn = rememberNextTurn().takeIf { navigator.current != CarScreen.Home }
+                BoxWithConstraints(Modifier.weight(1f).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+                    val roomForBoth = maxWidth >= TURN_AND_PLAYER_MIN_WIDTH
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        turn?.let { NavTurnPill(it) { navigator.home() } }
+                        if (turn == null || roomForBoth) {
+                            NavNowPlaying(navigator, selected = navigator.current == CarScreen.Media, modifier = Modifier.weight(1f, fill = false))
+                        }
+                    }
                 }
 
                 // Weather no longer has its own chip - the temperature alone (no icon, no room
                 // for one) sits where "Night"/"Day" used to, freeing a whole chip's width for the
                 // Home button above.
-                NavChip(navigator.current == CarScreen.Dashboard, { navigator.dashboard() }) {
+                // The clock is also the notifications button: the dashboard lists them under the
+                // calendar and weather, and a dot here marks anything unread.
+                val unread by CarNotifications.unread.collectAsState()
+                NavChip(
+                    navigator.current == CarScreen.Dashboard || navigator.current is CarScreen.Notifications,
+                    { navigator.dashboard() },
+                ) {
+                    if (unread > 0) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 8.dp, y = (-2).dp)
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                    }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
                             DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(now)),
@@ -393,49 +444,94 @@ private fun CarNavBar(navigator: CarNavigator) {
                         }
                     }
                 }
-                Spacer(Modifier.width(10.dp))
-                NavItem(
-                    Icons.Filled.Notifications, navigator.current is CarScreen.Notifications, padding = 8.dp,
-                ) { navigator.notifications() }
             }
         }
     }
 }
 
-/** One open or pinned app's icon on the nav bar - the same fixed size and shape either way. */
+/** Splits the nav bar's sections: Home and Apps, pinned apps, open apps. */
 @Composable
-private fun NavAppIcon(component: String, contentDescription: String?, onClick: () -> Unit) {
-    val context = LocalContext.current
-    val pkg = remember(component) { android.content.ComponentName.unflattenFromString(component)?.packageName }
-    val icon by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, pkg) {
-        value = pkg?.let {
-            runCatching { context.packageManager.getApplicationIcon(it).toBitmap(96, 96).asImageBitmap() }.getOrNull()
-        }
-    }
+private fun NavDivider() {
     Box(
         Modifier
-            .size(44.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = 10.dp)
+            .width(1.dp)
+            .height(28.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant),
+    )
+}
+
+/**
+ * A pinned or open app on the nav bar. Tapping brings it back without reconnecting if it's
+ * already open; a long press opens its menu (pin, unpin, close).
+ */
+@Composable
+private fun NavEntryIcon(
+    entry: Entry,
+    running: Map<String, RunningSlot>,
+    navigator: CarNavigator,
+    frame: CarEnvironment.Frame,
+) {
+    val id = entry.componentId ?: return
+    val slot = running[id]
+    Box(Modifier.padding(horizontal = 3.dp)) {
+        NavAppIcon(
+            entry,
+            open = slot != null,
+            showing = slot != null && slot.isShowing(navigator.current),
+            onLongClick = { navigator.showAppMenu(id) },
+        ) { openApp(entry, slot, navigator, frame) }
+    }
+}
+
+/** One open or pinned app's icon on the nav bar - the same fixed size and shape either way. */
+@Composable
+private fun NavAppIcon(
+    entry: Entry,
+    open: Boolean,
+    showing: Boolean,
+    onLongClick: () -> Unit,
+    onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    GsIconBox(
+        onClick,
+        Modifier.size(44.dp),
+        colors = if (showing) GsColors(scheme.secondaryContainer, scheme.onSecondaryContainer)
+        else GsColors(scheme.surfaceVariant, scheme.onSurfaceVariant),
+        latched = showing,
+        onLongClick = onLongClick,
     ) {
-        icon?.let { Image(it, contentDescription, Modifier.size(30.dp).clip(RoundedCornerShape(8.dp))) }
+        entry.icon?.let { Image(it, entry.label, Modifier.size(30.dp).clip(RoundedCornerShape(8.dp))) }
+        entry.builtIn?.let { Icon(it.glyph, entry.label, Modifier.size(26.dp)) }
+        // Only running apps get the line along the bottom edge, the usual taskbar mark for it.
+        if (open) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 2.dp)
+                    .size(width = 12.dp, height = 3.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(scheme.primary),
+            )
+        }
     }
 }
 
 /** A tappable group in the bar that stays highlighted while its screen is open, like [NavItem]. */
 @Composable
-private fun NavChip(selected: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(if (selected) scheme.secondaryContainer else scheme.surfaceContainer)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center,
-    ) { content() }
+private fun NavChip(selected: Boolean, onClick: () -> Unit, content: @Composable BoxScope.() -> Unit) {
+    GsIconBox(onClick, colors = navColors(selected), latched = selected) {
+        Box(Modifier.padding(horizontal = 10.dp, vertical = 2.dp)) { content() }
+    }
+}
+
+/** Every nav bar item is raised, so it reads as pressable; the current screen's takes the accent colour. */
+@Composable
+private fun navColors(selected: Boolean): GsColors {
+    val s = MaterialTheme.colorScheme
+    return if (selected) GsColors(s.secondaryContainer, s.onSecondaryContainer)
+    else GsColors(s.surfaceContainerHighest, s.onSurface)
 }
 
 /**
@@ -446,32 +542,19 @@ private fun NavChip(selected: Boolean, onClick: () -> Unit, content: @Composable
 @Composable
 private fun NavAssistantIcon() {
     val state by CarAssistant.state.collectAsState()
-    val scheme = MaterialTheme.colorScheme
     val active = state.phase != CarAssistant.Phase.IDLE
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(if (active) scheme.secondaryContainer else scheme.surfaceContainer)
-            .clickable { CarAssistant.start() }
-            .padding(12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        MicGlyph(Modifier.size(28.dp))
+    GsIconBox({ CarAssistant.start() }, colors = navColors(active), latched = active) {
+        MicGlyph(Modifier.padding(NAV_ITEM_PADDING).size(28.dp))
     }
 }
 
+/** Inner padding of every icon on the nav bar, leaving each button room inside the 56dp bar. */
+private val NAV_ITEM_PADDING = 8.dp
+
 @Composable
-private fun NavItem(icon: ImageVector, selected: Boolean, padding: androidx.compose.ui.unit.Dp = 12.dp, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(if (selected) scheme.secondaryContainer else scheme.surfaceContainer)
-            .clickable(onClick = onClick)
-            .padding(padding),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+private fun NavItem(icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+    GsIconBox(onClick, colors = navColors(selected), latched = selected) {
+        Icon(icon, contentDescription = null, modifier = Modifier.padding(NAV_ITEM_PADDING).size(28.dp))
     }
 }
 
@@ -484,10 +567,83 @@ internal fun rememberNow(): State<Long> = produceState(System.currentTimeMillis(
     }
 }
 
+private const val NOW_PLAYING_MAX_CHARS = 30
+
+/** How long the pill shows a new song's title before settling to just the controls. */
+private const val TITLE_SHOWN_MS = 3_000L
+
+/** Below this, the nav bar's middle only has room for the turn, not the player beside it. */
+private val TURN_AND_PLAYER_MIN_WIDTH = 520.dp
+
+/** The next manoeuvre, as the running nav app last described it. */
+private class NextTurn(val icon: CarIcon?, val distance: String, val road: String)
+
 /**
- * The one persistent player, everywhere - not just a Home-screen extra. Art and title open the
- * full media screen; skip and play/pause work right here; the last button toggles the lyrics
- * panel beside the map on Home (see [CarHome]), the pill's own lyrics affordance wherever it sits.
+ * Read straight off the nav app's own template: a navigation app keeps sending its routing card
+ * while it's running, whether or not the map is the screen being shown.
+ */
+@Composable
+private fun rememberNextTurn(): NextTurn? {
+    val status by CarServices.nav.status.collectAsState()
+    val template by CarServices.nav.template.collectAsState()
+    // Read so a change of units redraws the distance straight away, not at the next update.
+    CarSettings.units.collectAsState().value
+    if (status.phase != CarAppConnection.Phase.RUNNING) return null
+    val routing = (template as? NavigationTemplate)?.navigationInfo as? RoutingInfo ?: return null
+    if (routing.isLoading) return null
+    val step = routing.currentStep ?: return null
+    return NextTurn(
+        icon = step.maneuver?.icon,
+        distance = routing.currentDistance.display(),
+        road = step.road.text().ifEmpty { step.cue.text() },
+    )
+}
+
+/** The next turn in the nav bar: arrow, how far, onto what. Tapping goes back to the map. */
+@Composable
+private fun NavTurnPill(turn: NextTurn, onClick: () -> Unit) {
+    // Same finish as every other button on the bar, in the accent colour; the text runs a step
+    // bigger than anything else there, since it's the one thing worth a glance mid-drive.
+    GsIconBox(
+        onClick,
+        Modifier.widthIn(max = 340.dp).height(44.dp),
+        colors = gsColors(GsTone.Primary),
+    ) {
+        Row(
+            Modifier.padding(NAV_ITEM_PADDING),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            CarGlyph(turn.icon, Modifier.size(28.dp))
+            if (turn.distance.isNotEmpty()) {
+                Text(turn.distance, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            if (turn.road.isNotEmpty()) {
+                Text(
+                    turn.road,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** "Title - Artist" on one line, cut to [NOW_PLAYING_MAX_CHARS] with "..." when it runs long. */
+private fun nowPlayingLabel(title: String, artist: String): String {
+    val full = listOf(title.trim(), artist.trim()).filter { it.isNotEmpty() }.joinToString(" - ")
+        .ifEmpty { "Nothing playing" }
+    return if (full.length <= NOW_PLAYING_MAX_CHARS) full
+    else full.take(NOW_PLAYING_MAX_CHARS - 3).trimEnd() + "..."
+}
+
+/**
+ * The player in the nav bar, on every screen. Art and title open the full media screen;
+ * play/pause and skip work right here. The dock button moves the player into the column beside
+ * the map on Home (see [CarHome]), and the pill steps aside there while it's docked - unless the
+ * column is showing lyrics instead, when the pill stays and its dock button swaps them back.
  */
 @Composable
 private fun NavNowPlaying(navigator: CarNavigator, selected: Boolean, modifier: Modifier = Modifier) {
@@ -495,83 +651,104 @@ private fun NavNowPlaying(navigator: CarNavigator, selected: Boolean, modifier: 
     val phase by media.phase.collectAsState()
     val now by media.now.collectAsState()
     if (phase != CarMedia.Phase.READY || !now.isActive) return
+    // Docked beside the map, the player is already on screen - the pill steps aside for it.
+    if (navigator.sidePanel == SidePanel.CONTROLS && navigator.current == CarScreen.Home) return
+    // The media screen is the full player already; the pill would only repeat its controls.
+    if (navigator.current == CarScreen.Media) return
     val context = LocalContext.current
     val art by produceState(now.art, now.art, now.artUri) { value = now.art ?: MediaArt.load(context, now.artUri) }
+    val position by produceState(now.currentPosition(), now) {
+        while (true) {
+            value = now.currentPosition()
+            if (!now.playing) break
+            delay(1000)
+        }
+    }
 
+    // A new song announces itself: title, play/pause and dock for a few seconds, then the title
+    // goes and the pill settles to just the controls.
+    var showTitle by remember { mutableStateOf(true) }
+    LaunchedEffect(now.title, now.artist) {
+        showTitle = true
+        delay(TITLE_SHOWN_MS)
+        showTitle = false
+    }
+
+    val scheme = MaterialTheme.colorScheme
+    val onPill = if (selected) scheme.onPrimaryContainer else scheme.onSecondaryContainer
     Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(50),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = modifier
+            .animateContentSize()
+            .widthIn(max = 400.dp)
+            .then(if (showTitle) Modifier.fillMaxWidth() else Modifier)
+            .height(44.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = if (selected) scheme.primaryContainer else scheme.secondaryContainer,
+        contentColor = onPill,
     ) {
-    Row(
-        Modifier.padding(start = 6.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(
-            Modifier
-                .weight(1f, fill = false)
-                .clip(RoundedCornerShape(50))
-                .clickable { navigator.media() },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Box(Modifier.size(40.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-                art?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+        Box {
+            Row(
+                Modifier.fillMaxHeight().padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                // Art (and the title while it shows) opens the full media screen.
+                Row(
+                    Modifier
+                        .then(if (showTitle) Modifier.weight(1f) else Modifier)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { navigator.media() },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(Modifier.size(34.dp).clip(RoundedCornerShape(8.dp)).background(scheme.surfaceVariant)) {
+                        art?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                    }
+                    if (showTitle) {
+                        Text(
+                            nowPlayingLabel(now.title, now.artist),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (!showTitle) {
+                    GsIconButton(
+                        MediaIcons.Previous, "Previous", media::previous,
+                        enabled = now.canDo(PlaybackState.ACTION_SKIP_TO_PREVIOUS), size = 36.dp, iconSize = 22.dp,
+                    )
+                }
+                GsIconButton(
+                    if (now.playing) MediaIcons.Pause else Icons.Filled.PlayArrow,
+                    if (now.playing) "Pause" else "Play",
+                    media::togglePlay,
+                    tone = GsTone.Primary, size = 36.dp, iconSize = 22.dp,
+                )
+                if (!showTitle) {
+                    GsIconButton(
+                        MediaIcons.Next, "Next", media::next,
+                        enabled = now.canDo(PlaybackState.ACTION_SKIP_TO_NEXT), size = 36.dp, iconSize = 22.dp,
+                    )
+                }
+                GsIconButton(
+                    MediaIcons.DockRight, "Move the player beside the map", navigator::togglePlayerDock,
+                    size = 36.dp, iconSize = 22.dp,
+                )
             }
-            Text(
-                now.title.ifEmpty { "Nothing playing" },
-                modifier = Modifier.weight(1f, fill = false),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        FilledIconButton(onClick = media::togglePlay, modifier = Modifier.size(44.dp)) {
-            Icon(
-                if (now.playing) MediaIcons.Pause else Icons.Filled.PlayArrow,
-                if (now.playing) "Pause" else "Play",
-                Modifier.size(26.dp),
-            )
-        }
-        FilledIconButton(
-            onClick = navigator::toggleLyrics,
-            modifier = Modifier.size(44.dp),
-            colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                containerColor = if (navigator.lyricsOpen) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.surfaceContainerHighest,
-                contentColor = if (navigator.lyricsOpen) MaterialTheme.colorScheme.onPrimary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
-        ) {
-            LyricsGlyph(Modifier.size(22.dp))
-        }
-    }
-    }
-}
-
-/**
- * A card with two lines of text on it - read as "lyrics"/"captions" at a glance, which no icon in
- * the core Material set does (the closest, a bullet list, reads as a menu, not song text). Drawn
- * rather than a vector asset since the whole glyph is two shapes.
- */
-@Composable
-private fun LyricsGlyph(modifier: Modifier = Modifier) {
-    val tint = androidx.compose.material3.LocalContentColor.current
-    androidx.compose.foundation.Canvas(modifier) {
-        val stroke = size.minDimension * 0.11f
-        drawRoundRect(
-            color = tint,
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.minDimension * 0.22f),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke),
-        )
-        val lineStyle = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke * 0.85f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
-        val startX = size.width * 0.24f
-        listOf(0.40f, 0.64f).forEach { fy ->
-            val endX = size.width * (if (fy < 0.5f) 0.76f else 0.62f)
-            drawLine(tint, androidx.compose.ui.geometry.Offset(startX, size.height * fy), androidx.compose.ui.geometry.Offset(endX, size.height * fy), strokeWidth = lineStyle.width, cap = lineStyle.cap)
+            if (now.durationMs > 0) {
+                // matchParentSize, so the line follows the pill's width rather than widening it.
+                Box(Modifier.matchParentSize(), contentAlignment = Alignment.BottomStart) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth((position.toFloat() / now.durationMs).coerceIn(0f, 1f))
+                            .height(2.dp)
+                            .background(onPill.copy(alpha = 0.7f)),
+                    )
+                }
+            }
         }
     }
 }
@@ -579,7 +756,7 @@ private fun LyricsGlyph(modifier: Modifier = Modifier) {
 /**
  * A filled lightning bolt, next to the battery percentage instead of the word "charging" - the
  * core Material icon set this project ships (no extended pack, to keep the app small) has no
- * bolt, so this is drawn the same way [LyricsGlyph] is.
+ * bolt, so this is drawn rather than a vector asset.
  */
 @Composable
 private fun ChargingGlyph(modifier: Modifier = Modifier, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {

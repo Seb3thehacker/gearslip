@@ -4,6 +4,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadata
+import android.media.Rating
+import android.support.v4.media.session.MediaControllerCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import android.media.browse.MediaBrowser
 import android.media.session.MediaController
 import android.media.session.MediaSession
@@ -32,7 +36,8 @@ class MediaEntry(
     val playable: Boolean,
 )
 
-class CustomAction(val id: String, val name: String, val extras: Bundle?)
+/** [icon] is a drawable id inside the media app's own package, not Gearslip's; 0 for none. */
+class CustomAction(val id: String, val name: String, val extras: Bundle?, val icon: Int = 0)
 
 /** One entry in the app's own queue - not its library, whatever it has lined up to play next. */
 class QueueTrack(
@@ -60,7 +65,40 @@ class NowPlaying(
     val error: String? = null,
     /** Which [QueueTrack.queueId] is playing now, so "up next" can show what follows it. */
     val activeQueueItemId: Long = MediaSession.QueueItem.UNKNOWN_ID.toLong(),
+    /** The track's heart rating, for apps that take one; null when the app doesn't rate by heart. */
+    val heart: Boolean? = null,
 ) {
+    /** The app's own button for [words], matched on its id or name - how most apps offer like, shuffle and repeat. */
+    fun customFor(vararg words: String) = custom.firstOrNull { a ->
+        words.any { a.id.contains(it, ignoreCase = true) || a.name.contains(it, ignoreCase = true) }
+    }
+
+    /** Thumbs-down buttons say "like" too ("Dislike"), so those are skipped. */
+    val likeAction
+        get() = custom.firstOrNull { a ->
+            val text = "${a.id} ${a.name}"
+            listOf("like", "favorit", "favourit", "heart", "love", "thumb").any { text.contains(it, ignoreCase = true) } &&
+                listOf("dislike", "down").none { text.contains(it, ignoreCase = true) }
+        }
+    val shuffleAction get() = customFor("shuffle")
+
+    /** The app's buttons that aren't like, shuffle or repeat - "Start radio" and the like. */
+    val otherActions: List<CustomAction>
+        get() {
+            val known = listOf(likeAction, shuffleAction, repeatAction)
+            return custom.filter { a -> known.none { it === a } }
+        }
+    val repeatAction get() = customFor("repeat", "loop")
+
+    /**
+     * Liked or not; null when the app offers no way to like at all. An app's own like button
+     * only says which way it goes next by its name ("Remove from Liked Songs"), so that's read.
+     */
+    val liked: Boolean?
+        get() = heart ?: likeAction?.name?.let { name ->
+            listOf("remove", "unlike", "unfav", "unheart").any { name.contains(it, ignoreCase = true) }
+        }
+
     val playing get() = state == PlaybackState.STATE_PLAYING || state == PlaybackState.STATE_BUFFERING
     val hasTrack get() = title.isNotEmpty() || state != PlaybackState.STATE_NONE
 
@@ -124,8 +162,47 @@ class CarMedia(private val context: Context) {
     private val _queue = MutableStateFlow<List<QueueTrack>>(emptyList())
     val queue: StateFlow<List<QueueTrack>> = _queue.asStateFlow()
 
+    /** Shuffle and repeat, as [PlaybackStateCompat]'s modes; [PlaybackStateCompat.SHUFFLE_MODE_INVALID] when unknown. */
+    class Modes(
+        val shuffle: Int = PlaybackStateCompat.SHUFFLE_MODE_INVALID,
+        val repeat: Int = PlaybackStateCompat.REPEAT_MODE_INVALID,
+    )
+
+    private val _modes = MutableStateFlow(Modes())
+    val modes: StateFlow<Modes> = _modes.asStateFlow()
+
     private var browser: MediaBrowser? = null
     private var controller: MediaController? = null
+
+    /**
+     * The same session through the support library's controller - the framework one has no
+     * shuffle or repeat calls at all. Every app built on MediaSessionCompat or Media3 answers
+     * these; one on the bare framework API never reports a mode, and the buttons stay off.
+     */
+    private var compat: MediaControllerCompat? = null
+    private val compatCallback = object : MediaControllerCompat.Callback() {
+        override fun onSessionReady() = refreshModes()
+        override fun onShuffleModeChanged(shuffleMode: Int) = refreshModes()
+        override fun onRepeatModeChanged(repeatMode: Int) = refreshModes()
+    }
+
+    private fun attach(c: MediaController) {
+        controller = c
+        c.registerCallback(callback)
+        update(c.metadata, c.playbackState)
+        _queue.value = queueOf(c.queue)
+        compat = runCatching {
+            MediaControllerCompat(context, MediaSessionCompat.Token.fromToken(c.sessionToken)).also {
+                it.registerCallback(compatCallback, main)
+            }
+        }.onFailure { GearslipLog.w("media: no support-library view of the session: ${it.message}") }.getOrNull()
+        refreshModes()
+    }
+
+    private fun refreshModes() {
+        val c = compat
+        _modes.value = if (c == null) Modes() else Modes(shuffle = c.shuffleMode, repeat = c.repeatMode)
+    }
     private var subscribed: String? = null
     private var rootId: String? = null
     private val path = ArrayDeque<Pair<String, String>>() // id to title
@@ -183,11 +260,7 @@ class CarMedia(private val context: Context) {
             return
         }
         GearslipLog.i("media: controlling ${app.label} through its session; its library is not shared")
-        controller = session.also {
-            it.registerCallback(callback)
-            update(it.metadata, it.playbackState)
-            _queue.value = queueOf(it.queue)
-        }
+        attach(session)
         _browse.value = BrowseState(loading = false, unavailable = true)
         _phase.value = Phase.READY
     }
@@ -195,11 +268,7 @@ class CarMedia(private val context: Context) {
     private fun onConnected(app: MediaApp) {
         val mb = browser ?: return
         GearslipLog.i("media: connected to ${app.label}, root=${mb.root}")
-        controller = MediaController(context, mb.sessionToken).also {
-            it.registerCallback(callback)
-            update(it.metadata, it.playbackState)
-            _queue.value = queueOf(it.queue)
-        }
+        attach(MediaController(context, mb.sessionToken))
         rootId = mb.root
         path.clear()
         _phase.value = Phase.READY
@@ -241,9 +310,12 @@ class CarMedia(private val context: Context) {
             speed = state?.playbackSpeed ?: 1f,
             updatedAt = state?.lastPositionUpdateTime ?: 0,
             actions = state?.actions ?: 0,
-            custom = state?.customActions.orEmpty().map { CustomAction(it.action, it.name.toString(), it.extras) },
+            custom = state?.customActions.orEmpty().map { CustomAction(it.action, it.name.toString(), it.extras, it.icon) },
             error = state?.errorMessage?.toString(),
             activeQueueItemId = state?.activeQueueItemId ?: MediaSession.QueueItem.UNKNOWN_ID.toLong(),
+            heart = if (controller?.ratingType == Rating.RATING_HEART) {
+                metadata?.getRating(MediaMetadata.METADATA_KEY_USER_RATING)?.takeIf { it.isRated }?.hasHeart() ?: false
+            } else null,
         )
     }
 
@@ -320,9 +392,40 @@ class CarMedia(private val context: Context) {
     fun custom(action: CustomAction) = controller?.transportControls?.sendCustomAction(action.id, action.extras)
     fun playQueueItem(track: QueueTrack) = controller?.transportControls?.skipToQueueItem(track.queueId)
 
+    /** The app's own like button if it has one, since that's the one its library listens to; else a heart rating. */
+    fun toggleLike() {
+        val now = _now.value
+        now.likeAction?.let { custom(it); return }
+        now.heart?.let { controller?.transportControls?.setRating(Rating.newHeartRating(!it)) }
+    }
+
+    fun toggleShuffle() {
+        _now.value.shuffleAction?.let { custom(it); return }
+        val next = if (_modes.value.shuffle == PlaybackStateCompat.SHUFFLE_MODE_NONE) {
+            PlaybackStateCompat.SHUFFLE_MODE_ALL
+        } else {
+            PlaybackStateCompat.SHUFFLE_MODE_NONE
+        }
+        compat?.transportControls?.setShuffleMode(next)
+    }
+
+    /** Off, then the whole queue, then this one track, then off again - the order every player uses. */
+    fun cycleRepeat() {
+        _now.value.repeatAction?.let { custom(it); return }
+        val next = when (_modes.value.repeat) {
+            PlaybackStateCompat.REPEAT_MODE_NONE -> PlaybackStateCompat.REPEAT_MODE_ALL
+            PlaybackStateCompat.REPEAT_MODE_ALL, PlaybackStateCompat.REPEAT_MODE_GROUP -> PlaybackStateCompat.REPEAT_MODE_ONE
+            else -> PlaybackStateCompat.REPEAT_MODE_NONE
+        }
+        compat?.transportControls?.setRepeatMode(next)
+    }
+
     fun disconnect() {
         connecting = null
         main.removeCallbacksAndMessages(null)
+        runCatching { compat?.unregisterCallback(compatCallback) }
+        compat = null
+        _modes.value = Modes()
         runCatching { controller?.unregisterCallback(callback) }
         runCatching { subscribed?.let { browser?.unsubscribe(it) } }
         runCatching { browser?.disconnect() }

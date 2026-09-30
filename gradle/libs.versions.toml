@@ -17,6 +17,7 @@ okhttp = "5.4.0"
 kotlinxSerializationJson = "1.11.0"
 ossLicenses = "17.5.1"
 webkit = "1.16.0"
+androidxMedia = "1.6.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -40,6 +41,8 @@ androidx-car-app-testing = { group = "androidx.car.app", name = "app-testing", v
 # Only for the ICarHardwareHost AIDL stubs, which the host half has to implement but which
 # live in the projected artifact rather than the core one.
 androidx-car-app-projected = { group = "androidx.car.app", name = "app-projected", version.ref = "carApp" }
+# MediaControllerCompat: reads and sets shuffle and repeat, which the framework session API has no calls for.
+androidx-media = { group = "androidx.media", name = "media", version.ref = "androidxMedia" }
 androidx-activity-ktx = { group = "androidx.activity", name = "activity-ktx", version.ref = "activityCompose" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }

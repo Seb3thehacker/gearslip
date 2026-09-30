@@ -136,7 +136,7 @@ object Weather {
     // --- network --------------------------------------------------------------------------
 
     private fun fetch(context: Context, location: Location): WeatherData {
-        val imperial = Locale.getDefault().country in setOf("US", "LR", "MM")
+        val imperial = CarSettings.imperial()
         val url = URL(
             "https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}" +
                 "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day" +
