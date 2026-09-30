@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.widthIn
@@ -176,18 +177,32 @@ fun CarUi() {
                     // Header navigation (breadcrumb trail) - off for now, kept to tweak later.
                     // BreadcrumbBar(navigator)
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                        when (screen) {
-                            CarScreen.Home -> CarHome()
-                            CarScreen.Apps -> CarLauncher()
-                            CarScreen.Media -> mediaApp?.let { MediaScreen(it) { navigator.back() } }
-                            CarScreen.Browse -> BrowseAppScreen(navigator)
-                            CarScreen.Settings -> CarSettingsScreen()
-                            CarScreen.Dashboard -> CarDashboardScreen()
-                            CarScreen.Weather -> WeatherScreen()
-                            CarScreen.VehicleData -> VehicleDataScreen()
-                            is CarScreen.Notifications -> NotificationsScreen(screen.replyTo)
-                            is CarScreen.Messages -> MessagesScreen(screen.packageName)
-                            is CarScreen.App -> CarApps.find(screen.id)?.content?.invoke()
+                        // Home never leaves the composition; other screens cover it. Dropping it
+                        // would tear down the map's surface, and coming back would then show black
+                        // while the nav app redrew on a new one.
+                        CarHome()
+                        if (screen != CarScreen.Home) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.background)
+                                    // Keeps touches that miss this screen's controls off the map.
+                                    .pointerInput(Unit) { detectTapGestures { } },
+                            ) {
+                                when (screen) {
+                                    CarScreen.Home -> Unit
+                                    CarScreen.Apps -> CarLauncher()
+                                    CarScreen.Media -> mediaApp?.let { MediaScreen(it) { navigator.back() } }
+                                    CarScreen.Browse -> BrowseAppScreen(navigator)
+                                    CarScreen.Settings -> CarSettingsScreen()
+                                    CarScreen.Dashboard -> CarDashboardScreen()
+                                    CarScreen.Weather -> WeatherScreen()
+                                    CarScreen.VehicleData -> VehicleDataScreen()
+                                    is CarScreen.Notifications -> NotificationsScreen(screen.replyTo)
+                                    is CarScreen.Messages -> MessagesScreen(screen.packageName)
+                                    is CarScreen.App -> CarApps.find(screen.id)?.content?.invoke()
+                                }
+                            }
                         }
                         // The dashboard is already listing them, so it needs no popup.
                         if (screen !is CarScreen.Notifications && screen != CarScreen.Dashboard) {
