@@ -175,9 +175,32 @@ class GearslipRunner(
             MSG_AUTH_COMPLETE -> onAuthComplete(body)
             MSG_SERVICE_DISCOVERY_RESPONSE -> onServiceDiscoveryResponse(body)
             MSG_PING_REQUEST -> onPingRequest(body)
+            MSG_BYEBYE_REQUEST -> onByeByeRequest(body)
             AudioLink.MSG_FOCUS_RESPONSE -> audioLink?.onFocus(Protobuf.readInt32Field(body, 1) ?: 0)
             else -> log.i("unhandled control message id=$messageId (${body.size} bytes) - continuing")
         }
+    }
+
+    /**
+     * The head unit asking to end the session. It drops USB a few seconds later whether or not
+     * we answer, so the point here is the reason: an Audi MIB2+ sent this about a second after
+     * video started, every time, and the old build logged it only as "id=15".
+     */
+    private fun onByeByeRequest(body: ByteArray) {
+        val reason = Protobuf.readInt32Field(body, 1)
+        val name = when (reason) {
+            1 -> "USER_SELECTION"
+            2 -> "DEVICE_SWITCH"
+            3 -> "NOT_SUPPORTED"
+            4 -> "NOT_CURRENTLY_SUPPORTED"
+            5 -> "PROBE_SUPPORTED"
+            else -> "unknown"
+        }
+        log.w("<- ByeByeRequest: reason=$reason ($name) in state $state")
+        log.hex("   byebye raw", body)
+        SessionReport.fail(SessionReport.Category.BYEBYE, "ByeByeRequest reason=$reason ($name)", state.name)
+        send(MSG_BYEBYE_RESPONSE, ByteArray(0), encrypted = true)
+        log.i("-> ByeByeResponse")
     }
 
     private fun onVersionRequest(body: ByteArray) {
@@ -903,6 +926,8 @@ class GearslipRunner(
         const val MSG_SERVICE_DISCOVERY_RESPONSE = 6
         const val MSG_PING_REQUEST = 11
         const val MSG_PING_RESPONSE = 12
+        const val MSG_BYEBYE_REQUEST = 15
+        const val MSG_BYEBYE_RESPONSE = 16
         const val MSG_CHANNEL_OPEN_REQUEST = 7
         const val MSG_CHANNEL_OPEN_RESPONSE = 8
 

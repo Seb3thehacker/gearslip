@@ -23,6 +23,7 @@ object SessionReport {
         AUTH("authentication failed"),
         SERVICE_DISCOVERY("service discovery failed"),
         VIDEO("video stream failed"),
+        BYEBYE("head unit ended the session"),
         CRASH("app crash"),
         UNKNOWN("unclassified"),
     }
