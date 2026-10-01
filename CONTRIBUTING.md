@@ -28,6 +28,9 @@ regular app.
 
 ## Pull requests
 
+Work happens on the `experimental` branch, which merges into `main` at each release. Base your
+branch on `experimental`, and open your pull request against it.
+
 - Keep each pull request to one change, and explain the problem it solves.
 - Say how you tested it: which car or head unit, which phone, and which apps.
 - Code written with AI tools is welcome. Read it, test it, and stand behind it as you would
