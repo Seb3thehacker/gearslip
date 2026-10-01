@@ -83,16 +83,13 @@ fun CarHome() {
     val navigator = LocalCarNavigator.current
     val panel = navigator.sidePanel
 
-    // Leaving the map for another screen: hand the nav app a fresh surface while it's covered, so
-    // it has redrawn by the time the map comes back - a new surface shows black until the app's
-    // next frame. Coming back only replaces one that died meanwhile. Nothing happens before Home
-    // has first been shown, since the surface is only just being lent.
+    // Coming back to the map from another screen: the map stayed loaded underneath, so its surface
+    // is only replaced if it died meanwhile. The first composition is skipped, since the surface
+    // is only just being lent.
     val onHome = navigator.current == CarScreen.Home
     val seenHome = remember { booleanArrayOf(false) }
     LaunchedEffect(onHome) {
-        if (seenHome[0]) {
-            if (onHome) CarServices.nav.replaceDeadSurface() else CarServices.nav.renewSurface()
-        }
+        if (onHome && seenHome[0]) CarServices.nav.replaceDeadSurface()
         if (onHome) seenHome[0] = true
     }
     val splitScreen = phase == CarMedia.Phase.READY && now.isActive && panel != SidePanel.NONE

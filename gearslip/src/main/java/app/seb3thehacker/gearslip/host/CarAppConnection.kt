@@ -459,42 +459,25 @@ class CarAppConnection(private val context: Context) {
     val surfaceEpoch: StateFlow<Int> = _surfaceEpoch.asStateFlow()
 
     /**
-     * Lends the app a fresh surface: called as the map goes out of view, so the app has redrawn
-     * on the new one by the time it comes back. An app that draws through its own VirtualDisplay
-     * (Organic Maps does) can be left pointing at a surface that has since died, and draws black
-     * until it's told about a live one.
-     *
-     * Always a new surface, never the same one lent again: such an app (Flitsmeister does) builds
-     * its new display on the re-lent surface before releasing the old, and the old one's
-     * disconnect then takes the shared BufferQueue's connection with it - the map freezes on its
-     * last frame for good. The stage's key on [surfaceEpoch] swaps in a new SurfaceView, which
-     * lends itself as it comes up.
-     */
-    fun renewSurface() {
-        main.post {
-            val current = lent ?: return@post
-            GearslipLog.i("host: building a fresh surface as the map goes out of view")
-            replaceSurface(current)
-        }
-    }
-
-    /**
      * Called as the map comes back into view: replaces the surface only if it died while the map
-     * was covered, since a new one shows black until the app's next frame.
+     * was covered. A live one is left alone, because every hand-over costs the app its map - some
+     * (MapQuest) rebuild theirs from a world view and fly back to the car's position.
+     *
+     * Always a new surface, never the dead one lent again: an app that draws through its own
+     * VirtualDisplay (Flitsmeister does) builds its new display on a re-lent surface before
+     * releasing the old, and the old one's disconnect then takes the shared BufferQueue's
+     * connection with it - the map freezes on its last frame for good. The stage's key on
+     * [surfaceEpoch] swaps in a new SurfaceView, which lends itself as it comes up.
      */
     fun replaceDeadSurface() {
         main.post {
             val current = lent ?: return@post
             if (current.surface.isValid) return@post
             GearslipLog.w("host: the lent surface died; building a new one")
-            replaceSurface(current)
+            lent = null
+            sendSurfaceDestroyed(current)
+            _surfaceEpoch.value = _surfaceEpoch.value + 1
         }
-    }
-
-    private fun replaceSurface(current: Lent) {
-        lent = null
-        sendSurfaceDestroyed(current)
-        _surfaceEpoch.value = _surfaceEpoch.value + 1
     }
 
     private fun sendSurfaceAvailable() {
