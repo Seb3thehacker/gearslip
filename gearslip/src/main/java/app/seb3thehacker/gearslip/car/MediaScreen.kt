@@ -111,6 +111,12 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
                                 }
                             },
                         )
+                        CarMedia.Rejection.NEEDS_APP_RUNNING -> Notice(
+                            "${app.label} isn't running.",
+                            "${app.label} plays through Gearslip's own player, but only while it's " +
+                                "open on the phone. Open it once and it keeps playing here in the car.",
+                            action = "Open ${app.label}" to { media.launchAndConnect(app) },
+                        )
                         CarMedia.Rejection.REFUSED -> Notice(
                             "${app.label} would not let Gearslip browse it.",
                             "Some media apps only accept Google's own host.",

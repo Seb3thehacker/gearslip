@@ -2,6 +2,7 @@ package app.seb3thehacker.gearslip.media
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadata
 import android.media.Rating
@@ -19,6 +20,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import app.seb3thehacker.gearslip.GearslipLog
+import app.seb3thehacker.gearslip.host.KnownApps
 import app.seb3thehacker.gearslip.notify.GearslipNotificationListener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -142,7 +144,7 @@ class CarMedia(private val context: Context) {
     enum class Phase { IDLE, CONNECTING, READY, REJECTED }
 
     /** Why a connection was [Phase.REJECTED], so the screen can say something useful. */
-    enum class Rejection { REFUSED, NEEDS_NOTIFICATION_ACCESS }
+    enum class Rejection { REFUSED, NEEDS_NOTIFICATION_ACCESS, NEEDS_APP_RUNNING }
 
     private val _rejection = MutableStateFlow(Rejection.REFUSED)
     val rejection: StateFlow<Rejection> = _rejection.asStateFlow()
@@ -236,7 +238,7 @@ class CarMedia(private val context: Context) {
      * is out of reach. Reading another app's session needs Notification access, which the driver
      * grants once on the phone.
      */
-    private fun attachToSession(app: MediaApp, attempt: Int = 0) {
+    private fun attachToSession(app: MediaApp, attempt: Int = 0, launched: Boolean = false) {
         if (connecting != app) return
         val manager = context.getSystemService(MediaSessionManager::class.java)
         val listener = ComponentName(context, GearslipNotificationListener::class.java)
@@ -249,12 +251,19 @@ class CarMedia(private val context: Context) {
             return
         }
         if (session == null) {
+            val limit = if (launched) SESSION_RETRIES_LAUNCHED else SESSION_RETRIES
             // The app only publishes its session once its service has started; give it a moment.
-            if (attempt < SESSION_RETRIES) {
-                main.postDelayed({ attachToSession(app, attempt + 1) }, SESSION_RETRY_MS)
+            if (attempt < limit) {
+                main.postDelayed({ attachToSession(app, attempt + 1, launched) }, SESSION_RETRY_MS)
             } else {
                 GearslipLog.w("media: ${app.label} has no active session to control")
-                _rejection.value = Rejection.REFUSED
+                // A session-only app (Spotify) just isn't running - say so and offer to open it,
+                // rather than calling it unsupported.
+                _rejection.value = if (KnownApps.playerWorks(app.component.packageName)) {
+                    Rejection.NEEDS_APP_RUNNING
+                } else {
+                    Rejection.REFUSED
+                }
                 _phase.value = Phase.REJECTED
             }
             return
@@ -437,8 +446,38 @@ class CarMedia(private val context: Context) {
         _queue.value = emptyList()
     }
 
+    /**
+     * Opens [app] on the phone, then connects once it publishes its session. The driver asks for
+     * this from the "Open" button a session-only app (Spotify) shows when it isn't running yet.
+     */
+    fun launchAndConnect(app: MediaApp) {
+        if (!openApp(app)) return
+        disconnect()
+        connecting = app
+        _phase.value = Phase.CONNECTING
+        // A cold start takes a few seconds to publish a session, so wait, then watch for longer.
+        main.postDelayed({ attachToSession(app, launched = true) }, LAUNCH_WAIT_MS)
+    }
+
+    /** Brings [app] to the foreground on the phone so it publishes its session. */
+    private fun openApp(app: MediaApp): Boolean {
+        val intent = context.packageManager.getLaunchIntentForPackage(app.component.packageName) ?: return false
+        return runCatching {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            GearslipLog.i("media: opened ${app.label} to bring up its session")
+            true
+        }.getOrElse {
+            GearslipLog.w("media: could not open ${app.label}: ${it.message}")
+            false
+        }
+    }
+
     private companion object {
         const val SESSION_RETRIES = 6
         const val SESSION_RETRY_MS = 500L
+        /** After opening a cold app, how long to wait before the first look for its session. */
+        const val LAUNCH_WAIT_MS = 1_500L
+        /** Retries once the app has been opened: a cold start can take a few seconds to publish. */
+        const val SESSION_RETRIES_LAUNCHED = 16
     }
 }

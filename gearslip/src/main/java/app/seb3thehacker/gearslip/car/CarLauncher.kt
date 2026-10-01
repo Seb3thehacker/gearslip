@@ -133,10 +133,16 @@ internal object LauncherCache {
         // own Messages screen does the same job, so a messenger gets only that tile.
         val messagingPackages = messagingApps.map { it.packageName }.toSet()
 
-        val nav = navApps.filter { it.component.packageName !in messagingPackages }.map {
-            val label = if (it.component.packageName in mediaPackages) "${it.label} · Browse" else it.label
-            Entry(label, iconOf(it.component.packageName), template = it)
-        }
+        val nav = navApps
+            .filter { it.component.packageName !in messagingPackages }
+            // An app whose template screen is rejected but whose player works through Gearslip
+            // (Spotify) shows only its player tile - a "· Browse" tile beside it would just report
+            // that the car screen isn't supported.
+            .filter { !(KnownApps.screenBroken(it.component.packageName) && KnownApps.playerWorks(it.component.packageName)) }
+            .map {
+                val label = if (it.component.packageName in mediaPackages) "${it.label} · Browse" else it.label
+                Entry(label, iconOf(it.component.packageName), template = it)
+            }
         val media = mediaApps.map { Entry(it.label, iconOf(it.component.packageName), media = it) }
         // A messenger that is also a car media app keeps only its player tile.
         val messaging = messagingApps

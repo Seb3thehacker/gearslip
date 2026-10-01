@@ -45,7 +45,19 @@ class ScreenProjector(private val context: Context) {
     /** Tracks the synthetic gesture so injected MotionEvents have a coherent downTime. */
     private var downTime = 0L
 
-    fun start(surface: Surface, width: Int, height: Int, densityDpi: Int, content: @Composable () -> Unit) {
+    /**
+     * [name] names the virtual display so the two callers are told apart from outside the app
+     * (`dumpsys display`): the real car session keeps "gearslip-projection", the on-phone bench
+     * preview passes "gearslip-preview".
+     */
+    fun start(
+        surface: Surface,
+        width: Int,
+        height: Int,
+        densityDpi: Int,
+        name: String = "gearslip-projection",
+        content: @Composable () -> Unit,
+    ) {
         stop()
 
         val displayManager = context.getSystemService(DisplayManager::class.java)
@@ -57,7 +69,7 @@ class ScreenProjector(private val context: Context) {
         // driver on every connect.
         val display = try {
             displayManager.createVirtualDisplay(
-                "gearslip-projection", width, height, densityDpi, surface,
+                name, width, height, densityDpi, surface,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
             )

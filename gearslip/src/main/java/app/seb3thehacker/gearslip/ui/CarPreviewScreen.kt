@@ -105,7 +105,7 @@ fun CarPreviewScreen(onBack: () -> Unit) {
             }
         }, handler)
 
-        projector.start(reader.surface, width, height, density) { CarUi() }
+        projector.start(reader.surface, width, height, density, name = "gearslip-preview") { CarUi() }
 
         onDispose {
             projector.stop()

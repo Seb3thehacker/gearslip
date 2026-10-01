@@ -16,6 +16,8 @@ object KnownApps {
         "in.krosbits.musicolet", // Musicolet: browse, play, seek, lyrics
         "com.kododake.aabrowser", // Aardvark: browser template, starts, draws, takes touches
         "com.vivi.vivimusic", // Vivi Music: browse, play, seek, works well
+        "com.mapquest.android.ace", // MapQuest: map, search, routing - works well
+        "nl.flitsmeister", // Flitsmeister: map, routing, alerts - works well
     )
 
     fun works(packageName: String): Boolean = packageName in working
@@ -31,8 +33,10 @@ object KnownApps {
     fun playerWorks(packageName: String): Boolean = packageName in workingPlayer
 
     /**
-     * Apps whose car screen refuses Gearslip but whose player works. Only the "· Browse" tile
-     * gets the red X. Car library 1.9 and later accepts only Google's host on a phone.
+     * Apps whose car screen refuses Gearslip but whose player works. When the player covers the
+     * app (see [playerWorks]) the launcher drops the dead "· Browse" tile entirely rather than
+     * show it; otherwise that tile gets a red X. Car library 1.9 and later accepts only Google's
+     * host on a phone.
      */
     private val brokenScreen = setOf(
         "com.spotify.music", // Spotify 9.1.86 and later: car library 1.9 rejects Gearslip
