@@ -92,24 +92,37 @@ object VoiceReply {
         }
     }
 
-    /** "Do you want to reply?" A yes goes on to the reply; anything else ends quietly. */
+    /**
+     * "Do you want to reply?" A yes goes on to the reply; anything else ends quietly. The bar runs
+     * while it listens, so the card never looks stuck, and holds once the driver starts talking.
+     */
     private fun offer(id: Int) {
-        _state.value = _state.value.copy(phase = Phase.OFFERING, heard = "")
+        _state.value = _state.value.copy(phase = Phase.OFFERING, heard = "", until = 0L, span = 0L, held = 0f)
         CarAssistant.say("Do you want to reply?") {
             if (id != run) return@say
+            val until = SystemClock.uptimeMillis() + OFFER_MS
+            _state.value = _state.value.copy(until = until, span = OFFER_MS)
+            // The recognizer gives up on its own; this only covers one that doesn't.
+            main.postAtTime({ if (id == run && _state.value.until != 0L) cancel() }, until + OFFER_GRACE_MS)
             CarAssistant.dictate(
                 onPartial = { text -> if (id == run) _state.value = _state.value.copy(heard = text) },
+                onSpeaking = {
+                    if (id != run) return@dictate
+                    val s = _state.value
+                    val left = ((s.until - SystemClock.uptimeMillis()).toFloat() / s.span).coerceIn(0.05f, 1f)
+                    _state.value = s.copy(until = 0L, span = 0L, held = left)
+                },
                 onResult = { text ->
                     if (id != run) return@dictate
                     if (isYes(text)) {
-                        _state.value = _state.value.copy(phase = Phase.ASKING, heard = "")
+                        _state.value = _state.value.copy(phase = Phase.ASKING, heard = "", until = 0L, span = 0L, held = 0f)
                         CarAssistant.say("Go ahead.") { if (id == run) listen(id) }
                     } else {
                         finish()
                     }
                 },
-                // Heard nothing: leave the Reply button up for a moment, the same as after reading.
-                onError = { if (id == run) idleAfterRead(id) },
+                // No answer: the card has already offered Reply and the quick replies all along.
+                onError = { if (id == run) finish() },
             )
         }
     }
@@ -362,6 +375,9 @@ object VoiceReply {
 
     private val SEND_TOKEN = Any()
     private const val ECHO_MS = 300L
+    /** How long "Do you want to reply?" waits for an answer: the start beep, then the engine's silence limit. */
+    private const val OFFER_MS = 6_500L
+    private const val OFFER_GRACE_MS = 1_500L
     /** After talk that wasn't a command, the reply waits this long again before it goes. */
     private const val RESUME_MS = 3_000L
 }
