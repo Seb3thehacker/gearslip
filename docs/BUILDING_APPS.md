@@ -1,11 +1,12 @@
 # Building apps for Gearslip
 
-Gearslip renders three kinds of app on a car screen. This page specifies all three.
+Gearslip renders four kinds of app on a car screen. This page specifies all four.
 
 | Kind | What it is | Status |
 | --- | --- | --- |
 | [Templated apps](#templated-apps) | An AndroidX Car App Library app. Gearslip hosts it. | Works today |
 | [Media apps](#media-apps) | A `MediaBrowserService` that opted in to Android Auto. | Works today |
+| [Messaging apps](#messaging-apps) | An app whose notifications opted in to Android Auto. | Works today |
 | [Gearslip apps](#gearslip-apps) | A native Gearslip screen, described over binder. | Specified here; not yet implemented |
 
 Write a templated app when your app fits the Car App Library's templates, because it runs today
@@ -29,11 +30,11 @@ any other host.
 Your app decides which hosts may render it, through the `HostValidator` your `CarAppService`
 returns.
 
-Gearslip declares `android.car.permission.TEMPLATE_RENDERER`, and the library's own
-`HostValidator` accepts any host holding it. If you build your validator with
-`HostValidator.Builder` and no allowlist, Gearslip already passes, and you need nothing below.
-Add an allowlist entry when you wrote a custom validator, or when you want to name Gearslip
-explicitly:
+Gearslip declares `android.car.permission.TEMPLATE_RENDERER`. Car App Library 1.8.0-beta01
+and earlier, and 1.9.0-alpha01, accept any host holding it, so Gearslip passes the default
+validator. From 1.8.0-rc01 and 1.9.0-alpha02 the library checks that permission only on
+Android Automotive, so on a phone Gearslip passes only when your allowlist names it. Add this
+entry:
 
 ```xml
 <!-- res/values/arrays.xml -->
@@ -143,7 +144,14 @@ existing video pipe. Gearslip never reads those pixels back.
 
 Gearslip then reports which part of that surface the driver can see. Treat the visible area as
 the region safe for your own controls, and the stable area as the region that never gets
-covered. Gearslip keeps its chrome to a top bar, so both areas are the surface minus that bar.
+covered. Gearslip reports the same area for both, and it depends on the template:
+
+| Template | What Gearslip covers |
+| --- | --- |
+| `NavigationTemplate` | A strip along the bottom for the trip estimate |
+| `MapWithContentTemplate`, `MapTemplate`, and the place list and route preview templates | A content pane on the left |
+
+The turn card and map buttons float over the visible area, as they do in Android Auto.
 
 Your app receives four gestures, never raw touches: `onClick`, `onScroll`, `onFling` and
 `onScale`. Coordinates are surface pixels. Scroll distances follow `GestureDetector`'s
@@ -194,6 +202,53 @@ players that expose a browser to Bluetooth and Wear:
 Publish playback state, metadata, duration and artwork through your `MediaSession`, and support
 play, pause, next, previous and seek. Gearslip reconnects to the app the driver used last and
 can start it playing on connection.
+
+---
+
+## Messaging apps
+
+Gearslip shows conversations from the notifications your app already posts, as Android Auto
+does. Your app needs no car screen of its own.
+
+Gearslip lists a messaging app when its car descriptor declares notifications:
+
+```xml
+<!-- res/xml/automotive_app_desc.xml -->
+<automotiveApp>
+    <uses name="notification" />
+</automotiveApp>
+```
+
+Reference it from the same `com.google.android.gms.car.application` meta-data that a media app
+uses. Opening your tile on the car screen shows your recent conversations.
+
+### Posting messages
+
+Post each conversation as a `MessagingStyle` notification. Gearslip reads the conversation
+title, each message's sender and text, and whether the chat is a group, and shows the last eight
+messages. Leave the sender empty on the phone owner's own messages; Gearslip treats a message
+with no sender as one the driver sent.
+
+Gearslip reads new messages aloud and lets the driver reply by voice or with a quick reply. For
+that, attach two actions, either to the notification or to its `WearableExtender`:
+
+- **Reply:** an action carrying a `RemoteInput` that allows free-form input. Gearslip fills it
+  with the driver's reply and fires the action's intent.
+- **Mark as read:** an action with `SEMANTIC_ACTION_MARK_AS_READ`. Gearslip shows a Mark read
+  button when you provide it.
+
+### Which notifications interrupt the driver
+
+Gearslip pops up a card for a conversation, a notification with a reply action, or a
+notification in the `msg`, `missed_call`, `alarm`, `reminder` or `event` category. A channel
+below default importance never pops up. Every other notification waits quietly on the
+dashboard.
+
+Gearslip drops these altogether:
+
+- ongoing notifications and group summaries;
+- the `transport`, `progress`, `service`, `sys` and `navigation` categories; and
+- media notifications, because the player already shows them.
 
 ---
 
@@ -376,7 +431,7 @@ long strings. Send a screen that fits, rather than one Gearslip has to cut.
   "densityDpi": 160,
   "batteryPercent": 82,
   "charging": true,
-  "vehicle": "Uconnect"
+  "vehicle": "Honda"
 }
 ```
 
@@ -416,6 +471,7 @@ home-screen pane comes later. Anything that needs its own rendering belongs in a
 
 ## Further reading
 
-- [README.md](../README.md) - what Gearslip is and how to build it.
+- [README.md](../README.md) - what Gearslip is.
+- [CONTRIBUTING.md](../CONTRIBUTING.md) - how to build Gearslip and report bugs.
 - [Android for Cars App Library](https://developer.android.com/training/cars/apps) - the
   reference for templated apps.

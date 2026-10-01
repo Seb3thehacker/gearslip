@@ -504,9 +504,9 @@ class CarAppConnection(private val context: Context) {
         }
 
         // The app draws for the whole surface; the visible area is what isn't covered by host
-        // chrome, and the stable area is the part that never gets covered. We keep our chrome
-        // to a top bar, so both are the surface minus that bar - reported by the UI via
-        // [reportAreas] once it has measured. Until then the whole surface is fair game.
+        // chrome, and the stable area is the part that never gets covered. Both depend on the
+        // template (see visibleAreaFor) and are reported by the UI via [reportAreas] once it
+        // has measured. Until then the whole surface is fair game.
         val whole = Rect(0, 0, surface.width, surface.height)
         reportAreas(whole, whole)
 
