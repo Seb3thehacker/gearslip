@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -96,7 +97,8 @@ private fun AppSurface(
     // connection with it and the map freezes for good. The nav bar hiding for the search keyboard
     // and the lyrics pane opening both resize this area.
     androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
-        androidx.compose.runtime.key(constraints.maxWidth, constraints.maxHeight) {
+        val epoch by connection.surfaceEpoch.collectAsState()
+        androidx.compose.runtime.key(constraints.maxWidth, constraints.maxHeight, epoch) {
             SurfaceHost(connection, frame, onSize = { size = it }, Modifier.fillMaxSize())
         }
     }

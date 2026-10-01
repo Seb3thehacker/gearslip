@@ -53,7 +53,8 @@ private fun setupSteps(onRequestCallScreening: () -> Unit) = listOf(
     Step(
         "Allow the microphone, so music can reach the car.",
         "Android asks for the microphone before it will let any app pass music along. " +
-            "Gearslip never listens to you: it copies what a music app is playing, and nothing else.",
+            "Gearslip listens only when you tap Reply or press the voice button. The rest of the " +
+            "time it copies what a music app is playing, and nothing else.",
     ),
     Step(
         "Optional: stop Android asking about audio every drive.",

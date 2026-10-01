@@ -179,6 +179,28 @@ class ScreenProjector(private val context: Context) {
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) downTime = 0L
     }
 
+    /**
+     * A key from the car's D-pad or knob, as a hardware key event on the car display. Compose
+     * moves focus between buttons on arrows and Tab, and clicks the focused one on OK/Enter.
+     * [keyCode] of [CarKeys.KEYCODE_SHIFT_TAB] is Tab with Shift held.
+     */
+    fun dispatchKey(keyCode: Int, down: Boolean) {
+        val target = root ?: return
+        // Nothing on the display takes keys until something in it holds focus.
+        if (target.findFocus() == null) target.requestFocus()
+        val shift = keyCode == app.seb3thehacker.gearslip.car.CarKeys.KEYCODE_SHIFT_TAB
+        val code = if (shift) android.view.KeyEvent.KEYCODE_TAB else keyCode
+        val now = SystemClock.uptimeMillis()
+        val event = android.view.KeyEvent(
+            now, now,
+            if (down) android.view.KeyEvent.ACTION_DOWN else android.view.KeyEvent.ACTION_UP,
+            code, 0,
+            if (shift) android.view.KeyEvent.META_SHIFT_ON or android.view.KeyEvent.META_SHIFT_LEFT_ON else 0,
+            android.view.KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, android.view.InputDevice.SOURCE_DPAD,
+        )
+        target.dispatchKeyEvent(event)
+    }
+
     fun stop() {
         runCatching { presentation?.dismiss() }
         runCatching { owner?.destroy() }

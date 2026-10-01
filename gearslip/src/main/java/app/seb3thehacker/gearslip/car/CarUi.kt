@@ -137,6 +137,22 @@ fun CarUi() {
         }
     }
 
+    // The car's own back, home, map, media and phone keys.
+    LaunchedEffect(navigator) {
+        CarKeys.screenKeys.collect { key ->
+            when (key) {
+                CarKeys.ScreenKey.BACK -> when {
+                    navigator.appMenu != null -> navigator.dismissAppMenu()
+                    VoiceReply.state.value.phase != VoiceReply.Phase.IDLE -> VoiceReply.cancel()
+                    else -> navigator.back()
+                }
+                CarKeys.ScreenKey.HOME, CarKeys.ScreenKey.MAP -> navigator.home()
+                CarKeys.ScreenKey.MEDIA -> if (CarServices.mediaApp.value != null) navigator.media() else navigator.apps()
+                CarKeys.ScreenKey.PHONE -> BuiltInApps.Phone.open(navigator)
+            }
+        }
+    }
+
     CompositionLocalProvider(
         LocalDensity provides Density(base.density * scale, base.fontScale),
         LocalCarNavigator provides navigator,
@@ -204,10 +220,12 @@ fun CarUi() {
                                 }
                             }
                         }
+                        PopupTimer()
                         // The dashboard is already listing them, so it needs no popup.
-                        if (screen !is CarScreen.Notifications && screen != CarScreen.Dashboard) {
-                            NotificationPopup(Modifier.align(Alignment.TopCenter))
-                        }
+                        NotificationPopup(
+                            showNew = screen !is CarScreen.Notifications && screen != CarScreen.Dashboard,
+                            modifier = Modifier.align(Alignment.TopEnd),
+                        )
                         // Above the popup: a call is more urgent than any notification.
                         CallOverlay(Modifier.align(Alignment.TopCenter))
                         AssistantOverlay(Modifier.align(Alignment.TopCenter))
@@ -227,6 +245,7 @@ fun CarUi() {
                 }
                 // Over everything, nav bar included: a long press on an app, anywhere.
                 AppMenu(navigator, rememberRunningApps())
+                if (safetyWarningSeen) CarWhatsNew()
                 }
             }
         }
@@ -282,9 +301,45 @@ private fun CarSafetyWizard(onDone: () -> Unit) {
 private fun BrowseAppScreen(navigator: CarNavigator) {
     val status by CarServices.browse.status.collectAsState()
     val frame by CarEnvironment.frame.collectAsState()
-    CarAppStage(CarServices.browse, status, frame) {
+    val template by CarServices.browse.template.collectAsState()
+    val leave = {
         CarServices.stopBrowse()
         navigator.back()
+    }
+    // An app that never answers is as stuck as one that says no; don't leave the driver on "Loading".
+    var timedOut by remember { mutableStateOf(false) }
+    LaunchedEffect(template == null) {
+        timedOut = false
+        if (template == null) {
+            delay(APP_START_TIMEOUT_MS)
+            timedOut = true
+        }
+    }
+    val failed = status.phase == CarAppConnection.Phase.REJECTED || status.phase == CarAppConnection.Phase.FAILED
+    if (failed || timedOut) {
+        AppWontStart(status.app ?: "This app", leave)
+        return
+    }
+    CarAppStage(CarServices.browse, status, frame, onDisconnect = leave)
+}
+
+private const val APP_START_TIMEOUT_MS = 15_000L
+
+/** What a car app that won't run under Gearslip gets instead of a loading screen that never ends. */
+@Composable
+private fun AppWontStart(app: String, onBack: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("$app doesn't work with Gearslip yet.", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text(
+            "It didn't start. Some apps only run on Google's Android Auto.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        GsButton(onClick = onBack, tone = GsTone.Tonal) { Text("Back") }
     }
 }
 
@@ -379,7 +434,7 @@ private fun CarNavBar(navigator: CarNavigator) {
                 // breadcrumb trail is how you retrace your steps, but reaching for either of
                 // these two from three screens deep in a media app shouldn't mean reading it
                 // first.
-                NavItem(ImageVector.vectorResource(R.drawable.navigation_24), navigator.current == CarScreen.Home) { navigator.home() }
+                NavHomeButton(navigator, entries, running)
                 Spacer(Modifier.width(6.dp))
                 NavItem(MediaIcons.Apps, navigator.current == CarScreen.Apps) { navigator.apps() }
                 val experimentalFeatures by CarSettings.experimentalFeaturesEnabled.collectAsState()
@@ -391,12 +446,14 @@ private fun CarNavBar(navigator: CarNavigator) {
 
                 // Pinned shortcuts, then whatever else is open right now. A pinned app that's also
                 // open stays in its pinned spot, marked with a dot, instead of showing up twice.
+                // The map app lives on the Home button, so it never gets a second icon here.
                 val runningEntries = running.keys
-                    .filter { it !in pinnedIds }
+                    .filter { it !in pinnedIds && running[it] != RunningSlot.NAV }
                     .mapNotNull { id -> entries.find { it.componentId == id } }
-                if (pinnedEntries.isNotEmpty() || runningEntries.isNotEmpty()) NavDivider()
-                pinnedEntries.forEach { entry -> NavEntryIcon(entry, running, navigator, frame) }
-                if (pinnedEntries.isNotEmpty() && runningEntries.isNotEmpty()) NavDivider()
+                val shownPins = pinnedEntries.filter { running[it.componentId] != RunningSlot.NAV }
+                if (shownPins.isNotEmpty() || runningEntries.isNotEmpty()) NavDivider()
+                shownPins.forEach { entry -> NavEntryIcon(entry, running, navigator, frame) }
+                if (shownPins.isNotEmpty() && runningEntries.isNotEmpty()) NavDivider()
                 runningEntries.forEach { entry -> NavEntryIcon(entry, running, navigator, frame) }
 
                 // Next turn first, off the map only; the player shares the space when it fits,
@@ -460,6 +517,35 @@ private fun CarNavBar(navigator: CarNavigator) {
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Home: the map, with the player or lyrics beside it. While a map app runs, the button wears that
+ * app's icon and a long press offers to close it, so the app needs no icon of its own on the bar.
+ */
+@Composable
+private fun NavHomeButton(navigator: CarNavigator, entries: List<Entry>, running: Map<String, RunningSlot>) {
+    val selected = navigator.current == CarScreen.Home
+    val navId = running.entries.firstOrNull { it.value == RunningSlot.NAV }?.key
+    val navEntry = navId?.let { id -> entries.find { it.componentId == id } }
+    GsIconBox(
+        { navigator.home() },
+        colors = navColors(selected),
+        latched = selected,
+        onLongClick = navId?.let { id -> { navigator.showAppMenu(id) } },
+    ) {
+        val icon = navEntry?.icon
+        if (icon != null) {
+            Box(Modifier.padding(NAV_ITEM_PADDING).size(28.dp), contentAlignment = Alignment.Center) {
+                Image(icon, navEntry.label, Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)))
+            }
+        } else {
+            Icon(
+                ImageVector.vectorResource(R.drawable.navigation_24), contentDescription = "Home",
+                modifier = Modifier.padding(NAV_ITEM_PADDING).size(28.dp),
+            )
         }
     }
 }

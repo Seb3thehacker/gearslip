@@ -32,8 +32,8 @@ android {
         applicationId = "app.seb3thehacker.gearslip"
         minSdk = 31
         targetSdk = 37
-        versionCode = 5
-        versionName = "0.0.05-alpha"
+        versionCode = 6
+        versionName = "0.1.0-alpha"
         manifestPlaceholders["appLabel"] = "Gearslip"
     }
 
@@ -76,6 +76,23 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+    }
+
+    defaultConfig {
+        // Speech-to-text ships for 64-bit ARM only: every phone Gearslip runs on, and one copy
+        // of the native library instead of four.
+        ndk { abiFilters += "arm64-v8a" }
+    }
+    ndkVersion = "27.1.12297006"
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+    androidResources {
+        // Model weights barely compress, and stored plainly they stream straight out of the APK.
+        noCompress += "bin"
     }
 
     testOptions {
@@ -126,3 +143,4 @@ tasks.withType<KotlinJvmCompile>().configureEach {
         jvmTarget.set(JvmTarget.JVM_21)
     }
 }
+

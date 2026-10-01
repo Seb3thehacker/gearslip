@@ -12,17 +12,17 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.core.content.ContextCompat
+import app.seb3thehacker.gearslip.call.CallUiState
+import app.seb3thehacker.gearslip.call.CarCalls
+import app.seb3thehacker.gearslip.speech.SpeechEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * A voice assistant built entirely on Android's own speech APIs - [SpeechRecognizer] to listen,
- * [TextToSpeech] to answer - rather than a bundled recognition engine (see the conversation this
- * was scoped from: a project like Dicio ships its own STT model and isn't built to be embedded
- * as a library, which cuts against how the rest of Gearslip is built). Both APIs just talk to
- * whatever the system has configured, so this works unchanged on GrapheneOS against GrapheneOS
- * Speech Services, or on stock Android against whatever the phone shipped with - Gearslip never
- * names an engine.
+ * A voice assistant: Gearslip's own [SpeechEngine] (whisper.cpp) to listen, the system's
+ * [TextToSpeech] to answer. Listening used to go through the system's [SpeechRecognizer] alone,
+ * but many phones have no recognizer at all (GrapheneOS ships only text-to-speech), so the
+ * system one is now just the fallback for when the bundled engine can't run.
  *
  * Listening and speaking live here; deciding what a command *means* is [AssistantCommands], kept
  * separate because it needs a [CarNavigator] and a frame to act on, neither of which this object
@@ -80,55 +80,21 @@ object CarAssistant {
             _state.value = State(Phase.ERROR, reply = "Needs the microphone permission.", missingPermission = true)
             return
         }
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            _state.value = State(Phase.ERROR, reply = "No speech recognizer is set up on this phone.")
+        // Android hands every app but the dialer a silent microphone during a call.
+        if (CarCalls.state.value is CallUiState.Active) {
+            _state.value = State(Phase.ERROR, reply = "Voice commands work once the call ends.")
             return
         }
-
         tts?.stop()
         _state.value = State(Phase.LISTENING)
-
-        val r = SpeechRecognizer.createSpeechRecognizer(context)
-        recognizer = r
-        r.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-
-            override fun onEndOfSpeech() {
-                _state.value = _state.value.copy(phase = Phase.THINKING)
-            }
-
-            override fun onError(error: Int) {
-                releaseRecognizer()
-                _state.value = State(Phase.ERROR, reply = errorMessage(error))
-            }
-
-            override fun onResults(results: Bundle?) {
-                releaseRecognizer()
-                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-                if (text.isBlank()) {
-                    _state.value = State(Phase.ERROR, reply = "Didn't catch that.")
-                } else {
-                    _state.value = _state.value.copy(phase = Phase.THINKING, heard = text)
-                    _pendingCommand.value = text
-                }
-            }
-
-            override fun onPartialResults(partialResults: Bundle?) {
-                val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                if (text != null) _state.value = _state.value.copy(heard = text)
-            }
-
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
-        r.startListening(
-            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+        listenOnce(
+            onPartial = { text -> _state.value = _state.value.copy(heard = text) },
+            onHeard = { _state.value = _state.value.copy(phase = Phase.THINKING) },
+            onResult = { text ->
+                _state.value = _state.value.copy(phase = Phase.THINKING, heard = text)
+                _pendingCommand.value = text
             },
+            onError = { message -> _state.value = State(Phase.ERROR, reply = message) },
         )
     }
 
@@ -166,7 +132,118 @@ object CarAssistant {
         engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "gearslip-assistant")
     }
 
+    /**
+     * Speaks [text] for someone other than the assistant (a message read aloud), then runs
+     * [onDone] on the main thread - straight away if speech isn't available.
+     */
+    fun say(text: String, onDone: () -> Unit) {
+        val engine = tts
+        if (engine == null || !ttsReady || text.isBlank()) {
+            mainHandler.post(onDone)
+            return
+        }
+        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onDone(utteranceId: String?) { mainHandler.post(onDone) }
+            @Deprecated("Deprecated in Java, no replacement on this API level")
+            override fun onError(utteranceId: String?) { mainHandler.post(onDone) }
+            // Stopped part way: whoever stopped it has already moved on.
+            override fun onStop(utteranceId: String?, interrupted: Boolean) {}
+        })
+        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "gearslip-say")
+    }
+
+    fun stopSpeaking() { tts?.stop() }
+
+    /**
+     * Listens once, the same way the assistant does, and hands back what was said without acting
+     * on it. Callbacks arrive on the main thread; [onError] gets a sentence fit to show.
+     */
+    fun dictate(
+        onPartial: (String) -> Unit,
+        onResult: (String) -> Unit,
+        onError: (String) -> Unit,
+        cue: Boolean = true,
+        onSpeaking: () -> Unit = {},
+    ) {
+        cancel()
+        listenOnce(onPartial, onHeard = {}, onResult, onError, cue, onSpeaking)
+    }
+
+    /**
+     * One phrase, through Gearslip's own [SpeechEngine]. The phone's recognizer is only a fallback
+     * for when the engine itself can't run, since plenty of phones (GrapheneOS among them) have none.
+     */
+    private fun listenOnce(
+        onPartial: (String) -> Unit,
+        onHeard: () -> Unit,
+        onResult: (String) -> Unit,
+        onError: (String) -> Unit,
+        cue: Boolean = true,
+        onSpeaking: () -> Unit = {},
+    ) {
+        val context = appContext ?: return onError("Speech isn't ready yet.")
+        SpeechEngine.listen(
+            context,
+            cue = cue,
+            onSpeaking = onSpeaking,
+            onHeard = onHeard,
+            onResult = onResult,
+            onError = { message ->
+                if (message == SpeechEngine.NOT_LOADED && SpeechRecognizer.isRecognitionAvailable(context)) {
+                    systemListen(context, onPartial, onHeard, onResult, onError)
+                } else {
+                    onError(message)
+                }
+            },
+        )
+    }
+
+    private fun systemListen(
+        context: Context,
+        onPartial: (String) -> Unit,
+        onHeard: () -> Unit,
+        onResult: (String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        val r = SpeechRecognizer.createSpeechRecognizer(context)
+        recognizer = r
+        r.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() = onHeard()
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+
+            override fun onError(error: Int) {
+                releaseRecognizer()
+                onError(errorMessage(error))
+            }
+
+            override fun onResults(results: Bundle?) {
+                releaseRecognizer()
+                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                if (text.isBlank()) onError("Didn't catch that.") else onResult(text)
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) {
+                partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let(onPartial)
+            }
+        })
+        r.startListening(
+            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+            },
+        )
+    }
+
+    fun stopListening() = releaseRecognizer()
+
     private fun releaseRecognizer() {
+        SpeechEngine.cancel()
         recognizer?.let { runCatching { it.cancel() }; it.destroy() }
         recognizer = null
     }

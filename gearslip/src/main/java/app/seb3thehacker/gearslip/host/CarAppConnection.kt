@@ -453,6 +453,33 @@ class CarAppConnection(private val context: Context) {
         }
     }
 
+    private val _surfaceEpoch = MutableStateFlow(0)
+
+    /** Bumped when the lent surface turns out to be dead, so the stage builds a fresh one. */
+    val surfaceEpoch: StateFlow<Int> = _surfaceEpoch.asStateFlow()
+
+    /**
+     * Lends the app its surface again: called when the map comes back into view. An app that
+     * draws through its own VirtualDisplay (Organic Maps does) can be left pointing at a surface
+     * that has since died, and draws black until it's told about a live one. Taking the surface
+     * back and lending it again repoints it; a surface that has itself died is replaced.
+     */
+    fun refreshSurface() {
+        main.post {
+            val current = lent ?: return@post
+            if (!current.surface.isValid) {
+                GearslipLog.w("host: the lent surface died; building a new one")
+                lent = null
+                sendSurfaceDestroyed(current)
+                _surfaceEpoch.value = _surfaceEpoch.value + 1
+                return@post
+            }
+            GearslipLog.i("host: lending the surface again as the map comes back")
+            sendSurfaceDestroyed(current)
+            sendSurfaceAvailable()
+        }
+    }
+
     private fun sendSurfaceAvailable() {
         val callback = surfaceCallback ?: return
         val surface = lent ?: return

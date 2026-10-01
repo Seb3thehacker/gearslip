@@ -130,11 +130,14 @@ object ServiceDiscovery {
             val id = Wire.varint(service, 1)?.toInt() ?: continue
             val input = Wire.bytes(service, 4) ?: continue
             val inputFields = Wire.fields(input)
-            val touch = Wire.bytes(inputFields, 2) ?: continue
-            val touchFields = Wire.fields(touch)
-            val width = Wire.varint(touchFields, 1)?.toInt() ?: continue
-            val height = Wire.varint(touchFields, 2)?.toInt() ?: continue
-            val keycodes = Wire.bytes(inputFields, 1)?.let(::packedVarints).orEmpty()
+            // A unit with only a knob and buttons has no touchscreen entry; it still has keys.
+            val touchFields = Wire.bytes(inputFields, 2)?.let { Wire.fields(it) }.orEmpty()
+            val width = Wire.varint(touchFields, 1)?.toInt() ?: 0
+            val height = Wire.varint(touchFields, 2)?.toInt() ?: 0
+            // Declared packed, but some units send each keycode as its own field.
+            val keycodes = inputFields.filter { it.number == 1 }.flatMap { f ->
+                f.bytes?.let(::packedVarints) ?: listOf(f.varint.toInt())
+            }
             return InputService(id, width, height, keycodes)
         }
         return null

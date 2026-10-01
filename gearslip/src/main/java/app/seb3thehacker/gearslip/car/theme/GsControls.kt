@@ -22,6 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -228,10 +229,15 @@ private fun Modifier.gsPressable(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     role: Role = Role.Button,
+    shape: Shape = gsShape(),
 ): Modifier {
     val look = gsLook()
+    // Reached with the car's knob or D-pad rather than a finger: a ring shows where focus is.
+    val focused by source.collectIsFocusedAsState()
+    val ring = MaterialTheme.colorScheme.primary
     return this
         .scale(if (pressed) look.pressedScale else 1f)
+        .then(if (focused) Modifier.border(3.dp, ring, shape) else Modifier)
         .combinedClickable(
             interactionSource = source,
             indication = null,
@@ -268,7 +274,7 @@ fun GsButton(
     Row(
         modifier
             .defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)
-            .gsPressable(source, pressed, enabled, onClick)
+            .gsPressable(source, pressed, enabled, onClick, shape = shape)
             .gsSurface(c.container, shape, c.border, pressed)
             .padding(contentPadding),
         horizontalArrangement = Arrangement.Center,
@@ -317,7 +323,7 @@ fun GsIconBox(
     val pressed = rememberPressed(source)
     Box(
         modifier
-            .gsPressable(source, pressed, enabled, onClick, onLongClick)
+            .gsPressable(source, pressed, enabled, onClick, onLongClick, shape = shape)
             .gsSurface(c.container, shape, c.border, pressed, latched),
         contentAlignment = Alignment.Center,
     ) {

@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.car
 
+
 import app.seb3thehacker.gearslip.car.theme.*
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +51,7 @@ fun CarSettingsScreen() {
     val open by CarSettings.openOnConnect.collectAsState()
     val night by CarSettings.nightMode.collectAsState()
     val units by CarSettings.units.collectAsState()
+    val whatsNew by CarSettings.whatsNewAfterUpdates.collectAsState()
     val pipeAudio by CarSettings.pipeAudio.collectAsState()
     val autoplay by CarSettings.autoplay.collectAsState()
     val theme by CarSettings.appTheme.collectAsState()
@@ -149,6 +151,20 @@ fun CarSettingsScreen() {
             Info("Video", display.ifEmpty { "-" })
             Info("Certificate", cert?.headline ?: "Checking…")
         }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("About", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Info("Version", app.seb3thehacker.gearslip.BuildConfig.VERSION_NAME)
+            Info("Build", app.seb3thehacker.gearslip.BuildConfig.VERSION_CODE.toString())
+            ExperimentalFeatureRow(
+                "What's new after updates",
+                "Show the list of changes once, the first time the car connects after an update.",
+                whatsNew,
+            ) { CarSettings.setWhatsNewAfterUpdates(it) }
+            GsButton(onClick = CarSettings::openWhatsNew, tone = GsTone.Tonal, modifier = Modifier.height(56.dp)) {
+                Text("What's new", style = MaterialTheme.typography.titleMedium)
+            }
+        }
     }
 }
 
@@ -237,7 +253,7 @@ private fun ExperimentalFeatureRow(
                 )
             }
             Spacer(Modifier.width(12.dp))
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
+            GsSwitch(checked, onCheckedChange)
         }
     }
 }
@@ -358,3 +374,4 @@ private fun StepButton(text: String, modifier: Modifier, onClick: () -> Unit) {
         Text(text, style = MaterialTheme.typography.titleLarge)
     }
 }
+

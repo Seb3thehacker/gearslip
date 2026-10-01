@@ -12,6 +12,8 @@ enum class NightMode { AUTO, DAY, NIGHT }
 /** Distances and temperatures. [AUTO] goes by the phone's region. */
 enum class Units { AUTO, IMPERIAL, METRIC }
 
+/** Where a new message shows: [NAV_BAR] turns the clock button into it, [CARD] floats a card top right. */
+
 /** The car UI's own colours. Separate from [NightMode], which is about the light outside (the map). */
 enum class AppTheme { PHONE, LIGHT, DARK }
 
@@ -36,6 +38,8 @@ object CarSettings {
     private const val KEY_CAR_SENSORS = "car_sensors_enabled"
     private const val KEY_SEEN_SAFETY_WARNING = "car_seen_safety_warning"
     private const val KEY_UNITS = "car_units"
+    private const val KEY_WHATS_NEW = "car_whats_new_after_updates"
+    private const val KEY_WHATS_NEW_SEEN = "car_whats_new_seen_code"
 
     /** How many shortcuts the nav bar makes room for; a driver reaching for one needs it to
      * still be on the bar, not off the edge of a long list. */
@@ -67,6 +71,36 @@ object CarSettings {
     private val unitsFlow = MutableStateFlow(Units.AUTO)
 
     val units: StateFlow<Units> = unitsFlow
+
+
+    private val whatsNewFlow = MutableStateFlow(true)
+    private val whatsNewSeenFlow = MutableStateFlow(0)
+    private val whatsNewOpenFlow = MutableStateFlow(false)
+
+    /** Whether the car screen shows what's new once after each update. */
+    val whatsNewAfterUpdates: StateFlow<Boolean> = whatsNewFlow
+
+    /** Version code whose notes the car screen last showed. */
+    val whatsNewSeen: StateFlow<Int> = whatsNewSeenFlow
+
+    /** Opened by hand from Settings, whatever the two above say. Not saved. */
+    val whatsNewOpen: StateFlow<Boolean> = whatsNewOpenFlow
+
+    fun setWhatsNewAfterUpdates(on: Boolean) {
+        whatsNewFlow.value = on
+        AppSettings.putString(app, KEY_WHATS_NEW, on.toString())
+    }
+
+    fun openWhatsNew() { whatsNewOpenFlow.value = true }
+
+    /** Closes the notes and marks [versionCode]'s as read. */
+    fun closeWhatsNew(versionCode: Int) {
+        whatsNewOpenFlow.value = false
+        whatsNewSeenFlow.value = versionCode
+        AppSettings.putString(app, KEY_WHATS_NEW_SEEN, versionCode.toString())
+    }
+
+
 
     /** Whether to show miles, feet and °F; [Units.AUTO] follows the countries that still use them. */
     fun imperial(): Boolean = when (unitsFlow.value) {
@@ -161,6 +195,8 @@ object CarSettings {
         unitsFlow.value = runCatching {
             Units.valueOf(AppSettings.getString(app, KEY_UNITS, Units.AUTO.name))
         }.getOrDefault(Units.AUTO)
+        whatsNewFlow.value = AppSettings.getString(app, KEY_WHATS_NEW, "true") == "true"
+        whatsNewSeenFlow.value = AppSettings.getString(app, KEY_WHATS_NEW_SEEN, "0").toIntOrNull() ?: 0
     }
 
     fun setScale(value: Float) {

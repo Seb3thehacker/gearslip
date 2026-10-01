@@ -85,6 +85,14 @@
     <intent>
         <action android:name="android.media.browse.MediaBrowserService" />
     </intent>
+    <!-- Speech: without these, Android hides the recognizer and the voice from us and
+         SpeechRecognizer reports none installed even when one is. -->
+    <intent>
+        <action android:name="android.speech.RecognitionService" />
+    </intent>
+    <intent>
+        <action android:name="android.intent.action.TTS_SERVICE" />
+    </intent>
 </queries>
 
 <application
@@ -121,6 +129,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+        </activity>
+
+        <!--
+          Answers the car's USB connection on GearslipActivity's behalf. Kept apart from the
+          activity so Settings can switch off just this (AppSettings.setGearslipEnabled) and leave
+          the head unit to Android Auto, without disabling the screen the switch is on.
+        -->
+        <activity-alias
+            android:name=".GearslipUsbAccessory"
+            android:targetActivity=".GearslipActivity"
+            android:exported="true">
+
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
             </intent-filter>
@@ -128,7 +148,12 @@
             <meta-data
                 android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
                 android:resource="@xml/accessory_filter" />
-        </activity>
+        </activity-alias>
+
+        <!-- Dev builds' test message: its Reply and Mark as read actions land here. -->
+        <receiver
+            android:name=".notify.TestMessageReceiver"
+            android:exported="false" />
 
         <service
             android:name=".mirror.MirrorService"

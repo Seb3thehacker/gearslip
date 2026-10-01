@@ -128,13 +128,18 @@ internal object LauncherCache {
         // Playing - so only the label needs disambiguating, not the tile itself.
         val mediaPackages = mediaApps.map { it.component.packageName }.toSet()
 
-        val nav = navApps.map {
+        val messagingApps = MessagingCatalog.installed(context)
+        // Google Messages ships its own car app, which won't start under Gearslip. Gearslip's
+        // own Messages screen does the same job, so a messenger gets only that tile.
+        val messagingPackages = messagingApps.map { it.packageName }.toSet()
+
+        val nav = navApps.filter { it.component.packageName !in messagingPackages }.map {
             val label = if (it.component.packageName in mediaPackages) "${it.label} · Browse" else it.label
             Entry(label, iconOf(it.component.packageName), template = it)
         }
         val media = mediaApps.map { Entry(it.label, iconOf(it.component.packageName), media = it) }
         // A messenger that is also a car media app keeps only its player tile.
-        val messaging = MessagingCatalog.installed(context)
+        val messaging = messagingApps
             .filter { it.packageName !in mediaPackages }
             .map { Entry(it.label, iconOf(it.packageName), messaging = it) }
         return (nav + media + messaging).sortedBy { it.label.lowercase() }.also { flow.value = it }
@@ -192,12 +197,14 @@ fun CarLauncher() {
     var showBadgeKey by remember { mutableStateOf(false) }
 
     fun tileOf(entry: Entry): Tile {
-        val pkg = entry.packageName
+        // The badges rate an app's own car screens; a messenger shown on Gearslip's own Messages
+        // screen has none, so it gets no badge.
+        val pkg = entry.packageName?.takeIf { entry.messaging == null }
         val id = entry.componentId
         return Tile(
             entry.label, entry.icon, entry.builtIn?.glyph,
-            verified = pkg != null && KnownApps.works(pkg),
-            broken = pkg != null && KnownApps.isBroken(pkg),
+            verified = pkg != null && (KnownApps.works(pkg) || (entry.media != null && KnownApps.playerWorks(pkg))),
+            broken = pkg != null && (KnownApps.isBroken(pkg) || (entry.template != null && KnownApps.screenBroken(pkg))),
             partial = pkg != null && KnownApps.isPartial(pkg),
             onLongClick = id?.let { { navigator.showAppMenu(it) } },
         ) { openApp(entry, id?.let { running[it] }, navigator, frame) }

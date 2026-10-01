@@ -42,6 +42,8 @@ data class CarNotification(
     /** The app's own "mark as read" action, fired once the driver has opened the thread. */
     val markRead: Notification.Action? = null,
     val read: Boolean = false,
+    /** How many posts this popup stands for: new messages in one chat update it, not queue. */
+    val burst: Int = 1,
 )
 
 /**
@@ -78,7 +80,10 @@ object CarNotifications {
 
     fun nextId(): Long = nextId++
 
-    /** [quiet] adds to the history without a popup or unread badge (used to seed on connect). */
+    /**
+     * [quiet] adds to the history without a popup or unread badge: used to seed on connect, and
+     * for anything that isn't worth interrupting a drive for (see the listener's filter).
+     */
     fun post(notification: CarNotification, quiet: Boolean) {
         _history.update { list ->
             (listOf(notification) + list.filterNot { it.key == notification.key }).take(MAX_HISTORY)
@@ -88,7 +93,9 @@ object CarNotifications {
         if (quiet || echo) return
         // History still keeps it; only the popup is held back while driving.
         if (CarMotion.moving) return
-        _popup.value = notification
+        _popup.update { shown ->
+            if (shown?.key == notification.key) notification.copy(burst = shown.burst + 1) else notification
+        }
     }
 
     /** The phone dismissed it. It stays in history, but its reply intent is no longer trustworthy. */

@@ -70,14 +70,28 @@ object AppSettings {
 
     fun setGearslipEnabled(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean(KEY_GEARSLIP_ENABLED, value).apply()
+        applyGearslipEnabled(context)
+    }
+
+    /**
+     * Makes the USB alias match the saved switch. Called at every launch as well, so a switch
+     * saved without the alias following it (an older build crashed right there) heals itself.
+     * Only the alias changes: the driver's "always open with Gearslip" choice for the car is kept.
+     */
+    fun applyGearslipEnabled(context: Context) {
+        val value = gearslipEnabled(context)
         val appContext = context.applicationContext
-        val component = ComponentName(appContext.packageName, "${appContext.packageName}.GearslipUsbAccessory")
+        // The class name comes from the code's namespace, not the package: a debug build installs
+        // as ".dev", but the alias is still app.seb3thehacker.gearslip.GearslipUsbAccessory.
+        val component = ComponentName(appContext.packageName, "${GearslipActivity::class.java.`package`!!.name}.GearslipUsbAccessory")
         val state = if (value) {
             PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
         } else {
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED
         }
-        context.applicationContext.packageManager
-            .setComponentEnabledSetting(component, state, PackageManager.DONT_KILL_APP)
+        val pm = appContext.packageManager
+        if (pm.getComponentEnabledSetting(component) == state) return
+        runCatching { pm.setComponentEnabledSetting(component, state, PackageManager.DONT_KILL_APP) }
+            .onFailure { GearslipLog.e("could not switch the USB connection ${if (value) "on" else "off"}", it) }
     }
 }

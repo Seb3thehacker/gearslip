@@ -153,6 +153,17 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
         )
     }
 
+    if (!granted(context, arrayOf(Manifest.permission.POST_NOTIFICATIONS))) {
+        add(
+            GuidePage(
+                title = "Notifications",
+                explanation = "Gearslip shows a notification while it's connected to the car or " +
+                    "sending it audio, with a button to stop. Without this permission, Android " +
+                    "hides it.",
+                permissions = arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            ),
+        )
+    }
     if (!hasNotificationAccess(context)) {
         add(
             GuidePage(

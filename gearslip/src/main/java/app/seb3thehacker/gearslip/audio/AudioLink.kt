@@ -37,6 +37,7 @@ class AudioLink(
     private var bytes = 0L
     private var dropped = 0
     @Volatile private var configTimer: Thread? = null
+    private val ackLock = Object()
 
     private val config get() = service.configs.getOrNull(configIndex) ?: service.configs.firstOrNull()
     override val sampleRate get() = config?.sampleRate ?: 48_000
@@ -115,8 +116,11 @@ class AudioLink(
 
             MSG_ACK -> {
                 val acked = Wire.varint(Wire.fields(body), 2)?.toInt() ?: 1
-                inFlight = maxOf(0, inFlight - maxOf(1, acked))
-                lastAckAt = System.currentTimeMillis()
+                synchronized(ackLock) {
+                    inFlight = maxOf(0, inFlight - maxOf(1, acked))
+                    lastAckAt = System.currentTimeMillis()
+                    ackLock.notifyAll()
+                }
             }
 
             // Whatever the head unit answers Setup with, we need its bytes to identify it.
@@ -166,6 +170,7 @@ class AudioLink(
     override fun stop() {
         if (!started) return
         started = false
+        synchronized(ackLock) { ackLock.notifyAll() }
         runCatching {
             sendOnChannel(MSG_STOP, Protobuf.varintField(1, SESSION_ID.toLong()))
             if (focusRequested) sendControl(MSG_FOCUS_REQUEST, Protobuf.varintField(1, FOCUS_RELEASE.toLong()))
@@ -179,15 +184,23 @@ class AudioLink(
 
     override fun write(pcm: ByteArray, size: Int) {
         if (!started) return
-        if (inFlight >= maxUnacked) {
-            // A lost ack must not silence the stream for good; after a stall assume the window cleared.
-            if (System.currentTimeMillis() - lastAckAt > STALL_MS) {
-                GearslipLog.w("audio: no ack for ${STALL_MS}ms with $inFlight in flight - reopening the window")
-                inFlight = 0
-            } else {
-                dropped++
-                return
+        // Wait for the car to catch up rather than throw the chunk away: a dropped chunk is a gap
+        // the driver hears, while a short wait is soaked up by the capture buffer behind us.
+        synchronized(ackLock) {
+            while (started && inFlight >= maxUnacked) {
+                val waited = System.currentTimeMillis() - lastAckAt
+                if (waited > STALL_MS) {
+                    // A lost ack must not silence the stream for good; after a stall assume the window cleared.
+                    GearslipLog.w("audio: no ack for ${STALL_MS}ms with $inFlight in flight - reopening the window")
+                    inFlight = 0
+                    break
+                }
+                ackLock.wait(STALL_MS - waited + 1)
             }
+        }
+        if (!started) {
+            dropped++
+            return
         }
         val timestamp = ByteArray(8)
         val micros = System.nanoTime() / 1_000
@@ -199,7 +212,7 @@ class AudioLink(
             started = false
             return
         }
-        inFlight++
+        synchronized(ackLock) { inFlight++ }
         chunks++
         bytes += size
         // The first chunk proves the whole path; after that, an occasional line is enough to show

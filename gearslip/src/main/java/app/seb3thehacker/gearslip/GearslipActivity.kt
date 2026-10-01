@@ -113,6 +113,7 @@ class GearslipActivity : ComponentActivity(), Projection {
         GearslipLog.installCrashHandler()
         GearslipLog.i("Gearslip ready")
         CarSettings.init(this)
+        AppSettings.applyGearslipEnabled(this)
         // A capture that died without tidying up would leave notifications exposed to every
         // later screen share. Nothing is capturing if the service is not running, so undo it.
         if (!app.seb3thehacker.gearslip.audio.AudioCaptureService.running) {
@@ -245,6 +246,12 @@ class GearslipActivity : ComponentActivity(), Projection {
 
     private fun handleIntent(intent: Intent?) {
         if (intent?.action != UsbManager.ACTION_USB_ACCESSORY_ATTACHED) return
+        // Switched off in Settings: the system shouldn't route the car here at all, but if it
+        // does, leave the accessory alone.
+        if (!AppSettings.gearslipEnabled(this)) {
+            GearslipLog.i("accessory attached, but Gearslip is switched off - not connecting")
+            return
+        }
         val accessory = intent.getParcelableExtra(UsbManager.EXTRA_ACCESSORY, UsbAccessory::class.java)
         if (accessory == null) {
             GearslipLog.e("attach intent carried no accessory")
@@ -309,6 +316,9 @@ class GearslipActivity : ComponentActivity(), Projection {
             CarEnvironment.setDisplay(width, height, densityDpi)
             CarEnvironment.start(this)
             showCarUi()
+            app.seb3thehacker.gearslip.car.CarKeys.focusSink = { code, down ->
+                runOnUiThread { screenProjector?.dispatchKey(code, down) }
+            }
         }
     }
 
@@ -323,6 +333,7 @@ class GearslipActivity : ComponentActivity(), Projection {
     override fun onProjectionStopped() {
         runOnUiThread {
             PhoneMirror.requestStop()
+            app.seb3thehacker.gearslip.car.CarKeys.focusSink = null
             screenProjector?.stop()
             screenProjector = null
             surface = null

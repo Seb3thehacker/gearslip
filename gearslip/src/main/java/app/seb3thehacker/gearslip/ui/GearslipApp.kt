@@ -1,6 +1,12 @@
 package app.seb3thehacker.gearslip.ui
 
+import android.Manifest
+import android.app.Activity
+import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -16,6 +22,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,7 +38,7 @@ import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.BuildConfig
 import app.seb3thehacker.gearslip.CertProvider
 
-private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, CERT_SETUP, SETUP_GUIDE, HELP }
+private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, CERT_SETUP, SETUP_GUIDE, HELP, WHATS_NEW }
 
 /** Three screens and a back stack of depth one: no navigation library needed. */
 @Composable
@@ -52,6 +59,25 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
     }
     BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
 
+    // Home stays upright; every other screen turns with the phone.
+    LaunchedEffect(screen) {
+        (context as? Activity)?.requestedOrientation = if (screen == Screen.HOME) {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    // The guide asks for this now, but anyone who finished it before that never saw the page.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        if (!needsSetupGuide &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -67,8 +93,10 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenCarPreview = { screen = Screen.CAR_PREVIEW },
                     onOpenHelp = { screen = Screen.HELP },
+                    onOpenWhatsNew = { screen = Screen.WHATS_NEW },
                     onDisconnect = onDisconnect,
                 )
+                Screen.WHATS_NEW -> WhatsNewScreen(onBack = { screen = Screen.HOME })
                 Screen.LOGS -> LogsScreen(onBack = { screen = Screen.HOME })
                 Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HOME })
                 Screen.CAR_PREVIEW -> CarPreviewScreen(onBack = { screen = Screen.HOME })

@@ -4,6 +4,7 @@ import android.os.Build
 import app.seb3thehacker.gearslip.audio.AudioLink
 import app.seb3thehacker.gearslip.car.CarAssistant
 import app.seb3thehacker.gearslip.car.CarEnvironment
+import app.seb3thehacker.gearslip.car.CarKeys
 import app.seb3thehacker.gearslip.car.CarSensors
 import app.seb3thehacker.gearslip.car.CarServices
 import app.seb3thehacker.gearslip.car.CarSettings
@@ -54,6 +55,7 @@ class GearslipRunner(
     @Volatile private var framesSent = 0
     @Volatile private var dropped = 0
     @Volatile private var inputChannelId: Int = -1
+    @Volatile private var inputKeycodes: List<Int> = emptyList()
     @Volatile private var sensorChannelId: Int = -1
     private var sensorTypes: List<Int> = emptyList()
     @Volatile private var audioLink: AudioLink? = null
@@ -389,6 +391,7 @@ class GearslipRunner(
             log.w("no input service advertised - projection will be output-only")
         } else {
             inputChannelId = input.serviceId
+            inputKeycodes = input.keycodesSupported
             touchWidth = input.touchWidth
             touchHeight = input.touchHeight
             log.i(
@@ -504,12 +507,19 @@ class GearslipRunner(
      */
     private fun onInputMessage(messageId: Int, body: ByteArray) {
         when (messageId) {
-            MSG_CHANNEL_OPEN_RESPONSE ->
-                log.i("<- ChannelOpenResponse (input): status=${Protobuf.readInt32Field(body, 1)}")
+            MSG_CHANNEL_OPEN_RESPONSE -> {
+                val status = Protobuf.readInt32Field(body, 1)
+                log.i("<- ChannelOpenResponse (input): status=$status")
+                if (status == 0) sendKeyBinding()
+            }
+
+            MSG_KEY_BINDING_RESPONSE ->
+                log.i("<- KeyBindingResponse: status=${Protobuf.readInt32Field(body, 1)}")
 
             MSG_INPUT_REPORT -> {
                 val report = Wire.fields(body)
                 Wire.bytes(report, 4)?.let(::onKeyEvent)
+                Wire.bytes(report, 6)?.let(::onRelativeEvent)
                 val touch = Wire.bytes(report, 3) ?: Wire.bytes(report, 7)
                 if (touch == null) {
                     return
@@ -545,35 +555,50 @@ class GearslipRunner(
     }
 
     /**
+     * Asks the head unit to forward its buttons. Many units send nothing from the steering wheel
+     * until the phone names the keys it wants. What the unit offered is asked for; a unit that
+     * offered nothing gets [CarKeys.WANTED], since some leave the list empty and send keys anyway.
+     *
+     *   KeyBindingRequest { repeated int32 keycodes = 1 [packed = true]; }
+     */
+    private fun sendKeyBinding() {
+        val keycodes = inputKeycodes.ifEmpty { CarKeys.WANTED }
+        val packed = keycodes.fold(ByteArray(0)) { acc, code -> acc + Protobuf.varint(code.toLong()) }
+        val body = Protobuf.varint(((1 shl 3) or 2).toLong()) + Protobuf.varint(packed.size.toLong()) + packed
+        send(MSG_KEY_BINDING_REQUEST, body, encrypted = true, channel = inputChannelId)
+        log.i("-> KeyBindingRequest(keycodes=$keycodes)")
+    }
+
+    /**
      * Steering-wheel and head-unit buttons: InputReport.key_event (field 4), shaped as
      *   KeyEvent { repeated Key keys = 1; }
      *   Key { keycode = 1; down = 2; metastate = 3; longpress = 4; }
      *
-     * Acted on the down edge only, so one press is one action. These are the same numeric
-     * codes as android.view.KeyEvent (the head unit reuses Android's own keycode space), which
-     * is why they line up with the constants below without needing a translation table.
+     * The codes are android.view.KeyEvent's; [CarKeys] decides what each one does.
      */
     private fun onKeyEvent(keyEvent: ByteArray) {
         for (key in Wire.allBytes(Wire.fields(keyEvent), 1)) {
             val fields = Wire.fields(key)
             val keycode = Wire.varint(fields, 1)?.toInt() ?: continue
             val down = Wire.varint(fields, 2) == 1L
-            if (!down) continue
-            log.i("<- key event: keycode=$keycode")
-            when (keycode) {
-                KEYCODE_MEDIA_PLAY_PAUSE -> CarServices.media.togglePlay()
-                KEYCODE_MEDIA_NEXT -> CarServices.media.next()
-                KEYCODE_MEDIA_PREVIOUS -> CarServices.media.previous()
-                KEYCODE_VOICE_ASSIST, KEYCODE_SEARCH -> {
-                    if (CarSettings.experimentalFeaturesEnabled.value && CarSettings.voiceAssistantEnabled.value) {
-                        log.i("voice/PTT button pressed - starting the assistant")
-                        CarAssistant.start()
-                    } else {
-                        log.i("voice/PTT button pressed - assistant is off in settings, ignoring")
-                    }
-                }
-                else -> log.i("unhandled keycode=$keycode")
-            }
+            val longPress = Wire.varint(fields, 4) == 1L
+            log.i("<- key event: keycode=$keycode ${if (down) "down" else "up"}${if (longPress) " long" else ""}")
+            if (!CarKeys.onKey(keycode, down, longPress) && down) log.i("unhandled keycode=$keycode")
+        }
+    }
+
+    /**
+     * The rotary knob: InputReport.relative_event (field 6), shaped as
+     *   RelativeEvent { repeated Rel data = 1; }  Rel { keycode = 1; delta = 2 (int32); }
+     */
+    private fun onRelativeEvent(event: ByteArray) {
+        for (rel in Wire.allBytes(Wire.fields(event), 1)) {
+            val fields = Wire.fields(rel)
+            val keycode = Wire.varint(fields, 1)?.toInt() ?: continue
+            // int32, so a turn the other way arrives as a 64-bit two's complement varint.
+            val delta = Wire.varint(fields, 2)?.toInt() ?: continue
+            log.i("<- relative event: keycode=$keycode delta=$delta")
+            CarKeys.onRotate(delta)
         }
     }
 
@@ -953,16 +978,11 @@ class GearslipRunner(
         const val VIDEO_FOCUS_PROJECTED = 1
         const val SESSION_ID = 1
         const val MSG_INPUT_REPORT = 32769
+        const val MSG_KEY_BINDING_REQUEST = 32770
+        const val MSG_KEY_BINDING_RESPONSE = 32771
         const val ACTION_DOWN = 0
         const val ACTION_UP = 1
 
-        // android.view.KeyEvent codes the head unit re-sends as-is (aap_protobuf's KeyCode.proto
-        // mirrors Android's own keycode space).
-        const val KEYCODE_SEARCH = 84
-        const val KEYCODE_MEDIA_PLAY_PAUSE = 85
-        const val KEYCODE_MEDIA_NEXT = 87
-        const val KEYCODE_MEDIA_PREVIOUS = 88
-        const val KEYCODE_VOICE_ASSIST = 231
         const val ACK_STALL_MS = 2_000L
         const val AUDIO_TRACE_MESSAGES = 6
         const val PERIODIC_KEYFRAME_MS = 5_000L

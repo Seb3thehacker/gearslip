@@ -30,7 +30,10 @@ class GearslipNotificationListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification) = CarNotifications.gone(sbn.key)
 
     private fun ingest(sbn: StatusBarNotification, quiet: Boolean) {
-        if (sbn.packageName == packageName) return
+        // Gearslip's own notifications are skipped, except a dev build's test message.
+        if (sbn.packageName == packageName &&
+            !(app.seb3thehacker.gearslip.BuildConfig.DEBUG && sbn.notification.channelId == TestMessage.CHANNEL)
+        ) return
         val n = sbn.notification
         // Ongoing entries (media, navigation, downloads) and group headers are status, not news.
         if (n.flags and (Notification.FLAG_ONGOING_EVENT or Notification.FLAG_GROUP_SUMMARY) != 0) return
@@ -41,6 +44,8 @@ class GearslipNotificationListener : NotificationListenerService() {
         val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
             ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
         if (title.isBlank() && text.isBlank()) return
+        // The player and the map already show these.
+        if (extras.containsKey(Notification.EXTRA_MEDIA_SESSION) || n.category == Notification.CATEGORY_NAVIGATION) return
 
         val style = runCatching { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n) }.getOrNull()
         // In MessagingStyle a message with no sender is the phone owner's own.
@@ -66,8 +71,23 @@ class GearslipNotificationListener : NotificationListenerService() {
                 isGroup = style?.isGroupConversation == true,
                 markRead = markReadOf(n),
             ),
-            quiet,
+            quiet || !alerts(sbn, style != null),
         )
+    }
+
+    /**
+     * Whether a notification is worth a popup in the car: messages, missed calls, alarms and
+     * reminders. Everything else still lands in the dashboard's list, just without interrupting.
+     * An incoming call is left out too, since the call card already covers it.
+     */
+    private fun alerts(sbn: StatusBarNotification, conversation: Boolean): Boolean {
+        if (sbn.packageName in SYSTEM_PACKAGES) return false
+        val ranking = Ranking()
+        if (currentRanking?.getRanking(sbn.key, ranking) == true &&
+            ranking.importance < android.app.NotificationManager.IMPORTANCE_DEFAULT
+        ) return false
+        val n = sbn.notification
+        return conversation || replyOf(n) != null || n.category in ALERT_CATEGORIES
     }
 
     private fun markReadOf(n: Notification): Notification.Action? =
@@ -98,6 +118,14 @@ class GearslipNotificationListener : NotificationListenerService() {
     private companion object {
         const val ICON_PX = 96
         const val MAX_LINES = 8
+        val ALERT_CATEGORIES = setOf(
+            Notification.CATEGORY_MESSAGE,
+            Notification.CATEGORY_MISSED_CALL,
+            Notification.CATEGORY_ALARM,
+            Notification.CATEGORY_REMINDER,
+            Notification.CATEGORY_EVENT,
+        )
+        val SYSTEM_PACKAGES = setOf("android", "com.android.systemui", "com.android.vending", "com.google.android.gms")
         val QUIET_CATEGORIES = setOf(
             Notification.CATEGORY_TRANSPORT,
             Notification.CATEGORY_PROGRESS,

@@ -26,3 +26,5 @@ extraction/
 .claude/
 todo
 logs/
+# Native build cache.
+.cxx/

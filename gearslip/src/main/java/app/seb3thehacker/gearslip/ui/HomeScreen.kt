@@ -16,6 +16,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
@@ -37,7 +39,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.seb3thehacker.gearslip.BuildConfig
 import app.seb3thehacker.gearslip.SessionStatus
+import app.seb3thehacker.gearslip.notify.TestMessage
 
 @Composable
 fun HomeScreen(
@@ -45,6 +49,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenCarPreview: () -> Unit,
     onOpenHelp: () -> Unit,
+    onOpenWhatsNew: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
     val status by SessionStatus.state.collectAsStateWithLifecycle()
@@ -110,6 +115,13 @@ fun HomeScreen(
                         ActionRow(Icons.Filled.List, "Live logs", onOpenLogs)
                         RowDivider()
                         ActionRow(Icons.Filled.Info, "Connection help", onOpenHelp)
+                        RowDivider()
+                        ActionRow(Icons.Filled.Star, "What's new", onOpenWhatsNew)
+                        if (BuildConfig.DEBUG) {
+                            val context = LocalContext.current
+                            RowDivider()
+                            ActionRow(Icons.Filled.Send, "Send a test message") { TestMessage.post(context) }
+                        }
                     }
                 }
             }

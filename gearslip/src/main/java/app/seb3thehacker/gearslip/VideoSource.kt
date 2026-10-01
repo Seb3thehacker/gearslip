@@ -45,7 +45,8 @@ class VideoSource(
     private var frameIndex = 0L
 
     fun start() {
-        val format = MediaFormat.createVideoFormat(MIME, width, height).apply {
+        val bitRate = (width.toLong() * height * frameRate * BITS_PER_PIXEL).toInt().coerceIn(MIN_BIT_RATE, MAX_BIT_RATE)
+        fun format(tuned: Boolean) = MediaFormat.createVideoFormat(MIME, width, height).apply {
             setInteger(
                 MediaFormat.KEY_COLOR_FORMAT,
                 if (mode == Mode.SURFACE) {
@@ -54,21 +55,37 @@ class VideoSource(
                     MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
                 },
             )
-            setInteger(MediaFormat.KEY_BIT_RATE, 2_000_000)
+            setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
             setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+            // Drops already ask for a fresh keyframe, so a long interval costs nothing in recovery
+            // and spares the link a big frame every second.
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL_S)
             setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
             setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
+            if (tuned) {
+                // Hints only: a car screen wants each frame now, not the best frame a moment later.
+                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+                setInteger(MediaFormat.KEY_PRIORITY, 0)
+                setInteger(MediaFormat.KEY_LATENCY, 1)
+            }
         }
 
-        val encoder = MediaCodec.createEncoderByType(MIME)
-        encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        var encoder = MediaCodec.createEncoderByType(MIME)
+        try {
+            encoder.configure(format(tuned = true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        } catch (e: Exception) {
+            // Some encoders refuse a hint they don't know. The plain format is what always worked.
+            log.w("encoder refused the tuned format (${e.message}) - using the plain one")
+            encoder.release()
+            encoder = MediaCodec.createEncoderByType(MIME)
+            encoder.configure(format(tuned = false), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        }
         if (mode == Mode.SURFACE) inputSurface = encoder.createInputSurface()
         encoder.start()
         codec = encoder
         running = true
 
-        log.i("encoder started: ${width}x$height @ ${frameRate}fps, H.264 Baseline, mode=$mode")
+        log.i("encoder started: ${width}x$height @ ${frameRate}fps, ${bitRate / 1000} kbps, H.264 Baseline, mode=$mode")
 
         worker = Thread {
             runCatching { pump(encoder) }
@@ -123,7 +140,10 @@ class VideoSource(
                 frameIndex++
             }
 
-            var outIndex = encoder.dequeueOutputBuffer(info, TIMEOUT_US)
+            // A surface-fed encoder has nothing to do between frames, so block until one is ready
+            // instead of sleeping a fixed time: less delay on screen, fewer wakeups for the CPU.
+            val wait = if (mode == Mode.SURFACE) SURFACE_TIMEOUT_US else TIMEOUT_US
+            var outIndex = encoder.dequeueOutputBuffer(info, wait)
             while (outIndex >= 0) {
                 val buffer = encoder.getOutputBuffer(outIndex)
                 if (buffer != null && info.size > 0) {
@@ -144,7 +164,7 @@ class VideoSource(
                 outIndex = encoder.dequeueOutputBuffer(info, 0)
             }
 
-            Thread.sleep(maxOf(1L, frameIntervalUs / 2000))
+            if (mode != Mode.SURFACE) Thread.sleep(maxOf(1L, frameIntervalUs / 2000))
         }
     }
 
@@ -188,6 +208,13 @@ class VideoSource(
     private companion object {
         const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
         const val TIMEOUT_US = 10_000L
+        const val SURFACE_TIMEOUT_US = 100_000L
+
+        /** Enough for sharp text and map lines; 800x480 at 30fps comes out at 4 Mbps. */
+        const val BITS_PER_PIXEL = 0.3
+        const val MIN_BIT_RATE = 4_000_000
+        const val MAX_BIT_RATE = 12_000_000
+        const val I_FRAME_INTERVAL_S = 5
 
         /** (Y, Cb, Cr) - white, yellow, cyan, green, magenta, red, blue. */
         val BAR_COLOURS = listOf(

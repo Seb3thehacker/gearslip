@@ -59,6 +59,10 @@ object CarServices {
         app.seb3thehacker.gearslip.notify.CarMotion.start(appContext)
         app.seb3thehacker.gearslip.call.CarCalls.start(appContext)
         CarAssistant.init(appContext)
+        CarKeys.init(appContext)
+        VoiceReply.init(appContext)
+        // Loaded now, while nothing's waiting on it, so the first reply isn't slower than the rest.
+        app.seb3thehacker.gearslip.speech.SpeechEngine.warm(appContext)
     }
 
     // --- map -----------------------------------------------------------------------------

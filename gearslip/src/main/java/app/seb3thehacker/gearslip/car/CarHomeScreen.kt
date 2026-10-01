@@ -82,6 +82,15 @@ fun CarHome() {
 
     val navigator = LocalCarNavigator.current
     val panel = navigator.sidePanel
+
+    // Coming back to the map from another screen: make sure the nav app is drawing into a live
+    // surface. The first composition is skipped, since the surface is only just being lent.
+    val onHome = navigator.current == CarScreen.Home
+    val seenHome = remember { booleanArrayOf(false) }
+    LaunchedEffect(onHome) {
+        if (onHome && seenHome[0]) CarServices.nav.refreshSurface()
+        if (onHome) seenHome[0] = true
+    }
     val splitScreen = phase == CarMedia.Phase.READY && now.isActive && panel != SidePanel.NONE
 
     // No outer padding on any side, split screen or not - only the gap between the two panes

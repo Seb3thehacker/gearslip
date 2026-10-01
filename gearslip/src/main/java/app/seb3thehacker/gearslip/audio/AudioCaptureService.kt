@@ -129,7 +129,7 @@ class AudioCaptureService : Service() {
             AudioRecord.Builder()
                 .setAudioPlaybackCaptureConfig(config)
                 .setAudioFormat(format)
-                .setBufferSizeInBytes(maxOf(minimum, CHUNK_BYTES * 4))
+                .setBufferSizeInBytes(maxOf(minimum, CHUNK_BYTES * BUFFER_CHUNKS))
                 .build()
         } catch (t: Throwable) {
             GearslipLog.e("audio: could not set up playback capture", t)
@@ -233,6 +233,8 @@ class AudioCaptureService : Service() {
 
         /** About 21 ms of 48 kHz stereo: small enough for lip-sync, big enough not to flood the link. */
         private const val CHUNK_BYTES = 4096
+        /** About half a second: room to wait out a slow ack from the car without losing sound. */
+        private const val BUFFER_CHUNKS = 24
         private const val LEVEL_LOG_MS = 3_000L
         private const val SILENCE_MS = 5_000L
 

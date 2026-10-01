@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -15,6 +17,8 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
 
       - name: Write signing key and properties
         run: |
@@ -32,7 +36,9 @@ jobs:
       - name: Locate APK
         id: apk
         run: |
-          apk=$(find gearslip/build/outputs/apk/release -name "*.apk" | head -n1)
+          # The build moves its APKs to <root>/build/Gearslip-<variant>.apk (see renameApk).
+          apk=build/Gearslip-release.apk
+          test -f "$apk" || { echo "no APK at $apk"; ls -R build | head -50; exit 1; }
           echo "path=$apk" >> "$GITHUB_OUTPUT"
 
       - name: Create release

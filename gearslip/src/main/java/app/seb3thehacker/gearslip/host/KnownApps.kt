@@ -21,6 +21,26 @@ object KnownApps {
     fun works(packageName: String): Boolean = packageName in working
 
     /**
+     * Apps whose media player works through Gearslip's own player even though their car screen
+     * doesn't. Only the player tile gets the check, not the "· Browse" one.
+     */
+    private val workingPlayer = setOf(
+        "com.spotify.music", // Spotify: play, browse, seek through Gearslip's player
+    )
+
+    fun playerWorks(packageName: String): Boolean = packageName in workingPlayer
+
+    /**
+     * Apps whose car screen refuses Gearslip but whose player works. Only the "· Browse" tile
+     * gets the red X. Car library 1.9 and later accepts only Google's host on a phone.
+     */
+    private val brokenScreen = setOf(
+        "com.spotify.music", // Spotify 9.1.86 and later: car library 1.9 rejects Gearslip
+    )
+
+    fun screenBroken(packageName: String): Boolean = packageName in brokenScreen
+
+    /**
      * Registers a car template service but never gives Gearslip a usable screen - left off the
      * launcher entirely rather than shown as a tile that goes nowhere.
      */
@@ -43,7 +63,6 @@ object KnownApps {
     /** Shown on the launcher with a yellow mark: starts and can be used, but not cleanly enough to call working. */
     private val partial = setOf(
         "app.vela", // Vela Maps: connects and draws, but rough enough not to call it working yet
-        "com.spotify.music", // Spotify: Now Playing tile works, browse tile rejects Gearslip as a host
     )
 
     fun isPartial(packageName: String): Boolean = packageName in partial

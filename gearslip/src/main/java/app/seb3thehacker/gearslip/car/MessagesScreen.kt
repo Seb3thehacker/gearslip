@@ -94,7 +94,8 @@ fun MessagesScreen(packageName: String) {
                 items(threads, key = { it.key }) { n ->
                     ConversationCard(
                         n,
-                        onReply = { navigator.notifications(replyTo = n.key) },
+                        onRead = { VoiceReply.read(n) },
+                        onReply = { VoiceReply.reply(n) },
                         onMarkRead = { CarNotifications.markThreadRead(context, n) },
                     )
                 }
@@ -104,12 +105,13 @@ fun MessagesScreen(packageName: String) {
 }
 
 @Composable
-private fun ConversationCard(n: CarNotification, onReply: () -> Unit, onMarkRead: () -> Unit) {
+private fun ConversationCard(n: CarNotification, onRead: () -> Unit, onReply: () -> Unit, onMarkRead: () -> Unit) {
     var expanded by rememberSaveable(n.key) { mutableStateOf(false) }
     // An app that posts plain notifications instead of a conversation still gets one line.
     val lines = n.lines.ifEmpty { listOf(ChatLine(n.title.ifBlank { n.appLabel }, n.text.ifBlank { n.title }, n.postedAt)) }
     val shown = if (expanded) lines else lines.takeLast(COLLAPSED_LINES)
     val dim = n.read || n.replied
+    var quick by rememberSaveable(n.key) { mutableStateOf(false) }
 
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -150,11 +152,26 @@ private fun ConversationCard(n: CarNotification, onReply: () -> Unit, onMarkRead
                     )
                 }
                 shown.forEach { MessageLine(it, showSender = n.isGroup) }
+                if (quick) QuickReplies(n, Modifier.padding(top = 6.dp))
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                when {
-                    n.replied -> Icon(Icons.Filled.Check, contentDescription = "Replied", tint = MaterialTheme.colorScheme.primary)
-                    n.reply != null -> GsButton(onClick = onReply, tone = GsTone.Tonal) { Text("Reply") }
+                if (n.replied) {
+                    Icon(Icons.Filled.Check, contentDescription = "Replied", tint = MaterialTheme.colorScheme.primary)
+                }
+                GsButton(onClick = onRead, tone = GsTone.Neutral) {
+                    ReadGlyph(Modifier.size(20.dp))
+                    Text("Read", Modifier.padding(start = 8.dp))
+                }
+                if (n.reply != null) {
+                    GsButton(onClick = onReply, tone = GsTone.Tonal) {
+                        ReplyGlyph(Modifier.size(20.dp))
+                        Text("Reply", Modifier.padding(start = 8.dp))
+                    }
+                }
+                if (n.reply != null) {
+                    GsButton(onClick = { quick = !quick }, tone = GsTone.Neutral) {
+                        Text(if (quick) "Hide quick replies" else "Quick reply")
+                    }
                 }
                 if (n.markRead != null) {
                     GsButton(onClick = onMarkRead, tone = GsTone.Neutral) { Text("Mark read") }

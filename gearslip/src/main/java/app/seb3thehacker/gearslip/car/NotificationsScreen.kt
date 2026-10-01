@@ -161,7 +161,10 @@ private fun NotificationRow(n: CarNotification, onReply: (CarNotification) -> Un
             }
             when {
                 n.replied -> Icon(Icons.Filled.Check, contentDescription = "Replied", tint = MaterialTheme.colorScheme.primary)
-                n.reply != null -> GsButton(onClick = { onReply(n) }, tone = GsTone.Tonal) { Text("Reply") }
+                n.reply != null -> GsButton(onClick = { VoiceReply.reply(n) }, tone = GsTone.Tonal) {
+                    ReplyGlyph(Modifier.size(20.dp))
+                    Text("Reply", Modifier.padding(start = 8.dp))
+                }
             }
         }
     }
@@ -227,53 +230,3 @@ private fun ReplyPane(n: CarNotification, onDone: () -> Unit) {
         )
     }
 }
-
-/**
- * The popup shown over whatever the car is displaying. It times itself out, and tapping it opens
- * the history - or straight into a reply, when the app allows one.
- */
-@Composable
-fun NotificationPopup(modifier: Modifier = Modifier) {
-    val popup by CarNotifications.popup.collectAsState()
-    val navigator = LocalCarNavigator.current
-    val n = popup ?: return
-
-    LaunchedEffect(n.id) {
-        delay(POPUP_MS)
-        CarNotifications.dismissPopup(n.id)
-    }
-
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shadowElevation = 8.dp,
-        modifier = modifier
-            .padding(top = 8.dp)
-            .fillMaxWidth(0.7f)
-            .clickable { navigator.dashboard() },
-    ) {
-        Row(
-            Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            NotificationIcon(n)
-            Column(Modifier.weight(1f)) {
-                Text(n.appLabel, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                if (n.title.isNotBlank()) {
-                    Text(n.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                if (n.text.isNotBlank()) {
-                    Text(n.text, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            if (n.reply != null) {
-                GsButton(onClick = { navigator.notifications(replyTo = n.key) }, tone = GsTone.Tonal) { Text("Reply") }
-            }
-            GsIconButton(Icons.Filled.Close, "Dismiss", { CarNotifications.dismissPopup(n.id) })
-        }
-    }
-}
-
-private const val POPUP_MS = 8_000L
