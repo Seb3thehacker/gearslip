@@ -30,6 +30,7 @@ object CarSettings {
     private const val KEY_LAST_NAV = "car_last_nav"
     private const val KEY_LAST_MEDIA = "car_last_media"
     private const val KEY_AUTOPLAY = "car_autoplay"
+    private const val KEY_PLAYER_TITLE = "car_player_title"
     private const val KEY_THEME = "car_app_theme"
     private const val KEY_UI_THEME = "car_ui_theme"
     private const val KEY_PINNED = "car_pinned_apps"
@@ -57,6 +58,7 @@ object CarSettings {
     private val lastNavFlow = MutableStateFlow<String?>(null)
     private val lastMediaFlow = MutableStateFlow<String?>(null)
     private val autoplayFlow = MutableStateFlow(false)
+    private val playerTitleFlow = MutableStateFlow(false)
     private val themeFlow = MutableStateFlow(AppTheme.PHONE)
     val appTheme: StateFlow<AppTheme> = themeFlow
     private val uiThemeFlow = MutableStateFlow(GsThemes.default.id)
@@ -125,6 +127,12 @@ object CarSettings {
     /** Whether the media app starts playing by itself when the car connects. */
     val autoplay: StateFlow<Boolean> = autoplayFlow
 
+    /**
+     * The nav bar's player keeps the song title up, with play/pause and the dock button, instead of
+     * settling to the skip buttons once a new song has announced itself.
+     */
+    val playerTitle: StateFlow<Boolean> = playerTitleFlow
+
     val scale: StateFlow<Float> = scaleFlow
     val openOnConnect: StateFlow<String> = openFlow
     val nightMode: StateFlow<NightMode> = nightFlow
@@ -182,6 +190,7 @@ object CarSettings {
         }.getOrDefault(AppTheme.PHONE)
         uiThemeFlow.value = AppSettings.getString(app, KEY_UI_THEME, GsThemes.default.id)
         autoplayFlow.value = AppSettings.getString(app, KEY_AUTOPLAY, "false") == "true"
+        playerTitleFlow.value = AppSettings.getString(app, KEY_PLAYER_TITLE, "false") == "true"
         pipeAudioFlow.value = AppSettings.getString(app, KEY_PIPE_AUDIO, "true") == "true"
         nightFlow.value = runCatching {
             NightMode.valueOf(AppSettings.getString(app, KEY_NIGHT, NightMode.AUTO.name))
@@ -227,6 +236,11 @@ object CarSettings {
     fun setUiTheme(id: String) {
         uiThemeFlow.value = id
         AppSettings.putString(app, KEY_UI_THEME, id)
+    }
+
+    fun setPlayerTitle(on: Boolean) {
+        playerTitleFlow.value = on
+        AppSettings.putString(app, KEY_PLAYER_TITLE, on.toString())
     }
 
     fun setAutoplay(on: Boolean) {

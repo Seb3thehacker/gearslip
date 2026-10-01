@@ -12,6 +12,7 @@
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -165,11 +166,14 @@
             android:exported="false"
             android:foregroundServiceType="location" />
 
-        <!-- Holds the capture session that carries a media app's audio to the car. -->
+        <!--
+          Holds the capture session that carries a media app's audio to the car. It also claims
+          the microphone, so voice replies can hear the driver with the phone locked.
+        -->
         <service
             android:name=".audio.AudioCaptureService"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:foregroundServiceType="mediaProjection|microphone" />
 
         <!--
           Touch on the car screen is replayed onto the phone through this service.

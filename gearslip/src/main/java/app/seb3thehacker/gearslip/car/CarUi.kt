@@ -668,8 +668,6 @@ internal fun rememberNow(): State<Long> = produceState(System.currentTimeMillis(
     }
 }
 
-private const val NOW_PLAYING_MAX_CHARS = 30
-
 /** How long the pill shows a new song's title before settling to just the controls. */
 private const val TITLE_SHOWN_MS = 3_000L
 
@@ -732,13 +730,10 @@ private fun NavTurnPill(turn: NextTurn, onClick: () -> Unit) {
     }
 }
 
-/** "Title - Artist" on one line, cut to [NOW_PLAYING_MAX_CHARS] with "..." when it runs long. */
-private fun nowPlayingLabel(title: String, artist: String): String {
-    val full = listOf(title.trim(), artist.trim()).filter { it.isNotEmpty() }.joinToString(" - ")
+/** "Title - Artist" on one line. The text itself cuts it off, and only where the pill runs out of room. */
+private fun nowPlayingLabel(title: String, artist: String): String =
+    listOf(title.trim(), artist.trim()).filter { it.isNotEmpty() }.joinToString(" - ")
         .ifEmpty { "Nothing playing" }
-    return if (full.length <= NOW_PLAYING_MAX_CHARS) full
-    else full.take(NOW_PLAYING_MAX_CHARS - 3).trimEnd() + "..."
-}
 
 /**
  * The player in the nav bar, on every screen. Art and title open the full media screen;
@@ -767,20 +762,22 @@ private fun NavNowPlaying(navigator: CarNavigator, selected: Boolean, modifier: 
     }
 
     // A new song announces itself: title, play/pause and dock for a few seconds, then the title
-    // goes and the pill settles to just the controls.
-    var showTitle by remember { mutableStateOf(true) }
+    // goes and the pill settles to just the controls - unless the driver keeps the title up.
+    val keepTitle by CarSettings.playerTitle.collectAsState()
+    var announcing by remember { mutableStateOf(true) }
     LaunchedEffect(now.title, now.artist) {
-        showTitle = true
+        announcing = true
         delay(TITLE_SHOWN_MS)
-        showTitle = false
+        announcing = false
     }
+    val showTitle = keepTitle || announcing
 
     val scheme = MaterialTheme.colorScheme
     val onPill = if (selected) scheme.onPrimaryContainer else scheme.onSecondaryContainer
     Surface(
         modifier = modifier
             .animateContentSize()
-            .widthIn(max = 400.dp)
+            // With the title up, all the room the bar has, so as much of it shows as can.
             .then(if (showTitle) Modifier.fillMaxWidth() else Modifier)
             .height(44.dp),
         shape = RoundedCornerShape(14.dp),

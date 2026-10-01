@@ -25,7 +25,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
@@ -55,12 +54,12 @@ import kotlinx.coroutines.delay
 /** How long a new message stays up on its own. */
 private const val POPUP_MS = 5_000L
 
-/** When the plain popup goes away, for its bar; set by [PopupTimer]. */
-private val popupUntil = mutableLongStateOf(0L)
+/** When [this] popup goes away on its own. */
+private fun CarNotification.until() = shownAt + POPUP_MS
 
 /**
- * Times the popup out. A voice reply in progress holds it, and each new message in the same chat
- * starts the clock again.
+ * Times the popup out. Each new message in the same chat starts the clock again. A voice reply
+ * covers the card while it runs; if the popup's time ran out meanwhile, it goes when the reply ends.
  */
 @Composable
 internal fun PopupTimer() {
@@ -68,10 +67,9 @@ internal fun PopupTimer() {
     val voice by VoiceReply.state.collectAsState()
     val n = popup ?: return
     val busy = voice.phase != VoiceReply.Phase.IDLE
-    LaunchedEffect(n.id, busy) {
+    LaunchedEffect(n.id, n.shownAt, busy) {
         if (busy) return@LaunchedEffect
-        popupUntil.longValue = SystemClock.uptimeMillis() + POPUP_MS
-        delay(POPUP_MS)
+        delay((n.until() - SystemClock.uptimeMillis()).coerceAtLeast(0L))
         CarNotifications.dismissPopup(n.id)
     }
 }
@@ -97,11 +95,11 @@ fun NotificationPopup(showNew: Boolean, modifier: Modifier = Modifier) {
     val voice by VoiceReply.state.collectAsState()
     val target = voice.target
     if (voice.phase != VoiceReply.Phase.IDLE && target != null) {
-        PopupCard(voice.until, voice.span, modifier) { VoiceReplyBody(voice, target) }
+        PopupCard(voice.until, voice.span, modifier, held = voice.held) { VoiceReplyBody(voice, target) }
         return
     }
     val n = popup?.takeIf { showNew } ?: return
-    PopupCard(popupUntil.longValue, POPUP_MS, modifier) {
+    PopupCard(n.until(), POPUP_MS, modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             NotificationIcon(n, size = 44.dp)
             Column(Modifier.weight(1f)) {
@@ -127,10 +125,11 @@ fun NotificationPopup(showNew: Boolean, modifier: Modifier = Modifier) {
 
 /**
  * The card's frame. When [until] is set, a bar along the bottom empties over [span] ms, so the
- * driver sees at a glance how long is left before the card acts.
+ * driver sees at a glance how long is left before the card acts. A [held] countdown shows its bar
+ * standing still.
  */
 @Composable
-private fun PopupCard(until: Long, span: Long, modifier: Modifier, content: @Composable () -> Unit) {
+private fun PopupCard(until: Long, span: Long, modifier: Modifier, held: Float = 0f, content: @Composable () -> Unit) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -143,6 +142,8 @@ private fun PopupCard(until: Long, span: Long, modifier: Modifier, content: @Com
             if (until > 0L && span > 0L) {
                 val left by rememberTimeLeft(until, span)
                 GsProgressBar(left, Modifier.fillMaxWidth(), height = 14.dp)
+            } else if (held > 0f) {
+                GsProgressBar(held, Modifier.fillMaxWidth(), height = 14.dp)
             }
         }
     }
@@ -151,6 +152,8 @@ private fun PopupCard(until: Long, span: Long, modifier: Modifier, content: @Com
 /** The share of [span] still to go before [until], updated every frame so the bar moves smoothly. */
 @Composable
 private fun rememberTimeLeft(until: Long, span: Long) = produceState(fractionLeft(until, span), until, span) {
+    // The state outlives a change of deadline, so start from the new one rather than the old value.
+    value = fractionLeft(until, span)
     while (value > 0f) {
         withFrameMillis { value = fractionLeft(until, span) }
     }

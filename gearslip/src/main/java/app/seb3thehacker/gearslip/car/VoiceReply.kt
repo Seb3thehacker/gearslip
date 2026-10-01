@@ -59,6 +59,8 @@ object VoiceReply {
          */
         val until: Long = 0L,
         val span: Long = 0L,
+        /** While a countdown is held, how much of its bar was left, so the bar stays put. */
+        val held: Float = 0f,
     )
 
     const val SEND_DELAY_MS = 5_000L
@@ -168,7 +170,7 @@ object VoiceReply {
     }
 
     private fun confirm(id: Int, text: String) {
-        _state.value = _state.value.copy(phase = Phase.CONFIRMING, heard = text, until = 0L, span = 0L)
+        _state.value = _state.value.copy(phase = Phase.CONFIRMING, heard = text, until = 0L, span = 0L, held = 0f)
         // The countdown starts once the driver has heard the whole reply, not while it's read out.
         CarAssistant.say("Sending: $text") {
             if (id != run) return@say
@@ -178,9 +180,15 @@ object VoiceReply {
         }
     }
 
+    /**
+     * Sends in [ms]. After a hold the bar carries on from where it stopped instead of jumping back
+     * to full: the span is stretched so the bar still runs out exactly at [ms].
+     */
     private fun startCountdown(id: Int, ms: Long) {
         val sendAt = SystemClock.uptimeMillis() + ms
-        _state.value = _state.value.copy(until = sendAt, span = ms)
+        val held = _state.value.held
+        val span = if (held > 0f) (ms / held).toLong() else ms
+        _state.value = _state.value.copy(until = sendAt, span = span, held = 0f)
         main.removeCallbacksAndMessages(SEND_TOKEN)
         main.postAtTime({ if (id == run) send() }, SEND_TOKEN, sendAt)
     }
@@ -196,7 +204,13 @@ object VoiceReply {
             onSpeaking = {
                 if (id != run) return@dictate
                 main.removeCallbacksAndMessages(SEND_TOKEN)
-                _state.value = _state.value.copy(until = 0L, span = 0L)
+                val s = _state.value
+                val left = if (s.until > 0L && s.span > 0L) {
+                    ((s.until - SystemClock.uptimeMillis()).toFloat() / s.span).coerceIn(0.05f, 1f)
+                } else {
+                    s.held
+                }
+                _state.value = s.copy(until = 0L, span = 0L, held = left)
             },
             onResult = { text ->
                 if (id != run) return@dictate
@@ -207,7 +221,7 @@ object VoiceReply {
                     }
                     Command.CHANGE -> {
                         main.removeCallbacksAndMessages(SEND_TOKEN)
-                        _state.value = _state.value.copy(phase = Phase.ASKING, heard = "", until = 0L, span = 0L)
+                        _state.value = _state.value.copy(phase = Phase.ASKING, heard = "", until = 0L, span = 0L, held = 0f)
                         ask(id)
                     }
                     Command.SEND -> send()
@@ -273,7 +287,7 @@ object VoiceReply {
             GearslipLog.i("voice reply: sent to ${n.appLabel}")
             CarAssistant.say("Message sent.") {}
             CarNotifications.dismissPopup(n.id)
-            _state.value = s.copy(phase = Phase.SENT, until = SystemClock.uptimeMillis() + SENT_MS, span = SENT_MS)
+            _state.value = s.copy(phase = Phase.SENT, until = SystemClock.uptimeMillis() + SENT_MS, span = SENT_MS, held = 0f)
             main.postDelayed({ if (id == run) finish() }, SENT_MS)
         } else {
             _state.value = s.copy(phase = Phase.ERROR, error = "${n.appLabel} withdrew the reply. Open the app on the phone to answer.")
@@ -318,7 +332,7 @@ object VoiceReply {
     }
 
     private fun lingerThenIdle(id: Int) {
-        _state.value = _state.value.copy(until = SystemClock.uptimeMillis() + LINGER_MS, span = LINGER_MS)
+        _state.value = _state.value.copy(until = SystemClock.uptimeMillis() + LINGER_MS, span = LINGER_MS, held = 0f)
         main.postDelayed({ if (id == run) finish() }, LINGER_MS)
     }
 

@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -83,7 +84,13 @@ class AudioCaptureService : Service() {
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        // Android silences the microphone for apps in the background unless a running service
+        // claims it. Claiming it here lets voice replies hear the driver with the phone locked.
+        // Without the permission, claiming it would crash, so it's left off.
+        val micGranted = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+            (if (micGranted) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0)
+        startForeground(NOTIFICATION_ID, notification(), type)
         ScreenShareGuard.lift(this)
         projection = try {
             getSystemService(MediaProjectionManager::class.java).getMediaProjection(resultCode, data)

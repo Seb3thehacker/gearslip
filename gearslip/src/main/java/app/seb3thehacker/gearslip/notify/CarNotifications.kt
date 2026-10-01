@@ -44,6 +44,8 @@ data class CarNotification(
     val read: Boolean = false,
     /** How many posts this popup stands for: new messages in one chat update it, not queue. */
     val burst: Int = 1,
+    /** Uptime when it popped up, which sets when the popup goes. 0 until it's shown. */
+    val shownAt: Long = 0L,
 )
 
 /**
@@ -91,10 +93,13 @@ object CarNotifications {
         val echo = notification.key == lastReplyKey &&
             System.currentTimeMillis() - lastReplyAt < ECHO_WINDOW_MS
         if (quiet || echo) return
-        // History still keeps it; only the popup is held back while driving.
-        if (CarMotion.moving) return
+        val now = android.os.SystemClock.uptimeMillis()
         _popup.update { shown ->
-            if (shown?.key == notification.key) notification.copy(burst = shown.burst + 1) else notification
+            if (shown?.key == notification.key) {
+                notification.copy(burst = shown.burst + 1, shownAt = now)
+            } else {
+                notification.copy(shownAt = now)
+            }
         }
     }
 
