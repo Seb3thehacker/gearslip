@@ -6,25 +6,27 @@
 /build
 local.properties
 
-# Reference checkouts only - never referenced by the build; safe to delete entirely.
-/cloned-repos
-
-# The head unit certificate. Never committed or shared beyond who Seb sends it to directly.
-/cert
-
-# The release signing key and its passwords. Losing these breaks app updates; leaking them
-# lets anyone sign an APK as Gearslip.
+# Keys
 *.jks
 *.keystore
 keystore.properties
 
-/docs/cert-sweep.sh
-archive/
-CLAUDE.md
-*.pdf
-extraction/
-.claude/
-todo
-logs/
 # Native build cache.
 .cxx/
+
+# Testing
+/docs/cert-sweep.sh
+extraction/
+/cloned-repos
+
+# Internal
+*.pdf
+todo
+logs/
+
+# For AI code
+.claude/
+CLAUDE.md
+
+# Other
+archive/
