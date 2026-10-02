@@ -51,6 +51,7 @@ object KnownApps {
     private val hidden = setOf(
         "com.google.android.dialer",               // Google Phone
         "com.google.android.googlequicksearchbox",  // Google Assistant driving surfaces
+        "com.google.android.apps.maps",             // Google Maps: shows as a messenger, and its car UI is Android Auto's own
     )
 
     fun isHidden(packageName: String): Boolean = packageName in hidden

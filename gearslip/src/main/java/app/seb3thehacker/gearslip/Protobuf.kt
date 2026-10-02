@@ -35,7 +35,10 @@ object Protobuf {
         varint((field shl 3).toLong()) + varint(value)
 
     /** Reads the single int32 in AuthResponse. Negative values are 10-byte varints. */
-    fun readInt32Field(data: ByteArray, field: Int): Int? {
+    fun readInt32Field(data: ByteArray, field: Int): Int? = readInt64Field(data, field)?.toInt()
+
+    /** Reads a varint field whole, for int64s such as a ping's timestamp. */
+    fun readInt64Field(data: ByteArray, field: Int): Long? {
         var pos = 0
         while (pos < data.size) {
             val (tag, afterTag) = readVarint(data, pos) ?: return null
@@ -45,7 +48,7 @@ object Protobuf {
                 0 -> {
                     val (value, afterValue) = readVarint(data, pos) ?: return null
                     pos = afterValue
-                    if (number == field) return value.toInt()
+                    if (number == field) return value
                 }
                 2 -> {
                     val (len, afterLen) = readVarint(data, pos) ?: return null

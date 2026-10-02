@@ -800,9 +800,11 @@ class GearslipRunner(
     }
 
     private fun onPingRequest(body: ByteArray) {
-        val timestamp = Protobuf.readInt32Field(body, 1)?.toLong() ?: System.nanoTime()
+        // The timestamp is an int64 and has to come back unchanged. Read as an int32 it was cut
+        // short, and a car that checks the echo (an Audi MIB2+) gave up at its second ping.
+        val timestamp = Protobuf.readInt64Field(body, 1) ?: System.nanoTime()
         send(MSG_PING_RESPONSE, Protobuf.varintField(1, timestamp), encrypted = tls.handshakeComplete)
-        log.i("<- PingRequest / -> PingResponse (keeping the session alive)")
+        log.i("<- PingRequest(timestamp=$timestamp) / -> PingResponse (keeping the session alive)")
     }
 
     private fun send(
