@@ -283,7 +283,7 @@ private fun SearchContent(template: SearchTemplate, modifier: Modifier) {
  * [onClear] adds a clear button once something is typed; [searchIcon] is off for sign-in fields.
  */
 @Composable
-private fun SearchField(
+internal fun SearchField(
     query: String,
     hint: String,
     modifier: Modifier = Modifier,

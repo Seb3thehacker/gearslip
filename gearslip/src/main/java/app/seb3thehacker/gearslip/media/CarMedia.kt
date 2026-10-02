@@ -75,6 +75,9 @@ class NowPlaying(
         words.any { a.id.contains(it, ignoreCase = true) || a.name.contains(it, ignoreCase = true) }
     }
 
+    /** The app says it takes searches. Spotify says so and then ignores Gearslip's, so [CarMedia.search] checks. */
+    val canSearch get() = (actions and PlaybackState.ACTION_PLAY_FROM_SEARCH) != 0L
+
     /** Thumbs-down buttons say "like" too ("Dislike"), so those are skipped. */
     val likeAction
         get() = custom.firstOrNull { a ->
@@ -163,6 +166,13 @@ class CarMedia(private val context: Context) {
 
     private val _queue = MutableStateFlow<List<QueueTrack>>(emptyList())
     val queue: StateFlow<List<QueueTrack>> = _queue.asStateFlow()
+
+    /** A typed search on its way to the app; [Search.ignored] once it has played nothing for it. */
+    class Search(val query: String, val ignored: Boolean = false)
+
+    private val _search = MutableStateFlow<Search?>(null)
+    val search: StateFlow<Search?> = _search.asStateFlow()
+    private var searchBefore: NowPlaying? = null
 
     /** Shuffle and repeat, as [PlaybackStateCompat]'s modes; [PlaybackStateCompat.SHUFFLE_MODE_INVALID] when unknown. */
     class Modes(
@@ -326,6 +336,7 @@ class CarMedia(private val context: Context) {
                 metadata?.getRating(MediaMetadata.METADATA_KEY_USER_RATING)?.takeIf { it.isRated }?.hasHeart() ?: false
             } else null,
         )
+        checkSearch()
     }
 
     // --- browsing ------------------------------------------------------------------------
@@ -401,6 +412,50 @@ class CarMedia(private val context: Context) {
     fun custom(action: CustomAction) = controller?.transportControls?.sendCustomAction(action.id, action.extras)
     fun playQueueItem(track: QueueTrack) = controller?.transportControls?.skipToQueueItem(track.queueId)
 
+    /**
+     * Asks the app to find and play [query]: a song, artist, album or playlist. This goes through
+     * the app's playback session, so it works for apps that keep their library from Gearslip, and
+     * the app stays in the background. Apps may still ignore it (Spotify only takes Google's), so
+     * if nothing new plays within [SEARCH_WAIT_MS] the search is marked ignored.
+     */
+    fun search(query: String) {
+        val c = controller ?: return
+        main.removeCallbacks(searchTimeout)
+        searchBefore = _now.value
+        _search.value = Search(query)
+        GearslipLog.i("media: -> playFromSearch(\"$query\")")
+        c.transportControls.playFromSearch(query, Bundle())
+        main.postDelayed(searchTimeout, SEARCH_WAIT_MS)
+    }
+
+    fun dismissSearch() {
+        main.removeCallbacks(searchTimeout)
+        main.removeCallbacks(clearSearch)
+        _search.value = null
+    }
+
+    private val searchTimeout = Runnable {
+        val pending = _search.value ?: return@Runnable
+        if (pending.ignored) return@Runnable
+        GearslipLog.w("media: nothing new played for \"${pending.query}\"")
+        _search.value = Search(pending.query, ignored = true)
+        main.postDelayed(clearSearch, SEARCH_NOTICE_MS)
+    }
+
+    private val clearSearch = Runnable { _search.value = null }
+
+    /** Something new is playing: another track, or the same one started from a pause. */
+    private fun checkSearch() {
+        val pending = _search.value ?: return
+        val before = searchBefore ?: return
+        val now = _now.value
+        if (pending.ignored || !now.playing) return
+        if (now.title != before.title || !before.playing) {
+            GearslipLog.i("media: search played \"${now.title}\"")
+            dismissSearch()
+        }
+    }
+
     /** The app's own like button if it has one, since that's the one its library listens to; else a heart rating. */
     fun toggleLike() {
         val now = _now.value
@@ -444,6 +499,7 @@ class CarMedia(private val context: Context) {
         _phase.value = Phase.IDLE
         _now.value = NowPlaying()
         _queue.value = emptyList()
+        dismissSearch()
     }
 
     /**
@@ -479,5 +535,8 @@ class CarMedia(private val context: Context) {
         const val LAUNCH_WAIT_MS = 1_500L
         /** Retries once the app has been opened: a cold start can take a few seconds to publish. */
         const val SESSION_RETRIES_LAUNCHED = 16
+        /** How long an app gets to start playing a search before Gearslip says it didn't. */
+        const val SEARCH_WAIT_MS = 6_000L
+        const val SEARCH_NOTICE_MS = 6_000L
     }
 }

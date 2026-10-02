@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -84,7 +85,9 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
     val browse by media.browse.collectAsStateWithLifecycle()
     val rejection by media.rejection.collectAsStateWithLifecycle()
     val capture by CarAudio.capture.collectAsStateWithLifecycle()
+    val search by media.search.collectAsStateWithLifecycle()
     var tab by remember { mutableStateOf(Tab.NOW_PLAYING) }
+    var searching by remember { mutableStateOf(false) }
 
     // The connection outlives this screen: the home screen's player is the same one.
     LaunchedEffect(app) { CarServices.openMedia(app) }
@@ -128,6 +131,19 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
             return@Surface
         }
 
+        if (searching) {
+            SearchPanel(
+                appLabel = app.label,
+                onSearch = { query ->
+                    media.search(query)
+                    searching = false
+                    tab = Tab.NOW_PLAYING
+                },
+                onClose = { searching = false },
+            )
+            return@Surface
+        }
+
         // Two columns, split the same way on every tab so nothing jumps when switching: the app
         // and the art (or, beside a list, the compact player) on the left; the tabs across the
         // top of the right column, over whatever the tab shows.
@@ -151,7 +167,18 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
                     MediaTab("Browse", tab == Tab.BROWSE, Modifier.weight(1f)) { tab = Tab.BROWSE }
                     MediaTab("Up next", tab == Tab.QUEUE, Modifier.weight(1f)) { tab = Tab.QUEUE }
                     MediaTab("Lyrics", tab == Tab.LYRICS, Modifier.weight(1f)) { tab = Tab.LYRICS }
+                    if (now.canSearch) {
+                        GsIconButton(
+                            Icons.Filled.Search,
+                            "Search ${app.label}",
+                            { searching = true },
+                            colors = GsColors(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurface),
+                            size = 44.dp,
+                            shape = MaterialTheme.shapes.large,
+                        )
+                    }
                 }
+                search?.let { SearchStatus(it, app.label, media::dismissSearch) }
                 Spacer(Modifier.height(12.dp))
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (tab) {
@@ -191,6 +218,61 @@ private fun AppIdentity(app: MediaApp, onExit: () -> Unit, modifier: Modifier = 
 }
 
 private enum class Tab { NOW_PLAYING, BROWSE, QUEUE, LYRICS }
+
+// --- search ----------------------------------------------------------------------------------
+
+/**
+ * Types a search for the app to play. The app picks the result and plays it, the way it would
+ * for "play X" from a voice assistant, so there's no list to choose from.
+ */
+@Composable
+private fun SearchPanel(appLabel: String, onSearch: (String) -> Unit, onClose: () -> Unit) {
+    var query by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            GsIconButton(Icons.Filled.ArrowBack, "Back", onClose, size = ICON_BUTTON_SIZE)
+            SearchField(query, "Search $appLabel", Modifier.weight(1f), onClear = { query = "" })
+        }
+        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+            Text(
+                "Type a song, artist, album, or playlist. $appLabel picks what to play.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+        CarKeyboard(
+            text = query,
+            onTextChange = { query = it },
+            onSubmit = { if (query.isNotBlank()) onSearch(query.trim()) },
+            onDismiss = onClose,
+        )
+    }
+}
+
+/** A line under the tabs while the app works on a search, and if it plays nothing for it. */
+@Composable
+private fun SearchStatus(search: CarMedia.Search, appLabel: String, onDismiss: () -> Unit) {
+    Surface(
+        onClick = onDismiss,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+    ) {
+        Text(
+            if (search.ignored) "$appLabel didn't play anything for \"${search.query}\"."
+            else "Searching $appLabel for \"${search.query}\"…",
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        )
+    }
+}
 
 /** A bigger, easier-to-hit tab than a plain [TextButton] - this row is the only navigation on the screen. */
 @Composable
