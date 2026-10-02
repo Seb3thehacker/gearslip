@@ -2,7 +2,7 @@
 
 # Gearslip
 
-Bring any app to your car screen.
+An Android Auto alternative built for everyone.
 
 ## What Gearslip is
 
