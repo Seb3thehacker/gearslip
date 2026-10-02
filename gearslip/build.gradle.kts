@@ -32,8 +32,8 @@ android {
         applicationId = "app.seb3thehacker.gearslip"
         minSdk = 31
         targetSdk = 37
-        versionCode = 6
-        versionName = "0.1.0-alpha"
+        versionCode = 7
+        versionName = "0.1.10-alpha"
         manifestPlaceholders["appLabel"] = "Gearslip"
     }
 

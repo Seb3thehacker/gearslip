@@ -11,6 +11,23 @@ object Changelog {
 
     val releases = listOf(
         Release(
+            7, "0.1.10-alpha",
+            listOf(
+                "The launcher groups your apps: Phone, Maps, Music, Messaging, Web, Screen sharing, and Settings.",
+                "To move an app, press and hold it on the launcher, then tap Move left or Move right.",
+                "MapQuest and Flitsmeister work in Gearslip and show the green check.",
+                "Spotify has one tile. If Spotify isn't open on the phone, tap Open Spotify to start it.",
+                "Flick a map and it glides on, as it does in Android Auto.",
+                "The map picks up where it left off when you come back from another screen.",
+                "Search boxes in map apps are larger and easier to read.",
+                "Map apps keep the right icons on their buttons after they update.",
+                "When Gearslip asks \"Do you want to reply?\", a bar shows how long it will listen. The bar stops while you speak.",
+                "Gearslip fits its picture to wide car screens and keeps it clear of the edges the car crops.",
+                "Gearslip answers the car's connection checks correctly. Some cars, Audis among them, hung up after a second without this.",
+                "Google Maps no longer shows up as a messaging app.",
+            ),
+        ),
+        Release(
             6, "0.1.0-alpha",
             listOf(
                 "Messaging apps such as Signal and Molly open to your recent chats.",
