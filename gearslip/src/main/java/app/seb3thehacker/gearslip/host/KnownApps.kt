@@ -16,6 +16,7 @@ object KnownApps {
         "in.krosbits.musicolet", // Musicolet: browse, play, seek, lyrics
         "com.kododake.aabrowser", // Aardvark: browser template, starts, draws, takes touches
         "com.vivi.vivimusic", // Vivi Music: browse, play, seek, works well
+        "com.metrolist.music", // Metrolist: browse, play, works
         "nl.flitsmeister", // Flitsmeister: map, routing, alerts - works well
     )
 

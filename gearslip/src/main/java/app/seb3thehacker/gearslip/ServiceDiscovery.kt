@@ -196,9 +196,9 @@ object ServiceDiscovery {
     }
 
     /**
-     * The head unit's sensor feed, from SensorSourceService (Service field 5):
-     *   SensorSourceService { repeated SensorType sensors = 1; }
-     *   SensorType { required int32 type = 1; }
+     * The head unit's sensor feed, from SensorSourceService (Service field 2; field 5 is the car's mic):
+     *   SensorSourceService { repeated Sensor sensors = 1; }
+     *   Sensor { required SensorType sensor_type = 1; }
      *
      * Field numbers for what actually rides inside each SensorEvent once subscribed are not
      * pinned down here - unlike video/audio/input, there's no independent source to check them
@@ -210,7 +210,7 @@ object ServiceDiscovery {
         for (channel in Wire.allBytes(Wire.fields(response), 1)) {
             val service = Wire.fields(channel)
             val id = Wire.varint(service, 1)?.toInt() ?: continue
-            val sensorSource = Wire.bytes(service, 5) ?: continue
+            val sensorSource = Wire.bytes(service, 2) ?: continue
             val types = Wire.allBytes(Wire.fields(sensorSource), 1).mapNotNull {
                 Wire.varint(Wire.fields(it), 1)?.toInt()
             }

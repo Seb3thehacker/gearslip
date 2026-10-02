@@ -87,8 +87,8 @@ object SensorType {
         18 to "Tire pressure",
         19 to "Accelerometer",
         20 to "Gyroscope",
-        21 to "Gravity",
-        22 to "Wheel tick / distance",
+        21 to "GPS satellites",
+        22 to "Toll card",
     )
 
     fun name(id: Int): String = NAMES[id]?.let { "$it (#$id)" } ?: "Sensor #$id"

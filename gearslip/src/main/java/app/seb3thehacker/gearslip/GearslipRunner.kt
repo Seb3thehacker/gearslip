@@ -460,10 +460,12 @@ class GearslipRunner(
                     log.w("head unit refused the sensor channel (status=$status)")
                     return
                 }
-                // SensorRequest { required int32 sensor_type = 1; }
+                // SensorRequest { required SensorType type = 1; required int64 min_update_period = 2; }
+                // A period of 0 asks for every update the car sends.
                 sensorTypes.forEach { type ->
                     send(
-                        MSG_SENSOR_START_REQUEST, Protobuf.varintField(1, type.toLong()),
+                        MSG_SENSOR_START_REQUEST,
+                        Protobuf.varintField(1, type.toLong()) + Protobuf.varintField(2, 0L),
                         encrypted = true, channel = sensorChannelId,
                     )
                     log.i("-> SensorStartRequest(sensor_type=$type)")
@@ -477,6 +479,11 @@ class GearslipRunner(
                 CarSensors.onEvent(body)
                 log.i("<- SensorEvent:\n" + Protobuf.describe(body))
             }
+
+            // SensorError { required SensorType sensor_type = 1; required SensorErrorType sensor_error_type = 2; }
+            MSG_SENSOR_ERROR -> log.w(
+                "<- SensorError: type=${Protobuf.readInt32Field(body, 1)} error=${Protobuf.readInt32Field(body, 2)}",
+            )
 
             else -> log.i("<- unhandled sensor message id=$messageId (${body.size} bytes)")
         }
@@ -988,9 +995,11 @@ class GearslipRunner(
 
         // aap_protobuf/service/sensor/... - same "first specific message on this channel type
         // starts at 0x8000" numbering as media/input above.
-        const val MSG_SENSOR_START_REQUEST = 32768
-        const val MSG_SENSOR_START_RESPONSE = 32769
-        const val MSG_SENSOR_EVENT_INDICATION = 32770
+        // aasdk SensorMessageId: REQUEST, RESPONSE, BATCH, ERROR.
+        const val MSG_SENSOR_START_REQUEST = 32769
+        const val MSG_SENSOR_START_RESPONSE = 32770
+        const val MSG_SENSOR_EVENT_INDICATION = 32771
+        const val MSG_SENSOR_ERROR = 32772
 
         const val STREAM_MEDIA = 3
         const val CODEC_H264_BP = 3
