@@ -163,6 +163,50 @@ internal fun rememberAllEntries(): List<Entry> {
     return remember(installed) { BuiltInApps.entries + installed.orEmpty() }
 }
 
+/** The launcher's groups, in the order they're laid out. */
+private enum class AppGroup { PHONE, MAPS, MUSIC, MESSAGING, WEB, SCREEN_SHARING, OTHER, SETTINGS }
+
+private fun groupOf(entry: Entry, mediaPackages: Set<String>): AppGroup {
+    entry.builtIn?.let {
+        return when (it) {
+            BuiltInApps.Phone -> AppGroup.PHONE
+            BuiltInApps.Web -> AppGroup.WEB
+            BuiltInApps.ScreenSharing -> AppGroup.SCREEN_SHARING
+            else -> AppGroup.SETTINGS
+        }
+    }
+    if (entry.media != null) return AppGroup.MUSIC
+    if (entry.messaging != null) return AppGroup.MESSAGING
+    val app = entry.template ?: return AppGroup.OTHER
+    // A media app's "· Browse" tile sits next to its player.
+    if (app.component.packageName in mediaPackages) return AppGroup.MUSIC
+    return when (app.kind) {
+        "calling" -> AppGroup.PHONE
+        "navigation", "poi", "parking", "charging" -> AppGroup.MAPS
+        "messaging" -> AppGroup.MESSAGING
+        "settings" -> AppGroup.SETTINGS
+        else -> AppGroup.OTHER
+    }
+}
+
+/**
+ * The launcher's tiles in the order they're drawn: grouped by [AppGroup], alphabetical inside a
+ * group with Settings last of all, then with the driver's own moves from [custom] laid over it.
+ * Moved apps only trade places among themselves, so an app installed later still lands in its group.
+ */
+internal fun launcherOrder(all: List<Entry>, showVehicleData: Boolean, custom: List<String>): List<Entry> {
+    val shown = all.filter { it.builtIn !== BuiltInApps.VehicleData || showVehicleData }
+    val mediaPackages = shown.mapNotNull { it.media?.component?.packageName }.toSet()
+    val grouped = shown.sortedWith(
+        compareBy<Entry>({ groupOf(it, mediaPackages) }, { it.builtIn === BuiltInApps.Settings }, { it.label.lowercase() }),
+    )
+    if (custom.isEmpty()) return grouped
+    val rank = custom.withIndex().associate { (i, id) -> id to i }
+    fun Entry.rank() = componentId?.let { rank[it] }
+    val moved = grouped.filter { it.rank() != null }.sortedBy { it.rank() }.iterator()
+    return grouped.map { if (it.rank() != null) moved.next() else it }
+}
+
 /** An app by the id a pin or the running list knows it by, built-in or installed. */
 internal fun findEntry(id: String): Entry? =
     BuiltInApps.entries.find { it.componentId == id } ?: LauncherCache.entries?.find { it.componentId == id }
@@ -190,7 +234,7 @@ internal fun launchEntry(entry: Entry, navigator: CarNavigator, frame: CarEnviro
     entry.messaging?.let { navigator.messages(it.packageName, it.label) }
 }
 
-/** The app launcher: Web and Screen sharing, every car app the phone has, then Settings, as an icon grid. */
+/** The app launcher: every app as an icon grid, grouped Phone, Maps, Music, Messaging, Web, Screen sharing, Settings. */
 @Composable
 fun CarLauncher() {
     val navigator = LocalCarNavigator.current
@@ -216,11 +260,8 @@ fun CarLauncher() {
         ) { openApp(entry, id?.let { running[it] }, navigator, frame) }
     }
 
-    // Gearslip's own apps first, then everything installed, then Settings last where it's expected.
-    val builtIns = all.filter { it.builtIn != null && (it.builtIn !== BuiltInApps.VehicleData || showVehicleData) }
-    val tiles = builtIns.filter { it.builtIn !== BuiltInApps.Settings }.map(::tileOf) +
-        all.filter { it.builtIn == null }.map(::tileOf) +
-        builtIns.filter { it.builtIn === BuiltInApps.Settings }.map(::tileOf)
+    val appOrder by CarSettings.appOrder.collectAsState()
+    val tiles = launcherOrder(all, showVehicleData, appOrder).map(::tileOf)
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 108.dp),

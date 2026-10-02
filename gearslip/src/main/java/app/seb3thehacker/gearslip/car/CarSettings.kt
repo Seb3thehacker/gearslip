@@ -34,6 +34,7 @@ object CarSettings {
     private const val KEY_THEME = "car_app_theme"
     private const val KEY_UI_THEME = "car_ui_theme"
     private const val KEY_PINNED = "car_pinned_apps"
+    private const val KEY_APP_ORDER = "car_app_order"
     private const val KEY_EXPERIMENTAL_FEATURES = "car_experimental_features"
     private const val KEY_VOICE_ASSISTANT = "car_voice_assistant"
     private const val KEY_CAR_SENSORS = "car_sensors_enabled"
@@ -66,6 +67,7 @@ object CarSettings {
     /** Id of the [GsTheme] controls are drawn in; an unknown id falls back to the default. */
     val uiTheme: StateFlow<String> = uiThemeFlow
     private val pinnedFlow = MutableStateFlow<Set<String>>(emptySet())
+    private val appOrderFlow = MutableStateFlow<List<String>>(emptyList())
     private val experimentalFeaturesFlow = MutableStateFlow(false)
     private val voiceAssistantFlow = MutableStateFlow(false)
     private val carSensorsFlow = MutableStateFlow(false)
@@ -119,6 +121,9 @@ object CarSettings {
 
     /** Flattened component names of the apps long-pressed onto the nav bar as shortcuts. */
     val pinnedApps: StateFlow<Set<String>> = pinnedFlow
+
+    /** The launcher's order once the driver has moved a tile; empty keeps the grouped default. */
+    val appOrder: StateFlow<List<String>> = appOrderFlow
 
     /** Flattened component names of the map and media apps used last, brought back on connect. */
     val lastNav: StateFlow<String?> = lastNavFlow
@@ -197,6 +202,8 @@ object CarSettings {
         }.getOrDefault(NightMode.AUTO)
         pinnedFlow.value = AppSettings.getString(app, KEY_PINNED, "")
             .split(",").filter { it.isNotEmpty() }.toSet()
+        appOrderFlow.value = AppSettings.getString(app, KEY_APP_ORDER, "")
+            .split(",").filter { it.isNotEmpty() }
         experimentalFeaturesFlow.value = AppSettings.getString(app, KEY_EXPERIMENTAL_FEATURES, "false") == "true"
         voiceAssistantFlow.value = AppSettings.getString(app, KEY_VOICE_ASSISTANT, "false") == "true"
         carSensorsFlow.value = AppSettings.getString(app, KEY_CAR_SENSORS, "false") == "true"
@@ -285,5 +292,10 @@ object CarSettings {
         }
         pinnedFlow.value = next
         AppSettings.putString(app, KEY_PINNED, next.joinToString(","))
+    }
+
+    fun setAppOrder(ids: List<String>) {
+        appOrderFlow.value = ids
+        AppSettings.putString(app, KEY_APP_ORDER, ids.joinToString(","))
     }
 }

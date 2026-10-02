@@ -148,8 +148,8 @@ internal fun closeApp(slot: RunningSlot, navigator: CarNavigator) {
 }
 
 /**
- * What a long press on an app offers - pin it to or unpin it from the nav bar, and close it if
- * it's open - as a card in the middle of the screen with car-sized buttons, over a scrim that
+ * What a long press on an app offers - pin it to or unpin it from the nav bar, move it along the
+ * launcher, and close it if it's open - as a card in the middle of the screen with car-sized buttons, over a scrim that
  * dismisses it. Drawn in the car UI's own layout rather than a system popup window, which the
  * car's virtual display has no reason to host well.
  */
@@ -218,6 +218,7 @@ internal fun AppMenu(navigator: CarNavigator, running: Map<String, RunningSlot>)
                         style = MaterialTheme.typography.titleMedium,
                     )
                 }
+                if (navigator.current == CarScreen.Apps) MoveButtons(id)
                 if (slot != null) {
                     GsButton(
                         onClick = {
@@ -235,5 +236,43 @@ internal fun AppMenu(navigator: CarNavigator, running: Map<String, RunningSlot>)
                 ) { Text("Cancel", style = MaterialTheme.typography.titleMedium) }
             }
         }
+    }
+}
+
+/**
+ * Moves the app one place left or right on the launcher. The menu stays open so a tile can be
+ * walked several places, and the grid behind the scrim shows where it went.
+ */
+@Composable
+private fun MoveButtons(id: String) {
+    val custom by CarSettings.appOrder.collectAsState()
+    val order = launcherOrder(rememberAllEntries(), rememberVehicleDataShown(), custom).mapNotNull { it.componentId }
+    val index = order.indexOf(id)
+    if (index < 0) return
+    fun move(by: Int) {
+        val next = order.toMutableList()
+        java.util.Collections.swap(next, index, index + by)
+        CarSettings.setAppOrder(next)
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        GsButton(
+            onClick = { move(-1) },
+            tone = GsTone.Tonal,
+            enabled = index > 0,
+            modifier = Modifier.weight(1f).height(56.dp),
+        ) { Text("Move left", style = MaterialTheme.typography.titleMedium) }
+        GsButton(
+            onClick = { move(1) },
+            tone = GsTone.Tonal,
+            enabled = index < order.lastIndex,
+            modifier = Modifier.weight(1f).height(56.dp),
+        ) { Text("Move right", style = MaterialTheme.typography.titleMedium) }
+    }
+    if (custom.isNotEmpty()) {
+        GsButton(
+            onClick = { CarSettings.setAppOrder(emptyList()) },
+            tone = GsTone.Neutral,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+        ) { Text("Reset app order", style = MaterialTheme.typography.titleMedium) }
     }
 }
