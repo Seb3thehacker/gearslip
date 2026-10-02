@@ -38,7 +38,7 @@ import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.BuildConfig
 import app.seb3thehacker.gearslip.CertProvider
 
-private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, CERT_SETUP, SETUP_GUIDE, HELP, WHATS_NEW }
+private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, CERT_SETUP, SETUP_GUIDE, HELP, WHATS_NEW, RECOMMENDED_APPS }
 
 /** Three screens and a back stack of depth one: no navigation library needed. */
 @Composable
@@ -57,7 +57,9 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
             },
         )
     }
-    BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
+    BackHandler(enabled = screen != Screen.HOME) {
+        screen = if (screen == Screen.RECOMMENDED_APPS) Screen.SETTINGS else Screen.HOME
+    }
 
     // Home stays upright; every other screen turns with the phone.
     LaunchedEffect(screen) {
@@ -98,7 +100,11 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
                 )
                 Screen.WHATS_NEW -> WhatsNewScreen(onBack = { screen = Screen.HOME })
                 Screen.LOGS -> LogsScreen(onBack = { screen = Screen.HOME })
-                Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HOME })
+                Screen.SETTINGS -> SettingsScreen(
+                    onBack = { screen = Screen.HOME },
+                    onOpenRecommendedApps = { screen = Screen.RECOMMENDED_APPS },
+                )
+                Screen.RECOMMENDED_APPS -> RecommendedAppsScreen(onBack = { screen = Screen.SETTINGS })
                 Screen.CAR_PREVIEW -> CarPreviewScreen(onBack = { screen = Screen.HOME })
                 Screen.HELP -> HelpScreen(
                     onBack = { screen = Screen.HOME },

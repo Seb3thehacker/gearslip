@@ -54,7 +54,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onOpenRecommendedApps: () -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -78,6 +78,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         ) {
             Spacer(Modifier.height(0.dp))
             GearslipEnabledSection()
+            AppsSection(onOpenRecommendedApps)
             CertificateSection()
             Spacer(Modifier.height(16.dp))
         }
@@ -115,6 +116,16 @@ private fun GearslipEnabledSection() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@Composable
+private fun AppsSection(onOpenRecommendedApps: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionTitle("Apps")
+        OutlinedButton(onClick = onOpenRecommendedApps, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+            Text("Recommended apps")
         }
     }
 }

@@ -61,6 +61,8 @@ private class GuidePage(
     val command: String? = null,
     val actionLabel: String? = null,
     val onAction: (() -> Unit)? = null,
+    /** Drawn under [explanation], inside the card. */
+    val content: (@Composable () -> Unit)? = null,
 )
 
 /** True once every permission in [permissions] is already granted - nothing left for this page to do. */
@@ -261,6 +263,15 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
             ),
         )
     }
+
+    // --- Last: apps worth installing, once everything above is set up ---------------
+    add(
+        GuidePage(
+            title = "Recommended apps",
+            explanation = RECOMMENDED_INTRO,
+            content = { RecommendedAppsList() },
+        ),
+    )
 }
 
 /**
@@ -336,6 +347,7 @@ fun SetupGuideScreen(onRequestCallScreening: () -> Unit, onDone: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     page.command?.let { CopyableCommand(it) }
+                    page.content?.invoke()
                 }
             }
 
@@ -372,7 +384,9 @@ fun SetupGuideScreen(onRequestCallScreening: () -> Unit, onDone: () -> Unit) {
                 }
                 else -> {
                     PrimaryRow(showBack = index > 0, onBack = { index -= 1 }) {
-                        Button(onClick = { index += 1 }, modifier = it) { Text("Next") }
+                        Button(onClick = { index += 1 }, modifier = it) {
+                            Text(if (index == pages.lastIndex) "Done" else "Next")
+                        }
                     }
                 }
             }

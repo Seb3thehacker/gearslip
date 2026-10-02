@@ -16,7 +16,6 @@ object KnownApps {
         "in.krosbits.musicolet", // Musicolet: browse, play, seek, lyrics
         "com.kododake.aabrowser", // Aardvark: browser template, starts, draws, takes touches
         "com.vivi.vivimusic", // Vivi Music: browse, play, seek, works well
-        "com.mapquest.android.ace", // MapQuest: map, search, routing - works well
         "nl.flitsmeister", // Flitsmeister: map, routing, alerts - works well
     )
 
@@ -68,6 +67,7 @@ object KnownApps {
     /** Shown on the launcher with a yellow mark: starts and can be used, but not cleanly enough to call working. */
     private val partial = setOf(
         "app.vela", // Vela Maps: connects and draws, but rough enough not to call it working yet
+        "com.mapquest.android.ace", // MapQuest: map, search and routing run, but not cleanly
     )
 
     fun isPartial(packageName: String): Boolean = packageName in partial
