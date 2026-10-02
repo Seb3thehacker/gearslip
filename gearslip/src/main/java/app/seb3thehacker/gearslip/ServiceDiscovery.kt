@@ -20,8 +20,8 @@ object ServiceDiscovery {
 
     /**
      * [widthMargin]/[heightMargin] are the head unit's own numbers (VideoConfiguration fields 3
-     * and 4): pixels of the frame it does not treat as usable UI. Logged, and available to a
-     * vehicle profile, but not applied automatically - what they mean varies by unit.
+     * and 4): pixels of the frame it crops away, split evenly between the two edges, to fit the
+     * frame to a screen of a different shape. A matched vehicle profile's insets override them.
      */
     class VideoConfig(
         val resolution: Int,
@@ -37,6 +37,15 @@ object ServiceDiscovery {
         fun pixelSize(): Pair<Int, Int>? = PIXEL_SIZES[resolution]
 
         fun pixelCount(): Int = pixelSize()?.let { it.first * it.second } ?: Int.MAX_VALUE
+
+        /** What's left on the car's screen once the margins are cropped off. */
+        fun visibleSize(): Pair<Int, Int>? = pixelSize()?.let { (w, h) -> (w - widthMargin) to (h - heightMargin) }
+
+        /** The margins as the strips of the frame the car UI keeps clear. */
+        fun marginInsets(): Insets = Insets(
+            top = heightMargin / 2, bottom = heightMargin - heightMargin / 2,
+            left = widthMargin / 2, right = widthMargin - widthMargin / 2,
+        )
 
         override fun toString() =
             "$resolutionName @ $frameRateName, density=$density, margin=${widthMargin}x$heightMargin"

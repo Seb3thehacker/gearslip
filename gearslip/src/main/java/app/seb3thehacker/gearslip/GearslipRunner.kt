@@ -631,15 +631,11 @@ class GearslipRunner(
                         "configuration_indices=$indices",
                 )
                 if (maxUnackedFromConfig != null) maxUnacked = maxOf(1, maxUnackedFromConfig)
-                // Prefer the smallest offered resolution for the first attempt: fewer pixels,
-                // fewer ways for a first encode to go wrong.
                 val offered = indices.map { it.toInt() }
                 val preferred = vehicleProfile?.resolution?.let { want ->
                     offered.firstOrNull { videoConfigs.getOrNull(it)?.resolutionName == want }
                 }
-                selectedConfigIndex = preferred ?: offered.minByOrNull { idx ->
-                    videoConfigs.getOrNull(idx)?.pixelCount() ?: Int.MAX_VALUE
-                } ?: offered.firstOrNull()
+                selectedConfigIndex = preferred ?: fitToScreen(offered) ?: offered.firstOrNull()
                 log.i("selected config index $selectedConfigIndex from offered $offered")
                 SessionReport.video(
                     "${videoConfigs.getOrNull(selectedConfigIndex ?: -1)?.resolutionName ?: "?"} " +
@@ -685,6 +681,20 @@ class GearslipRunner(
     //   -> Data (8-byte big-endian timestamp, then the H.264 access unit)
     //   <- Ack { session_id, ack }   - at most max_unacked frames may be outstanding
 
+    /**
+     * The offered config that best fills the car's screen: the smallest whose visible width
+     * reaches most of the touchscreen's, else the largest there is. Always taking the smallest
+     * put 800x480 on a 1540x720 Audi screen and stretched it. With no touchscreen size to go
+     * by, the smallest is still the safe choice.
+     */
+    private fun fitToScreen(offered: List<Int>): Int? {
+        val known = offered.filter { videoConfigs.getOrNull(it)?.pixelSize() != null }
+        fun pixels(idx: Int) = videoConfigs[idx].pixelCount()
+        if (touchWidth <= 0) return known.minByOrNull(::pixels)
+        val wide = known.filter { (videoConfigs[it].visibleSize()?.first ?: 0) >= touchWidth * 8 / 10 }
+        return wide.minByOrNull(::pixels) ?: known.maxByOrNull(::pixels)
+    }
+
     private fun startVideoSource() {
         lastKeyframeSentAt = System.currentTimeMillis() // frame #1 is always a keyframe
         val index = selectedConfigIndex ?: 0
@@ -702,6 +712,13 @@ class GearslipRunner(
             Protobuf.varintField(2, index.toLong())
         send(MSG_MEDIA_START, start, encrypted = true, channel = videoChannelId)
         log.i("-> Start(session_id=$SESSION_ID, configuration_index=$index -> $config)")
+        // The car crops its margins off the frame, so keep the UI out of them unless a vehicle
+        // profile has its own tuned insets.
+        if (vehicleProfile?.insets.let { it == null || it == Insets.NONE }) {
+            val insets = config.marginInsets()
+            CarEnvironment.setInsets(insets)
+            if (insets != Insets.NONE) log.i("keeping the UI clear of the car's margins: $insets")
+        }
 
         val useProjection = projection != null
         videoSource = VideoSource(
