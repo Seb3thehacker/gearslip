@@ -52,7 +52,7 @@ private val iconCache = android.util.LruCache<String, ImageBitmap>(200)
  */
 fun CarIcon?.image(context: Context): ImageBitmap? {
     val icon = this?.icon ?: return null
-    val key = icon.describe()
+    val key = icon.cacheKey(context)
     iconCache.get(key)?.let { return it }
     val drawable: Drawable = runCatching { icon.loadDrawable(context) }
         .onFailure { GearslipLog.w("icon: loadDrawable threw for ${icon.describe()}: ${it.javaClass.simpleName}: ${it.message}") }
@@ -75,6 +75,18 @@ fun CarIcon?.image(context: Context): ImageBitmap? {
         .getOrNull() ?: return null
     iconCache.put(key, bitmap)
     return bitmap
+}
+
+/**
+ * [describe], plus when the app was last installed for a resource icon. Resource ids are only
+ * numbers inside one build of the app: an update that adds a drawable renumbers the ones after it,
+ * so a cache keyed on the bare id kept drawing the old build's picture on the wrong button (Vela's
+ * new Saved button came up as its search glyph).
+ */
+private fun androidx.core.graphics.drawable.IconCompat.cacheKey(context: Context): String {
+    if (type != androidx.core.graphics.drawable.IconCompat.TYPE_RESOURCE) return describe()
+    val installed = runCatching { context.packageManager.getPackageInfo(resPackage, 0).lastUpdateTime }.getOrDefault(0L)
+    return "${describe()}@$installed"
 }
 
 /** Enough of an [androidx.core.graphics.drawable.IconCompat] to tell log lines apart without dumping the whole object. */

@@ -5,6 +5,11 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import kotlin.math.hypot
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -125,6 +130,30 @@ private fun SurfaceHost(
                     if (pan != Offset.Zero) connection.surfaceScroll(-pan.x, -pan.y)
                     if (zoom != 1f) connection.surfaceScale(centroid.x, centroid.y, zoom)
                 }
+            }
+            .pointerInput(connection) {
+                // detectTransformGestures has no velocity, so a fling is measured here alongside
+                // it: one finger lifting while still moving lets the map glide on, as on a car.
+                // Velocity is the finger's own, which is GestureDetector's onFling convention.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val tracker = VelocityTracker()
+                    tracker.addPosition(down.uptimeMillis, down.position)
+                    var pinched = false
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Final)
+                        if (event.changes.size > 1) pinched = true
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        tracker.addPosition(change.uptimeMillis, change.position)
+                        if (!change.pressed) {
+                            val v = tracker.calculateVelocity()
+                            if (!pinched && hypot(v.x, v.y) >= FLING_MIN_PX_S) {
+                                connection.surfaceFling(v.x, v.y)
+                            }
+                            break
+                        }
+                    }
+                }
             },
         factory = { context ->
             SurfaceView(context).apply {
@@ -188,3 +217,6 @@ private fun ChromeBar(
 
 /** Height of [ChromeBar]; the template's own chrome starts below it. */
 private val CHROME_BAR = 44.dp
+
+/** Slower than this when the finger lifts and it was a drag that stopped, not a fling. */
+private const val FLING_MIN_PX_S = 400f

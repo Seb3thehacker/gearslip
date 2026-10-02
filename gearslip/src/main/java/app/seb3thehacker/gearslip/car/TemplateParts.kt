@@ -680,5 +680,5 @@ private fun androidx.compose.ui.graphics.ImageBitmap.isPlainWhite(): Boolean {
     return seen > 0
 }
 
-private val ICON_BUTTON_SIZE = 54.dp
+internal val ICON_BUTTON_SIZE = 54.dp
 private val ICON_BUTTON_GLYPH = 30.dp

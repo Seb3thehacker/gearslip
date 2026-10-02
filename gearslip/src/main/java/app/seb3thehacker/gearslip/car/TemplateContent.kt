@@ -2,6 +2,8 @@ package app.seb3thehacker.gearslip.car
 
 import app.seb3thehacker.gearslip.car.theme.*
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -246,7 +248,15 @@ private fun SearchContent(template: SearchTemplate, modifier: Modifier) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             template.headerAction?.let { ActionButton(it) }
-            SearchField(query, template.searchHint.orEmpty(), Modifier.weight(1f))
+            SearchField(
+                query,
+                template.searchHint.orEmpty(),
+                Modifier.weight(1f),
+                onClear = {
+                    query = ""
+                    delegate.textChanged("")
+                },
+            )
             ActionRow(template.actionStrip?.actions.orEmpty())
         }
 
@@ -266,22 +276,59 @@ private fun SearchContent(template: SearchTemplate, modifier: Modifier) {
     }
 }
 
+/**
+ * The field the on-screen keyboard types into. It is the same height and shape as the round
+ * buttons beside it, so the header reads as one row of controls rather than a thin strip squeezed
+ * between two big buttons, and it carries a magnifier so it reads as search at a glance.
+ * [onClear] adds a clear button once something is typed; [searchIcon] is off for sign-in fields.
+ */
 @Composable
-private fun SearchField(query: String, hint: String, modifier: Modifier = Modifier) {
+private fun SearchField(
+    query: String,
+    hint: String,
+    modifier: Modifier = Modifier,
+    searchIcon: Boolean = true,
+    onClear: (() -> Unit)? = null,
+) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        shape = RoundedCornerShape(10.dp),
-        modifier = modifier.fillMaxWidth(),
+        shape = androidx.compose.foundation.shape.CircleShape,
+        modifier = modifier.fillMaxWidth().height(ICON_BUTTON_SIZE),
     ) {
-        Text(
-            query.ifEmpty { hint.ifEmpty { "Search" } },
-            style = ChromeType.body,
-            color = if (query.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
-            else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-        )
+        Row(
+            Modifier.padding(start = if (searchIcon) 16.dp else 22.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (searchIcon) {
+                androidx.compose.material3.Icon(
+                    androidx.compose.material.icons.Icons.Filled.Search,
+                    contentDescription = null,
+                    tint = muted,
+                    modifier = Modifier.size(26.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+            }
+            Text(
+                query.ifEmpty { hint.ifEmpty { "Search" } },
+                style = MaterialTheme.typography.titleMedium,
+                color = if (query.isEmpty()) muted else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (onClear != null && query.isNotEmpty()) {
+                GsIconButton(
+                    androidx.compose.material.icons.Icons.Filled.Close,
+                    "Clear",
+                    onClear,
+                    colors = GsColors(androidx.compose.ui.graphics.Color.Transparent, muted),
+                    size = 42.dp,
+                    iconSize = 22.dp,
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                )
+            }
+        }
     }
 }
 
@@ -344,7 +391,7 @@ private fun InputSignIn(method: InputSignInMethod, modifier: Modifier) {
     val masked = method.inputType == InputSignInMethod.INPUT_TYPE_PASSWORD
 
     Column(modifier) {
-        SearchField(if (masked) "•".repeat(value.length) else value, method.hint.text())
+        SearchField(if (masked) "•".repeat(value.length) else value, method.hint.text(), searchIcon = false)
         val error = method.errorMessage.text()
         if (error.isNotEmpty()) {
             Text(
