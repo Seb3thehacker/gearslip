@@ -13,23 +13,36 @@ and Gearslip renders that template natively on the car screen. Nothing is mirror
 the phone. For apps without a car interface, Gearslip offers a separate screen-sharing
 mode.
 
+| | |
+|---|---|
+| ![The launcher, with apps grouped into phone, maps, music, and messaging](docs/screenshots/launcher.png) | ![Vela Maps giving turn-by-turn directions, with the music player beside the map](docs/screenshots/navigation.png) |
+| Apps sorted by kind. A check marks the ones that work. | Vela Maps navigating, with the player beside it. |
+| ![ViVi Music's song, art, and controls in Gearslip's player](docs/screenshots/music.png) | ![A new message card over Organic Maps](docs/screenshots/message.png) |
+| ViVi Music in Gearslip's player. | A new message, read aloud at a tap, over the map. |
+| ![The dashboard, with the weather, the next calendar event, and recent notifications](docs/screenshots/dashboard.png) | ![DuckDuckGo open in Gearslip's web browser](docs/screenshots/web.png) |
+| The weather, your next event, and what you missed. | Browse the web while parked. |
+
 ## Features
 
 - **Phone calls.** Dial from a keypad, or search your contacts, then confirm before the
   call goes out.
-- **Navigation.** Gearslip hosts real Car App Library map apps on the car screen; Organic
-  Maps and OsmAnd both work today.
+- **Navigation.** Gearslip hosts real Car App Library map apps on the car screen.
+  Organic Maps, OsmAnd, and Flitsmeister work today. Vela runs, with rough
+  edges.
 - **Music.** Browse, play, and queue tracks from a car-enabled media app, with a Now
-  Playing view, an Up Next queue, and lyrics.
+  Playing view, an Up Next queue, and lyrics. Type a search, and apps that accept one
+  play the best match.
 - **The web.** A browser template with its own on-screen keyboard, for anything that
   doesn't ship a car interface of its own.
 - **Weather and the day ahead.** A dashboard screen shows the week's calendar next to
   the current and coming weather.
 - **Messages.** New messages appear as a small card on the car screen. Gearslip reads
-  each one aloud, and you reply by voice or with a quick reply. Speech runs on the phone,
-  so it needs no Google account.
+  each one aloud, and you reply by voice or with a quick reply. Music pauses while
+  Gearslip speaks or listens. Speech runs on the phone, so it needs no Google account.
 - **Notifications.** Only messages, missed calls, alarms, and reminders interrupt you.
   The rest wait on the dashboard.
+- **Your apps, your order.** The launcher groups apps by kind: phone, maps, music,
+  messaging, and the rest. Press and hold an app to move it.
 - **Car controls.** Steering wheel buttons, control knobs, and D-pads all work.
 - **Themes.** Choose flat buttons or skeuomorphic ones that look like real keys.
 
@@ -48,7 +61,7 @@ mode.
 - **Some apps refuse Gearslip.** Spotify, Waze, and Google Messages use a version of
   Google's car library that accepts only Android Auto itself. Spotify still plays through
   Gearslip's own player.
-- **For now, Gearslip works with cars from before 2020.** Newer head units reject its
+- **Gearslip works best with cars from before 2020.** Some newer head units reject its
   certificate.
 - **Calls use the car's Bluetooth,** as they do in Android Auto. Pair the phone with the
   car to hear calls through its speakers.
