@@ -85,13 +85,16 @@ object SpeechEngine {
         worker.execute {
             if (id != run) return@execute
             if (!ensureLoaded(app)) return@execute post { onError(NOT_LOADED) }
-            if (cue) cue()
-            if (id != run) return@execute
+            VoiceFocus.acquire(app)
             val audio = try {
+                if (cue) cue()
+                if (id != run) return@execute
                 record(id) { post(onSpeaking) }
             } catch (t: Throwable) {
                 GearslipLog.e("speech: recording failed", t)
                 return@execute post { onError("The microphone isn't available right now.") }
+            } finally {
+                VoiceFocus.release()
             }
             if (id != run) return@execute
             if (audio == null) return@execute post { onError("Didn't catch that.") }

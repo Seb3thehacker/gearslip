@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import app.seb3thehacker.gearslip.call.CallUiState
 import app.seb3thehacker.gearslip.call.CarCalls
 import app.seb3thehacker.gearslip.speech.SpeechEngine
+import app.seb3thehacker.gearslip.speech.VoiceFocus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -119,15 +120,19 @@ object CarAssistant {
             _state.value = _state.value.copy(phase = Phase.IDLE)
             return
         }
+        appContext?.let(VoiceFocus::acquire)
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) {
+                VoiceFocus.release()
                 _state.value = _state.value.copy(phase = Phase.IDLE)
             }
             @Deprecated("Deprecated in Java, no replacement on this API level")
             override fun onError(utteranceId: String?) {
+                VoiceFocus.release()
                 _state.value = _state.value.copy(phase = Phase.IDLE)
             }
+            override fun onStop(utteranceId: String?, interrupted: Boolean) { VoiceFocus.release() }
         })
         engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "gearslip-assistant")
     }
@@ -138,17 +143,19 @@ object CarAssistant {
      */
     fun say(text: String, onDone: () -> Unit) {
         val engine = tts
-        if (engine == null || !ttsReady || text.isBlank()) {
+        val context = appContext
+        if (engine == null || context == null || !ttsReady || text.isBlank()) {
             mainHandler.post(onDone)
             return
         }
+        VoiceFocus.acquire(context)
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
-            override fun onDone(utteranceId: String?) { mainHandler.post(onDone) }
+            override fun onDone(utteranceId: String?) { VoiceFocus.release(); mainHandler.post(onDone) }
             @Deprecated("Deprecated in Java, no replacement on this API level")
-            override fun onError(utteranceId: String?) { mainHandler.post(onDone) }
+            override fun onError(utteranceId: String?) { VoiceFocus.release(); mainHandler.post(onDone) }
             // Stopped part way: whoever stopped it has already moved on.
-            override fun onStop(utteranceId: String?, interrupted: Boolean) {}
+            override fun onStop(utteranceId: String?, interrupted: Boolean) { VoiceFocus.release() }
         })
         engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "gearslip-say")
     }
