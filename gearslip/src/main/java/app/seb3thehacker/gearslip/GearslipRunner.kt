@@ -55,9 +55,12 @@ class GearslipRunner(
     @Volatile private var videoStarted = false
     private var videoSource: VideoSource? = null
     @Volatile private var inFlight = 0
+    /** Guards [inFlight]: the encoder thread waits on it for the head unit's acks. */
+    private val ackLock = Object()
+    /** Time the encoder spent waiting for acks since the last stats line. */
+    @Volatile private var ackWaitMs = 0L
     @Volatile private var maxUnacked = 4
     @Volatile private var framesSent = 0
-    @Volatile private var dropped = 0
     @Volatile private var inputChannelId: Int = -1
     @Volatile private var inputKeycodes: List<Int> = emptyList()
     @Volatile private var sensorChannelId: Int = -1
@@ -124,6 +127,7 @@ class GearslipRunner(
 
     fun stop() {
         running = false
+        synchronized(ackLock) { ackLock.notifyAll() } // free an encoder waiting on an ack
         videoSource?.stop()
         videoSource = null
         audioLink?.close()
@@ -700,9 +704,12 @@ class GearslipRunner(
             MSG_MEDIA_ACK -> {
                 val fields = Wire.fields(body)
                 val acked = Wire.varint(fields, 2)?.toInt() ?: 1
-                inFlight = maxOf(0, inFlight - maxOf(1, acked))
-                acksSeen++
-                lastAckAt = System.currentTimeMillis()
+                synchronized(ackLock) {
+                    inFlight = maxOf(0, inFlight - maxOf(1, acked))
+                    acksSeen++
+                    lastAckAt = System.currentTimeMillis()
+                    ackLock.notifyAll()
+                }
                 if (framesSent <= 3 || framesSent % 60 == 0) {
                     log.i("<- MediaAck(ack=$acked) inFlight=$inFlight after $framesSent frames")
                 }
@@ -784,39 +791,31 @@ class GearslipRunner(
         }
     }
 
+    /**
+     * Flow control: the head unit allows max_unacked frames in flight (LIVI allows one). When
+     * the window is full this waits for an ack instead of dropping the frame. A dropped frame
+     * breaks the decoder's chain, so it cost a keyframe to repair; keyframes are twenty times
+     * the size, so they caused more drops, and the stream sank into a storm of them (345 in a
+     * minute on LIVI, at 5-12 fps). Waiting here holds the encoder back instead, which simply
+     * makes it produce fewer frames, each one whole.
+     */
     private fun sendVideoFrame(data: ByteArray, presentationTimeUs: Long, keyFrame: Boolean) {
-        // Flow control: the head unit told us max_unacked in its Config reply.
-        if (inFlight >= maxUnacked) {
-            // A dropped or never-sent ack would otherwise wedge the stream forever, which
-            // looks identical to a frozen picture. Assume the window cleared and carry on.
-            val since = System.currentTimeMillis() - lastAckAt
-            if (since > ACK_STALL_MS) {
-                log.w("no ack for ${since}ms with $inFlight in flight - resetting the window")
-                inFlight = 0
-            } else {
-                dropped++
-                if (dropped % 30 == 1) {
-                    log.w("dropping frame - $inFlight in flight (max $maxUnacked)")
+        synchronized(ackLock) {
+            val waitStart = System.currentTimeMillis()
+            while (running && inFlight >= maxUnacked) {
+                // A lost ack would otherwise hold the stream forever, which looks like a frozen
+                // picture. After a long silence, assume the window cleared and carry on.
+                val since = System.currentTimeMillis() - lastAckAt
+                if (since > ACK_STALL_MS) {
+                    log.w("no ack for ${since}ms with $inFlight in flight - resetting the window")
+                    inFlight = 0
+                    break
                 }
-                // A dropped frame breaks the decoder's reference chain on the head unit -
-                // every frame after it is a P-frame assuming a picture that never arrived.
-                // Without a resync the picture free-runs on corrupted state indefinitely,
-                // which is the smeared/ghosted look.
-                //
-                // Ask on EVERY drop, not just the first in a streak: the resync keyframe we
-                // asked for is itself just another frame, and can be dropped by this exact
-                // same check. A one-shot request that gets swallowed by the burst that
-                // provoked it leaves the stream corrupted for good, with no further request
-                // ever made - confirmed on the road (docs/spike/phase-c-stuck-resync-2026-09-17.log,
-                // dropped=27 in one burst, video dead at 0fps for 100+s afterward). Repeated
-                // setParameters(REQUEST_SYNC_FRAME) calls before one lands are harmless - it
-                // just keeps the "next frame is a keyframe" flag set.
-                resyncRequested = true
-                resyncAttempts++
-                videoSource?.requestSyncFrame()
-                return
+                ackLock.wait(ACK_STALL_MS - since + 1)
             }
+            ackWaitMs += System.currentTimeMillis() - waitStart
         }
+        if (!running) return
         val timestamp = ByteArray(8)
         for (i in 0 until 8) {
             timestamp[i] = ((presentationTimeUs shr ((7 - i) * 8)) and 0xFF).toByte()
@@ -972,9 +971,13 @@ class GearslipRunner(
                     val sent = framesSent
                     val fps = (sent - lastFrames) / 5.0
                     lastFrames = sent
-                    SessionReport.stream("${"%.1f".format(fps)} fps, sent=$sent dropped=$dropped acked=$acksSeen")
+                    // Time the encoder spent held back waiting for acks: near 5000ms means the
+                    // head unit's acks, not the phone, set the frame rate.
+                    val waited = ackWaitMs
+                    ackWaitMs = 0
+                    SessionReport.stream("${"%.1f".format(fps)} fps, sent=$sent acked=$acksSeen")
                     log.i(
-                        "video: ${"%.1f".format(fps)} fps over 5s | sent=$sent dropped=$dropped " +
+                        "video: ${"%.1f".format(fps)} fps over 5s | sent=$sent waited=${waited}ms " +
                             "acked=$acksSeen inFlight=$inFlight split=$splitMessages",
                     )
 
