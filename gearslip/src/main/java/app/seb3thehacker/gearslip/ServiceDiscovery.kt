@@ -51,7 +51,8 @@ object ServiceDiscovery {
             "$resolutionName @ $frameRateName, density=$density, margin=${widthMargin}x$heightMargin"
     }
 
-    class VideoService(val serviceId: Int, val codecType: Int, val configs: List<VideoConfig>) {
+    /** [displayId] is MediaSinkService field 6: 0, the default, is the main screen. */
+    class VideoService(val serviceId: Int, val codecType: Int, val configs: List<VideoConfig>, val displayId: Int = 0) {
         val codecName: String get() = CODECS[codecType] ?: "unknown($codecType)"
     }
 
@@ -131,9 +132,23 @@ object ServiceDiscovery {
         val touchWidth: Int,
         val touchHeight: Int,
         val keycodesSupported: List<Int> = emptyList(),
+        /** InputSourceService field 5: which screen this input belongs to, 0 for the main one. */
+        val displayId: Int = 0,
     )
 
-    fun findInputService(response: ByteArray): InputService? {
+    /**
+     * The input for the screen Gearslip projects to ([displayId]). A head unit with two screens
+     * offers an input service for each: LIVI lists an empty one for its second screen first,
+     * and taking that one left every touch on the real touchscreen ignored.
+     */
+    fun findInputService(response: ByteArray, displayId: Int = 0): InputService? {
+        val inputs = inputServices(response)
+        return inputs.firstOrNull { it.displayId == displayId }
+            ?: inputs.firstOrNull { it.touchWidth > 0 && it.touchHeight > 0 }
+            ?: inputs.firstOrNull()
+    }
+
+    private fun inputServices(response: ByteArray): List<InputService> = buildList {
         for (channel in Wire.allBytes(Wire.fields(response), 1)) {
             val service = Wire.fields(channel)
             val id = Wire.varint(service, 1)?.toInt() ?: continue
@@ -147,9 +162,8 @@ object ServiceDiscovery {
             val keycodes = inputFields.filter { it.number == 1 }.flatMap { f ->
                 f.bytes?.let(::packedVarints) ?: listOf(f.varint.toInt())
             }
-            return InputService(id, width, height, keycodes)
+            add(InputService(id, width, height, keycodes, Wire.varint(inputFields, 5)?.toInt() ?: 0))
         }
-        return null
     }
 
     /** Decodes a `[packed=true]` repeated varint field's raw bytes into individual values. */
@@ -169,7 +183,16 @@ object ServiceDiscovery {
         }
     }
 
+    /**
+     * The main screen's video sink. A head unit with a second screen, such as LIVI with a
+     * cluster display, offers a sink for each; the one without a display id (0) is the main one.
+     */
     fun findVideoService(response: ByteArray): VideoService? {
+        val sinks = videoServices(response)
+        return sinks.firstOrNull { it.displayId == 0 } ?: sinks.firstOrNull()
+    }
+
+    private fun videoServices(response: ByteArray): List<VideoService> = buildList {
         for (channel in Wire.allBytes(Wire.fields(response), 1)) {
             val service = Wire.fields(channel)
             val id = Wire.varint(service, 1)?.toInt() ?: continue
@@ -190,9 +213,8 @@ object ServiceDiscovery {
                     heightMargin = Wire.varint(f, 4)?.toInt() ?: 0,
                 )
             }
-            return VideoService(id, codecType, configs)
+            add(VideoService(id, codecType, configs, Wire.varint(sinkFields, 6)?.toInt() ?: 0))
         }
-        return null
     }
 
     /**

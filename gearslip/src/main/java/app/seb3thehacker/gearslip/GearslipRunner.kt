@@ -383,7 +383,7 @@ class GearslipRunner(
         videoChannelId = video.serviceId
         videoConfigs = video.configs
 
-        log.i("video service: channel=${video.serviceId} codec=${video.codecName}")
+        log.i("video service: channel=${video.serviceId} codec=${video.codecName} display=${video.displayId}")
         video.configs.forEachIndexed { index, config ->
             log.i("  config[$index] = $config")
         }
@@ -395,7 +395,7 @@ class GearslipRunner(
         startAudioChannel(serviceDiscoveryResponse)
         startSensorChannel(serviceDiscoveryResponse)
 
-        val input = ServiceDiscovery.findInputService(serviceDiscoveryResponse)
+        val input = ServiceDiscovery.findInputService(serviceDiscoveryResponse, video.displayId)
         if (input == null) {
             log.w("no input service advertised - projection will be output-only")
         } else {
