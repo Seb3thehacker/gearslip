@@ -103,7 +103,7 @@ object VoiceReply {
             val until = SystemClock.uptimeMillis() + OFFER_MS
             _state.value = _state.value.copy(until = until, span = OFFER_MS)
             // The recognizer gives up on its own; this only covers one that doesn't.
-            main.postAtTime({ if (id == run && _state.value.until != 0L) cancel() }, until + OFFER_GRACE_MS)
+            main.postAtTime({ if (id == run && _state.value.until != 0L) { CarAssistant.stopListening(); close() } }, until + OFFER_GRACE_MS)
             CarAssistant.dictate(
                 onPartial = { text -> if (id == run) _state.value = _state.value.copy(heard = text) },
                 onSpeaking = {
@@ -118,11 +118,11 @@ object VoiceReply {
                         _state.value = _state.value.copy(phase = Phase.ASKING, heard = "", until = 0L, span = 0L, held = 0f)
                         CarAssistant.say("Go ahead.") { if (id == run) listen(id) }
                     } else {
-                        finish()
+                        close()
                     }
                 },
-                // No answer: the card has already offered Reply and the quick replies all along.
-                onError = { if (id == run) finish() },
+                // No answer counts as no: the message has been heard, so the card goes.
+                onError = { if (id == run) close() },
             )
         }
     }
@@ -229,7 +229,7 @@ object VoiceReply {
                 if (id != run) return@dictate
                 when (command(text)) {
                     Command.CANCEL -> {
-                        finish()
+                        close()
                         CarAssistant.say("Not sent.") {}
                     }
                     Command.CHANGE -> {
@@ -238,11 +238,21 @@ object VoiceReply {
                         ask(id)
                     }
                     Command.SEND -> send()
-                    // Talk that wasn't meant for us, a passenger or the radio: carry on counting.
-                    null -> startCountdown(id, RESUME_MS)
+                    // Talk that wasn't meant for us, a passenger or the radio: carry on counting,
+                    // and keep listening so a "cancel" after it still lands.
+                    null -> {
+                        startCountdown(id, RESUME_MS)
+                        listenForCommand(id)
+                    }
                 }
             },
-            onError = { if (id == run && _state.value.until == 0L) startCountdown(id, RESUME_MS) },
+            // Silence ends the recognizer before the countdown does: listen again until it sends.
+            onError = {
+                if (id != run) return@dictate
+                if (_state.value.until == 0L) startCountdown(id, RESUME_MS)
+                // A short gap, so a recognizer that fails at once can't spin.
+                main.postDelayed({ if (id == run) listenForCommand(id) }, RELISTEN_MS)
+            },
         )
     }
 
@@ -308,11 +318,20 @@ object VoiceReply {
         }
     }
 
-    /** Stops wherever it is. Nothing is sent. */
+    /** Stops wherever it is. Nothing is sent, and the message card closes. */
     fun cancel() {
         if (!active) return
         CarAssistant.stopListening()
         CarAssistant.stopSpeaking()
+        close()
+    }
+
+    /**
+     * Ends without sending and takes the message card with it. Without this the card's own popup
+     * came back with a fresh bar, as if the message had just arrived.
+     */
+    private fun close() {
+        _state.value.target?.let { CarNotifications.dismissPopup(it.id) }
         finish()
     }
 
@@ -380,4 +399,5 @@ object VoiceReply {
     private const val OFFER_GRACE_MS = 1_500L
     /** After talk that wasn't a command, the reply waits this long again before it goes. */
     private const val RESUME_MS = 3_000L
+    private const val RELISTEN_MS = 400L
 }

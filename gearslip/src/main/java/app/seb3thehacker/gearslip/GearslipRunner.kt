@@ -451,6 +451,28 @@ class GearslipRunner(
         openChannel(sensors.serviceId)
     }
 
+    /**
+     * The car may stream sensors many times a second, on the same thread that reads its audio and
+     * video messages. Log each type's first reading in full, then only a count every
+     * [SENSOR_LOG_EVERY_MS], so the log can never hold that thread up.
+     */
+    private val sensorTypesLogged = HashSet<Int>()
+    private var sensorEventsSinceLog = 0
+    private var sensorLoggedAt = 0L
+
+    private fun logSensorEvent(body: ByteArray) {
+        val types = Wire.fields(body).map { it.number }.toSet()
+        if (sensorTypesLogged.addAll(types)) log.i("<- SensorEvent (first of its kind):\n" + Protobuf.describe(body))
+        sensorEventsSinceLog++
+        val now = System.currentTimeMillis()
+        if (sensorLoggedAt == 0L) sensorLoggedAt = now
+        if (now - sensorLoggedAt >= SENSOR_LOG_EVERY_MS) {
+            log.i("<- $sensorEventsSinceLog sensor events in the last ${(now - sensorLoggedAt) / 1000}s")
+            sensorEventsSinceLog = 0
+            sensorLoggedAt = now
+        }
+    }
+
     private fun onSensorMessage(messageId: Int, body: ByteArray) {
         when (messageId) {
             MSG_CHANNEL_OPEN_RESPONSE -> {
@@ -477,7 +499,7 @@ class GearslipRunner(
 
             MSG_SENSOR_EVENT_INDICATION -> {
                 CarSensors.onEvent(body)
-                log.i("<- SensorEvent:\n" + Protobuf.describe(body))
+                logSensorEvent(body)
             }
 
             // SensorError { required SensorType sensor_type = 1; required SensorErrorType sensor_error_type = 2; }
@@ -1000,6 +1022,7 @@ class GearslipRunner(
         const val MSG_SENSOR_START_RESPONSE = 32770
         const val MSG_SENSOR_EVENT_INDICATION = 32771
         const val MSG_SENSOR_ERROR = 32772
+        private const val SENSOR_LOG_EVERY_MS = 10_000L
 
         const val STREAM_MEDIA = 3
         const val CODEC_H264_BP = 3

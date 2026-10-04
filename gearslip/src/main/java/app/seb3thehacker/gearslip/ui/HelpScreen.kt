@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.ui
 
+import app.seb3thehacker.gearslip.BuildConfig
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -61,14 +62,14 @@ private fun setupSteps(onRequestCallScreening: () -> Unit) = listOf(
         "Connect the phone to a computer with USB debugging turned on, and run this command. " +
             "It tells Android to trust Gearslip with audio from now on. Skip it and everything " +
             "still works, but you have to tap Start once each time you set off.",
-        command = "adb shell appops set app.seb3thehacker.gearslip PROJECT_MEDIA allow",
+        command = "adb shell appops set ${BuildConfig.APPLICATION_ID} PROJECT_MEDIA allow",
     ),
     Step(
         "Optional: keep notifications readable while music plays.",
         "Android treats sending audio to the car like sharing your screen, and hides what your " +
             "notifications say. Run this command too, and Gearslip switches that off only while " +
             "music is going to the car, then puts it back.",
-        command = "adb shell pm grant app.seb3thehacker.gearslip android.permission.WRITE_SECURE_SETTINGS",
+        command = "adb shell pm grant ${BuildConfig.APPLICATION_ID} android.permission.WRITE_SECURE_SETTINGS",
     ),
     Step(
         "Optional: let the car screen answer and decline calls.",

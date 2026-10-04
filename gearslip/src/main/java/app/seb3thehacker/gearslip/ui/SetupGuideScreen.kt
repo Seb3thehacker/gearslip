@@ -1,5 +1,6 @@
 package app.seb3thehacker.gearslip.ui
 
+import app.seb3thehacker.gearslip.BuildConfig
 import android.Manifest
 import android.app.AppOpsManager
 import android.app.NotificationManager
@@ -43,7 +44,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.call.CarCalls
-import app.seb3thehacker.gearslip.car.CarSettings
 import app.seb3thehacker.gearslip.car.Prefetch
 import app.seb3thehacker.gearslip.host.AndroidAuto
 import app.seb3thehacker.gearslip.notify.GearslipNotificationListener
@@ -104,13 +104,14 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
     )
 
     // --- Permissions: skipped outright once already granted, nothing left to ask -----
-    if (CarSettings.pipeAudio.value && !granted(context, arrayOf(Manifest.permission.RECORD_AUDIO))) {
+    // Asked whether or not car audio is on: voice reply and the assistant need it too.
+    if (!granted(context, arrayOf(Manifest.permission.RECORD_AUDIO))) {
         add(
             GuidePage(
                 title = "Microphone",
-                explanation = "Android will not pass a music app's audio to the car without this " +
-                    "permission. Gearslip does not listen to you: it copies what is already " +
-                    "playing, nothing else.",
+                explanation = "Gearslip needs the microphone for two jobs: passing your music " +
+                    "app's sound to the car, and hearing you when you reply to a message or ask " +
+                    "the assistant. It listens only then, and your speech stays on the phone.",
                 permissions = arrayOf(Manifest.permission.RECORD_AUDIO),
             ),
         )
@@ -236,7 +237,7 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
                 explanation = "Connect the phone to a computer with USB debugging on, and run this " +
                     "command. It tells Android to trust Gearslip with audio from now on. Skip it " +
                     "and everything still works, but you tap Start once each time you set off.",
-                command = "adb shell appops set app.seb3thehacker.gearslip PROJECT_MEDIA allow",
+                command = "adb shell appops set ${BuildConfig.APPLICATION_ID} PROJECT_MEDIA allow",
             ),
         )
     }
@@ -247,7 +248,7 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
                 explanation = "Android treats sending audio to the car like sharing your screen, and " +
                     "hides what your notifications say. This command switches that off only while " +
                     "music is going to the car, then puts it back.",
-                command = "adb shell pm grant app.seb3thehacker.gearslip android.permission.WRITE_SECURE_SETTINGS",
+                command = "adb shell pm grant ${BuildConfig.APPLICATION_ID} android.permission.WRITE_SECURE_SETTINGS",
             ),
         )
     }
