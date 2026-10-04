@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,6 +48,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.material.icons.filled.Check
@@ -253,7 +256,7 @@ fun CarLauncher() {
         val id = entry.componentId
         return Tile(
             entry.label, entry.icon, entry.builtIn?.glyph,
-            verified = pkg != null && (KnownApps.works(pkg) || (entry.media != null && KnownApps.playerWorks(pkg))),
+            verified = pkg != null && !KnownApps.isPartial(pkg) && (KnownApps.works(pkg) || (entry.media != null && KnownApps.playerWorks(pkg))),
             broken = pkg != null && (KnownApps.isBroken(pkg) || (entry.template != null && KnownApps.screenBroken(pkg))),
             partial = pkg != null && KnownApps.isPartial(pkg),
             onLongClick = id?.let { { navigator.showAppMenu(it) } },
@@ -350,16 +353,28 @@ private fun PartialBadge(size: androidx.compose.ui.unit.Dp, modifier: Modifier =
     }
 }
 
+/** Trial: where a tile says whether its app works. See [AppTileBody]. */
+private enum class BadgeStyle { ON_ICON, OUTLINE }
+private val BADGE_STYLE = BadgeStyle.ON_ICON
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppTile(tile: Tile) {
+    val status = when {
+        tile.verified -> Color(0xFF43A047)
+        tile.partial -> Color(0xFFF9A825)
+        tile.broken -> Color(0xFFD32F2F)
+        else -> null
+    }
     val shape = MaterialTheme.shapes.extraLarge
     // A long press opens the app's menu (pin, close) - the same gesture everywhere apps are
-    // shown, here and on the nav bar.
+    // shown, here and on the nav bar. GsIconBox marks it in the theme's style.
     GsIconBox(
         onClick = tile.onClick,
         onLongClick = tile.onLongClick,
-        modifier = Modifier.height(120.dp),
+        modifier = Modifier.height(120.dp).then(
+            if (BADGE_STYLE == BadgeStyle.OUTLINE && status != null) Modifier.border(2.5.dp, status, shape) else Modifier,
+        ),
         colors = GsColors(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant),
         shape = shape,
     ) {
@@ -369,29 +384,44 @@ private fun AppTile(tile: Tile) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                when {
-                    tile.icon != null -> Image(tile.icon, contentDescription = null, modifier = Modifier.size(52.dp))
-                    tile.glyph != null -> Icon(tile.glyph, contentDescription = null, modifier = Modifier.size(52.dp))
+                Box {
+                    TileIcon(tile)
+                    if (BADGE_STYLE == BadgeStyle.ON_ICON) {
+                        // Pinned to the icon's lower corner, ringed in the tile's colour so it
+                        // reads as sitting on top of the icon.
+                        val ring = Modifier.align(Alignment.BottomEnd).offset(x = 6.dp, y = 4.dp)
+                            .border(2.dp, MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                        when {
+                            tile.verified -> VerifiedBadge(22.dp, ring)
+                            tile.broken -> BrokenBadge(22.dp, ring)
+                            tile.partial -> PartialBadge(22.dp, ring)
+                        }
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    tile.label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (tile.verified) {
-                VerifiedBadge(24.dp, Modifier.align(Alignment.TopEnd).padding(8.dp))
-            }
-            if (tile.broken) {
-                BrokenBadge(24.dp, Modifier.align(Alignment.TopEnd).padding(8.dp))
-            }
-            if (tile.partial) {
-                PartialBadge(24.dp, Modifier.align(Alignment.TopEnd).padding(8.dp))
+                TileLabel(tile)
             }
         }
     }
+}
+
+@Composable
+private fun TileIcon(tile: Tile) {
+    when {
+        tile.icon != null -> Image(tile.icon, contentDescription = null, modifier = Modifier.size(52.dp))
+        tile.glyph != null -> Icon(tile.glyph, contentDescription = null, modifier = Modifier.size(52.dp))
+    }
+}
+
+@Composable
+private fun TileLabel(tile: Tile, maxLines: Int = 2, modifier: Modifier = Modifier) {
+    Text(
+        tile.label,
+        modifier = modifier,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        textAlign = TextAlign.Center,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+    )
 }

@@ -315,6 +315,7 @@ fun GsIconBox(
     shape: Shape = gsShape(),
     /** Held down, as a keycap theme draws it - for a toggle or the current screen's nav button. */
     latched: Boolean = false,
+    /** Also marks the control with the theme's hold marker, so the hold can be found. */
     onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
@@ -327,6 +328,7 @@ fun GsIconBox(
             .gsSurface(c.container, shape, c.border, pressed, latched),
         contentAlignment = Alignment.Center,
     ) {
+        if (onLongClick != null && enabled) GsHoldMarker(gsLook().holdMarker, c.container, shape, source)
         CompositionLocalProvider(LocalContentColor provides c.content) { content() }
     }
 }

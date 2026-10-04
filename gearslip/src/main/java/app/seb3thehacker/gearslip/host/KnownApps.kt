@@ -65,10 +65,15 @@ object KnownApps {
 
     fun isBroken(packageName: String): Boolean = packageName in broken
 
-    /** Shown on the launcher with a yellow mark: starts and can be used, but not cleanly enough to call working. */
+    /**
+     * Shown on the launcher with a yellow mark: starts and can be used, but not cleanly enough to
+     * call working. Wins over [works] and [playerWorks] for the badge.
+     */
     private val partial = setOf(
         "app.vela", // Vela Maps: connects and draws, but rough enough not to call it working yet
         "com.mapquest.android.ace", // MapQuest: map, search and routing run, but not cleanly
+        "com.spotify.music",        // Spotify: plays through Gearslip's player, but the app has to be opened on the phone first
+        "deezer.android.app",       // Deezer: the same - it has to be opened on the phone first
     )
 
     fun isPartial(packageName: String): Boolean = packageName in partial

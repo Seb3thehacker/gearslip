@@ -59,6 +59,11 @@ data class ControlLook(
     val pressedDim: Float = 0.22f,
     /** Scale while pressed, 1 for none. */
     val pressedScale: Float = 0.95f,
+    /**
+     * How a control with a press-and-hold action says so. The peel needs a raised face to lift
+     * from; a flat look takes the dot.
+     */
+    val holdMarker: HoldMarkerStyle = HoldMarkerStyle.PEEL,
     /** Replaces this look when the UI is light, for effects that only work on one background. */
     val light: ControlLook? = null,
 )
@@ -67,7 +72,7 @@ object GsThemes {
     val Keycap = GsTheme(
         id = "keycap",
         name = "Keycap",
-        control = ControlLook(lip = 4.dp, pressedScale = 1f),
+        control = ControlLook(lip = 4.dp, pressedScale = 1f, holdMarker = HoldMarkerStyle.PEEL),
     )
 
     val Tactile = GsTheme(
@@ -83,6 +88,7 @@ object GsThemes {
             insetAlpha = 0.30f,
             pressedDim = 0.12f,
             pressedScale = 1f,
+            holdMarker = HoldMarkerStyle.PEEL,
             // A wide soft shadow bands once the car's video stream compresses it on a light
             // background, so light mode gets a tight one and leans on the bevel instead.
             light = ControlLook(
@@ -95,6 +101,7 @@ object GsThemes {
                 insetAlpha = 0.30f,
                 pressedDim = 0.12f,
                 pressedScale = 1f,
+                holdMarker = HoldMarkerStyle.PEEL,
             ),
         ),
     )
@@ -102,7 +109,7 @@ object GsThemes {
     val Flat = GsTheme(
         id = "flat",
         name = "Flat",
-        control = ControlLook(),
+        control = ControlLook(holdMarker = HoldMarkerStyle.DOT),
     )
 
     val default = Tactile
