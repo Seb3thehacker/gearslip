@@ -47,7 +47,10 @@ object CertProvider {
         val kind: Kind = Kind.SELF_SIGNED,
     )
 
-    /** Loaded fresh each call, so a newly imported or pushed cert takes effect on the next connect. */
+    /**
+     * The identity for the next connection. A newly imported or pushed cert takes effect on the
+     * next connect: see [loadFromFiles] for how the cache notices.
+     */
     fun load(context: Context): Identity = loadFromFiles(context) ?: run {
         val generated = SelfSignedCert.generate()
         Identity(
@@ -65,7 +68,38 @@ object CertProvider {
      */
     fun loadSupplied(context: Context): Identity? = loadFromFiles(context)
 
+    /**
+     * Unlocking a PKCS#12 file takes about a second on a Pixel 6, which a head unit waiting for
+     * its first reply may not wait out. So the unlocked identity is kept, keyed on the files it
+     * could come from: importing, downloading, removing or pushing a cert changes the key.
+     */
+    @Volatile private var cached: Pair<String, Identity>? = null
+
+    private fun sourcesKey(context: Context): String {
+        val dir = context.getExternalFilesDir(null)
+        val files = listOf(
+            importedFile(context, P12_NAME),
+            downloadedFile(context, P12_NAME),
+            dir?.let { File(it, P12_NAME) },
+            dir?.let { File(it, PASS_NAME) },
+        )
+        return files.joinToString("|") { f -> f?.let { "${it.path}:${it.lastModified()}:${it.length()}" } ?: "-" }
+    }
+
+    /** Unlocks the certificate ahead of time, so the first connection doesn't wait on it. */
+    fun warm(context: Context) {
+        runCatching { loadFromFiles(context) }
+    }
+
     private fun loadFromFiles(context: Context): Identity? {
+        val key = sourcesKey(context)
+        cached?.let { (k, identity) -> if (k == key) return identity }
+        val identity = unlockFromFiles(context) ?: return null
+        cached = key to identity
+        return identity
+    }
+
+    private fun unlockFromFiles(context: Context): Identity? {
         val imported = importedFile(context, P12_NAME)
         if (imported.isFile) {
             runCatching {

@@ -10,6 +10,7 @@ import app.seb3thehacker.gearslip.car.CarServices
 import app.seb3thehacker.gearslip.car.CarSettings
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.FutureTask
 
 /**
  * Drives the phone side of the control-channel handshake far enough to answer one question:
@@ -38,7 +39,10 @@ class GearslipRunner(
 
     private val parser = Frames.Parser()
     private val assembler = Frames.Assembler()
-    private lateinit var tls: PhoneTls
+    private lateinit var identityTask: FutureTask<PhoneTls>
+
+    /** Waits for the certificate only when TLS is first needed; see [run]. */
+    private val tls: PhoneTls by lazy { identityTask.get() }
 
     @Volatile private var state = State.WAIT_VERSION
     @Volatile private var lastProgress = System.currentTimeMillis()
@@ -76,14 +80,19 @@ class GearslipRunner(
         SessionStatus.connecting("Connected to the head unit")
         log.i("device=${Build.MANUFACTURER} ${Build.MODEL}  android=${Build.VERSION.RELEASE} (sdk ${Build.VERSION.SDK_INT})")
 
-        val identity = identityProvider()
-        val cert = identity.certificate
-        log.i("phone certificate source: ${identity.source}")
-        SessionReport.certificate(identity.source.toString(), cert.issuerX500Principal.toString())
-        log.i("  subject = ${cert.subjectX500Principal}")
-        log.i("  issuer  = ${cert.issuerX500Principal}")
-        log.i("  serial  = ${cert.serialNumber}  valid ${cert.notBefore}..${cert.notAfter}")
-        tls = PhoneTls(identity.keyStore, identity.password)
+        // The head unit speaks first, and some give up if the phone doesn't read within about a
+        // second. The version exchange needs no certificate, so read at once and unlock the
+        // certificate alongside; the TLS handshake waits for it.
+        identityTask = FutureTask {
+            val identity = identityProvider()
+            val cert = identity.certificate
+            log.i("phone certificate source: ${identity.source}")
+            SessionReport.certificate(identity.source.toString(), cert.issuerX500Principal.toString())
+            log.i("  subject = ${cert.subjectX500Principal}")
+            log.i("  issuer  = ${cert.issuerX500Principal}")
+            log.i("  serial  = ${cert.serialNumber}  valid ${cert.notBefore}..${cert.notAfter}")
+            PhoneTls(identity.keyStore, identity.password)
+        }.also { Thread(it, "gearslip-identity").start() }
 
         startWatchdog()
 
