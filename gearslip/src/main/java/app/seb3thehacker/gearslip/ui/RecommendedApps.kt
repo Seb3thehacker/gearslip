@@ -92,6 +92,9 @@ fun RecommendedAppsScreen(onBack: () -> Unit) {
     }
 }
 
+/** Hidden for now: off, neither Settings nor the setup guide shows the list. The code stays. */
+internal const val SHOW_RECOMMENDED_APPS = false
+
 internal const val RECOMMENDED_INTRO =
     "These free apps run on Gearslip's car screen. Each button opens the app's page on GitHub."
 

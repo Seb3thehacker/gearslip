@@ -86,7 +86,7 @@ private fun setupSteps(onRequestCallScreening: () -> Unit) = listOf(
  * here too so it can be reread without repeating the guide itself. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HelpScreen(onBack: () -> Unit, onRequestCallScreening: () -> Unit, onReplayTutorial: () -> Unit) {
+fun HelpScreen(onBack: () -> Unit, onRequestCallScreening: () -> Unit) {
     val steps = remember(onRequestCallScreening) { setupSteps(onRequestCallScreening) }
 
     Scaffold(
@@ -110,10 +110,7 @@ fun HelpScreen(onBack: () -> Unit, onRequestCallScreening: () -> Unit, onReplayT
                 .verticalScroll(rememberScrollState()),
         ) {
             Spacer(Modifier.height(8.dp))
-            FilledTonalButton(onClick = onReplayTutorial, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text("Replay the guided tutorial")
-            }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
             Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 steps.forEachIndexed { index, step ->
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {

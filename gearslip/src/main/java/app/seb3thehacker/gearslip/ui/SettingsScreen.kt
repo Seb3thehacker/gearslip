@@ -3,30 +3,37 @@ package app.seb3thehacker.gearslip.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,22 +46,28 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
+import app.seb3thehacker.gearslip.BuildConfig
 import app.seb3thehacker.gearslip.CertProvider
+import app.seb3thehacker.gearslip.stats.UsageStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenRecommendedApps: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onOpenRecommendedApps: () -> Unit,
+    onOpenWhatsNew: () -> Unit,
+    onReplayTutorial: () -> Unit,
+) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -74,59 +87,78 @@ fun SettingsScreen(onBack: () -> Unit, onOpenRecommendedApps: () -> Unit) {
                 .padding(padding)
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(32.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             Spacer(Modifier.height(0.dp))
-            GearslipEnabledSection()
-            AppsSection(onOpenRecommendedApps)
+            AboutSection(onOpenWhatsNew, onReplayTutorial)
+            ConnectionSection()
+            if (SHOW_RECOMMENDED_APPS) AppsSection(onOpenRecommendedApps)
             CertificateSection()
+            if (UsageStats.choosable) {
+                SettingsSection("Usage notes", header = USAGE_STATS_INTRO) { UsageStatsRows(showNote = true) }
+            }
             Spacer(Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.primary,
-    )
+private fun Arrow() = Icon(
+    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+    contentDescription = null,
+    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+)
+
+/** What's new and the setup guide, one tap from the top. */
+@Composable
+private fun AboutSection(onOpenWhatsNew: () -> Unit, onReplayTutorial: () -> Unit) {
+    SettingsSection {
+        SettingsRow(
+            "What's new",
+            Modifier.clickable(onClick = onOpenWhatsNew),
+            subtitle = "Version ${BuildConfig.VERSION_NAME}",
+            icon = Icons.Filled.Star,
+            trailing = { Arrow() },
+        )
+        SettingsDivider()
+        SettingsRow(
+            "Replay the setup guide",
+            Modifier.clickable(onClick = onReplayTutorial),
+            subtitle = "Go through the first-run steps again",
+            icon = Icons.Filled.Refresh,
+            trailing = { Arrow() },
+        )
+    }
 }
 
 /** Off, a stock Android Auto app or head unit answers the USB connection instead of Gearslip. */
 @Composable
-private fun GearslipEnabledSection() {
+private fun ConnectionSection() {
     val context = LocalContext.current
     var enabled by remember { mutableStateOf(AppSettings.gearslipEnabled(context)) }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionTitle("Gearslip")
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Enabled", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            Switch(checked = enabled, onCheckedChange = {
+    SettingsSection("Connection") {
+        SettingsRow(
+            "Use Gearslip in the car",
+            Modifier.toggleable(enabled, role = Role.Switch) {
                 enabled = it
                 AppSettings.setGearslipEnabled(context, it)
-            })
-        }
-        if (!enabled) {
-            Text(
-                "Off - stock Android Auto can take the USB connection instead.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+            },
+            subtitle = if (enabled) "Gearslip answers when you plug into a car" else "Off: Android Auto can take the connection instead",
+            icon = Icons.Filled.Settings,
+            trailing = { Switch(checked = enabled, onCheckedChange = null) },
+        )
     }
 }
 
 @Composable
 private fun AppsSection(onOpenRecommendedApps: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionTitle("Apps")
-        OutlinedButton(onClick = onOpenRecommendedApps, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-            Text("Recommended apps")
-        }
+    SettingsSection("Apps") {
+        SettingsRow(
+            "Recommended apps",
+            Modifier.clickable(onClick = onOpenRecommendedApps),
+            icon = Icons.Filled.Star,
+            trailing = { Arrow() },
+        )
     }
 }
 
@@ -142,37 +174,49 @@ private fun CertificateSection() {
 
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+    var downloading by remember { mutableStateOf(false) }
+    var detailsOpen by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) pendingUri = uri
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionTitle("Certificate")
-
-        Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.large) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val s = summary
-                if (s == null) {
-                    Text("Checking…", style = MaterialTheme.typography.bodyMedium)
-                } else {
-                    Text(s.headline, style = MaterialTheme.typography.bodyLarge)
-                    s.subject?.let { Detail("Subject", it) }
-                    s.issuer?.let { Detail("Issuer", it) }
-                    s.validUntil?.let { Detail("Valid until", it) }
+    SettingsSection("Certificate", footer = notice ?: "Changes take effect on the next connection.") {
+        val s = summary
+        val loaded = s != null && s.kind != CertProvider.Kind.SELF_SIGNED
+        val hasDetails = s?.subject != null || s?.issuer != null
+        SettingsRow(
+            s?.headline ?: "Checking…",
+            if (hasDetails) Modifier.clickable { detailsOpen = !detailsOpen } else Modifier,
+            subtitle = s?.validUntil?.let { "Valid until $it" },
+            icon = if (s == null || loaded) Icons.Filled.Lock else Icons.Filled.Warning,
+            tint = if (s == null || loaded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            trailing = if (hasDetails) {
+                {
+                    Icon(
+                        if (detailsOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                        contentDescription = if (detailsOpen) "Hide details" else "Show details",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+            } else null,
+        )
+        AnimatedVisibility(detailsOpen && hasDetails) {
+            Column(
+                Modifier.padding(start = 56.dp, end = 16.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                s?.subject?.let { Detail("Subject", it) }
+                s?.issuer?.let { Detail("Issuer", it) }
             }
         }
-
-        Button(onClick = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-            Text("Import certificate (.p12)")
-        }
-
-        FilledTonalButton(
-            onClick = {
+        SettingsDivider()
+        SettingsRow(
+            if (downloading) "Downloading…" else "Download certificate",
+            Modifier.clickable(enabled = !downloading) {
+                downloading = true
                 scope.launch {
-                    val result = withContext(Dispatchers.IO) {
-                        runCatching { CertProvider.downloadAndImport(context) }
-                    }
+                    val result = withContext(Dispatchers.IO) { runCatching { CertProvider.downloadAndImport(context) } }
+                    downloading = false
                     result.onSuccess {
                         notice = "Certificate downloaded."
                         refresh++
@@ -181,39 +225,34 @@ private fun CertificateSection() {
                     }
                 }
             },
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-        ) {
-            Text("Download certificate")
-        }
-
-        if (summary?.kind == CertProvider.Kind.IMPORTED) {
-            OutlinedButton(
-                onClick = {
-                    CertProvider.removeImported(context)
-                    notice = "Removed the imported certificate."
-                    refresh++
-                },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) { Text("Remove imported certificate") }
-        }
-
-        if (summary?.kind == CertProvider.Kind.DOWNLOADED) {
-            OutlinedButton(
-                onClick = {
-                    CertProvider.removeDownloaded(context)
-                    notice = "Removed the downloaded certificate."
-                    refresh++
-                },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) { Text("Remove downloaded certificate") }
-        }
-
-        notice?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        Text(
-            "Changes take effect on the next connection.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            icon = Icons.Filled.Refresh,
         )
+        SettingsDivider()
+        SettingsRow(
+            "Import a certificate",
+            Modifier.clickable { picker.launch(arrayOf("*/*")) },
+            subtitle = "A .p12 file with its private key",
+            icon = Icons.Filled.Add,
+        )
+        val removable = when (s?.kind) {
+            CertProvider.Kind.IMPORTED -> "Remove imported certificate"
+            CertProvider.Kind.DOWNLOADED -> "Remove downloaded certificate"
+            else -> null
+        }
+        if (removable != null) {
+            SettingsDivider()
+            SettingsRow(
+                removable,
+                Modifier.clickable {
+                    if (s?.kind == CertProvider.Kind.IMPORTED) CertProvider.removeImported(context) else CertProvider.removeDownloaded(context)
+                    notice = if (s?.kind == CertProvider.Kind.IMPORTED) "Removed the imported certificate." else "Removed the downloaded certificate."
+                    refresh++
+                },
+                icon = Icons.Filled.Delete,
+                tint = MaterialTheme.colorScheme.error,
+                titleColor = MaterialTheme.colorScheme.error,
+            )
+        }
     }
 
     pendingUri?.let { uri ->

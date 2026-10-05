@@ -1,5 +1,10 @@
 package app.seb3thehacker.gearslip.ui
 
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.key
 import app.seb3thehacker.gearslip.BuildConfig
 import android.Manifest
 import android.app.AppOpsManager
@@ -40,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
@@ -47,6 +53,8 @@ import app.seb3thehacker.gearslip.call.CarCalls
 import app.seb3thehacker.gearslip.car.Prefetch
 import app.seb3thehacker.gearslip.host.AndroidAuto
 import app.seb3thehacker.gearslip.notify.GearslipNotificationListener
+import app.seb3thehacker.gearslip.stats.UsageStats
+import androidx.compose.runtime.DisposableEffect
 
 /**
  * One page of the guide. [permissions] drives a system permission dialog; [command] is an adb
@@ -56,7 +64,8 @@ import app.seb3thehacker.gearslip.notify.GearslipNotificationListener
  */
 private class GuidePage(
     val title: String,
-    val explanation: String,
+    /** Plain text, or an [AnnotatedString] when part of it needs to stand out. */
+    val explanation: CharSequence,
     val permissions: Array<String>? = null,
     val command: String? = null,
     val actionLabel: String? = null,
@@ -265,14 +274,34 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
         )
     }
 
-    // --- Last: apps worth installing, once everything above is set up ---------------
-    add(
-        GuidePage(
-            title = "Recommended apps",
-            explanation = RECOMMENDED_INTRO,
-            content = { RecommendedAppsList() },
-        ),
-    )
+    // --- Apps worth installing, once everything above is set up -----------------------
+    if (SHOW_RECOMMENDED_APPS) {
+        add(
+            GuidePage(
+                title = "Recommended apps",
+                explanation = RECOMMENDED_INTRO,
+                content = { RecommendedAppsList() },
+            ),
+        )
+    }
+
+    // --- The very end, every time: usage notes. The first time through, leaving the page
+    // without turning them on is a no; on a replay, the switch shows what was chosen before.
+    // Dev builds always send, so they skip the page.
+    if (UsageStats.choosable) {
+        add(
+            GuidePage(
+                title = USAGE_STATS_TITLE,
+                explanation = USAGE_STATS_INTRO,
+                content = {
+                    UsageStatsChoices()
+                    DisposableEffect(Unit) {
+                        onDispose { if (!UsageStats.asked(context)) UsageStats.set(context, false) }
+                    }
+                },
+            ),
+        )
+    }
 }
 
 /**
@@ -319,8 +348,8 @@ fun SetupGuideScreen(onRequestCallScreening: () -> Unit, onDone: () -> Unit) {
                 .padding(padding)
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
         ) {
+            Spacer(Modifier.height(24.dp))
             LinearProgressIndicator(
                 progress = { (index + 1f) / pages.size },
                 modifier = Modifier.fillMaxWidth().height(10.dp).clip(MaterialTheme.shapes.extraLarge),
@@ -332,27 +361,38 @@ fun SetupGuideScreen(onRequestCallScreening: () -> Unit, onDone: () -> Unit) {
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(48.dp))
-
-            Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.extraLarge) {
-                Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        page.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        page.explanation,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    page.command?.let { CopyableCommand(it) }
-                    page.content?.invoke()
+            // The page scrolls between the progress bar and the buttons, so a tall page (the usage
+            // note's choices, say) never pushes Next off the screen. Short pages stay centred.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                key(index) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .heightIn(min = maxHeight)
+                            .padding(vertical = 24.dp),
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.extraLarge) {
+                            Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    page.title,
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    page.explanation as? AnnotatedString ?: AnnotatedString(page.explanation.toString()),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                page.command?.let { CopyableCommand(it) }
+                                page.content?.invoke()
+                            }
+                        }
+                    }
                 }
             }
-
-            Spacer(Modifier.height(32.dp))
 
             when {
                 page.permissions != null && alreadyGranted -> {
@@ -391,6 +431,7 @@ fun SetupGuideScreen(onRequestCallScreening: () -> Unit, onDone: () -> Unit) {
                     }
                 }
             }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
