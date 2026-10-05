@@ -53,6 +53,8 @@ fun PhoneAppsScreen() {
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        ScreenHeader("Screen sharing")
+        Spacer(Modifier.height(12.dp))
         if (!TouchRelayService.enabled) {
             TouchRelayWarning()
             Spacer(Modifier.height(12.dp))

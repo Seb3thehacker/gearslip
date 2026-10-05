@@ -41,6 +41,9 @@ class GearslipRunner(
     private val assembler = Frames.Assembler()
     private lateinit var identityTask: FutureTask<PhoneTls>
 
+    /** Sends every message, in order, so no other thread ever blocks on the USB link. See [send]. */
+    private val writer = java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "gearslip-writer") }
+
     /** Waits for the certificate only when TLS is first needed; see [run]. */
     private val tls: PhoneTls by lazy { identityTask.get() }
 
@@ -127,6 +130,9 @@ class GearslipRunner(
 
     fun stop() {
         running = false
+        writer.shutdownNow()
+        CarFocus.request = null
+        CarFocus.set(true)
         synchronized(ackLock) { ackLock.notifyAll() } // free an encoder waiting on an ack
         videoSource?.stop()
         videoSource = null
@@ -589,6 +595,8 @@ class GearslipRunner(
                     val at = points[actionIndex]
                     log.i("<- Touch action=$action at (${at.x.toInt()},${at.y.toInt()}) pointers=${points.size}")
                 }
+                // Time the next frame against this tap: see [reportTouchLatency].
+                if (action == ACTION_DOWN || action == ACTION_UP) touchAtUs = System.nanoTime() / 1000
                 projection?.onTouch(action, actionIndex, points)
             }
 
@@ -691,14 +699,17 @@ class GearslipRunner(
             }
 
             MSG_VIDEO_FOCUS_NOTIFICATION -> {
+                // VideoFocusNotification { focus = 1; unsolicited = 2 }
                 val fields = Wire.fields(body)
-                log.i("<- VideoFocusNotification: mode=${Wire.varint(fields, 1)}")
-                // The head unit repeats this while it waits for frames; only act once.
-                if (!videoStarted) {
-                    videoStarted = true
-                    log.i("PHASE A COMPLETE - video focus granted; starting video source")
-                    startVideoSource()
-                }
+                val mode = Wire.varint(fields, 1)?.toInt() ?: VIDEO_FOCUS_PROJECTED
+                log.i("<- VideoFocusNotification: mode=$mode unsolicited=${Wire.varint(fields, 2)}")
+                onVideoFocus(mode)
+            }
+
+            // Not in aasdk's direction of travel, but LIVI sends it: log what it asks for.
+            MSG_VIDEO_FOCUS_REQUEST -> {
+                val fields = Wire.fields(body)
+                log.i("<- VideoFocusRequest from the head unit: mode=${Wire.varint(fields, 2)} reason=${Wire.varint(fields, 3)}")
             }
 
             MSG_MEDIA_ACK -> {
@@ -772,6 +783,7 @@ class GearslipRunner(
             frameRate = if (config.frameRate == 1) 60 else 30,
             mode = if (useProjection) VideoSource.Mode.SURFACE else VideoSource.Mode.TEST_CARD,
             onCodecConfig = { csd ->
+                lastCodecConfig = csd
                 send(MSG_MEDIA_CODEC_CONFIG, csd, encrypted = true, channel = videoChannelId)
                 log.i("-> CodecConfig (${csd.size} bytes SPS/PPS)")
                 log.hex("   csd", csd, limit = 64)
@@ -800,6 +812,8 @@ class GearslipRunner(
      * makes it produce fewer frames, each one whole.
      */
     private fun sendVideoFrame(data: ByteArray, presentationTimeUs: Long, keyFrame: Boolean) {
+        // The car is showing its own screen and would throw these away.
+        if (!videoProjected) return
         synchronized(ackLock) {
             val waitStart = System.currentTimeMillis()
             while (running && inFlight >= maxUnacked) {
@@ -809,6 +823,7 @@ class GearslipRunner(
                 if (since > ACK_STALL_MS) {
                     log.w("no ack for ${since}ms with $inFlight in flight - resetting the window")
                     inFlight = 0
+                    lastAckAt = System.currentTimeMillis() // one warning per stall, not one per frame
                     break
                 }
                 ackLock.wait(ACK_STALL_MS - since + 1)
@@ -828,15 +843,11 @@ class GearslipRunner(
             resyncAttempts = 0
             lastKeyframeSentAt = System.currentTimeMillis()
         }
-        try {
-            send(MSG_MEDIA_DATA, timestamp + data, encrypted = true, channel = videoChannelId)
-        } catch (e: java.io.IOException) {
-            if (running) log.w("video send failed, stopping the encoder: ${e.message}")
-            running = false
-            videoSource?.stop()
-            return
-        }
-        inFlight++
+        // Counted before it's queued: the writer may send it and the ack come back before this
+        // thread runs again, and an ack counted ahead of its frame would leave the window full.
+        synchronized(ackLock) { inFlight++ }
+        send(MSG_MEDIA_DATA, timestamp + data, encrypted = true, channel = videoChannelId)
+        reportTouchLatency(presentationTimeUs)
         framesSent++
         if (framesSent <= 3 || keyFrame && framesSent % 30 == 0) {
             log.i(
@@ -844,6 +855,74 @@ class GearslipRunner(
                     "ptsUs=$presentationTimeUs)",
             )
         }
+    }
+
+    /** Whether the car is showing Gearslip; false while it shows its own interface. */
+    @Volatile private var videoProjected = true
+    /** The encoder's SPS/PPS, resent when the car hands its screen back. */
+    @Volatile private var lastCodecConfig: ByteArray? = null
+
+    /**
+     * The car says who has its screen. The first grant starts the video. After that the car may
+     * take its screen back (our Exit, or its own buttons) and later return it: while it has the
+     * screen nothing is sent, and on return the stream restarts from the codec config and a fresh
+     * keyframe, since the car's decoder may have been reset in between.
+     */
+    private fun onVideoFocus(mode: Int) {
+        val projected = mode == VIDEO_FOCUS_PROJECTED || mode == VIDEO_FOCUS_PROJECTED_NO_INPUT
+        if (!videoStarted) {
+            // The head unit repeats this while it waits for frames; only start once.
+            if (!projected) return
+            videoStarted = true
+            CarFocus.request = ::requestNativeFocus
+            log.i("PHASE A COMPLETE - video focus granted; starting video source")
+            startVideoSource()
+            return
+        }
+        if (projected == videoProjected) return
+        videoProjected = projected
+        CarFocus.set(projected)
+        if (projected) {
+            log.i("the car handed its screen back - restarting the stream")
+            // Frames sent just before the car took over may never be acked.
+            synchronized(ackLock) {
+                inFlight = 0
+                ackLock.notifyAll()
+            }
+            lastCodecConfig?.let { send(MSG_MEDIA_CODEC_CONFIG, it, encrypted = true, channel = videoChannelId) }
+            videoSource?.requestSyncFrame()
+        } else {
+            log.i("the car is showing its own screen - video paused, audio carries on")
+        }
+    }
+
+    /** Android Auto's Exit: asks the car for its own interface, leaving the session running. */
+    private fun requestNativeFocus() {
+        if (!videoStarted) return
+        // VideoFocusRequestNotification { mode = 2; reason = 3 }
+        val request = Protobuf.varintField(2, VIDEO_FOCUS_NATIVE.toLong()) +
+            Protobuf.varintField(3, VIDEO_FOCUS_REASON_LAUNCH_NATIVE.toLong())
+        send(MSG_VIDEO_FOCUS_REQUEST, request, encrypted = true, channel = videoChannelId)
+        log.i("-> VideoFocusRequest(mode=NATIVE, reason=LAUNCH_NATIVE)")
+    }
+
+    /** Arrival time of the last tap still waiting to be seen in a frame; 0 when none is. */
+    @Volatile private var touchAtUs = 0L
+
+    /**
+     * How long a tap takes to reach the car, split where the phone can see it: the UI drawing a
+     * frame after the tap, the encoder compressing it, and the send. A frame's timestamp is when
+     * the UI finished drawing it, on the same clock as [touchAtUs]. The head unit's own decode
+     * and display come on top and can't be seen from here.
+     */
+    private fun reportTouchLatency(presentationTimeUs: Long) {
+        val touchAt = touchAtUs
+        if (touchAt == 0L || presentationTimeUs <= touchAt) return
+        touchAtUs = 0L
+        val nowUs = System.nanoTime() / 1000
+        val draw = (presentationTimeUs - touchAt) / 1000
+        val encode = (nowUs - presentationTimeUs) / 1000
+        log.i("touch -> frame: ${draw + encode}ms (draw ${draw}ms, encode and wait ${encode}ms)")
     }
 
     private fun clamp(value: Int, limit: Int?): Float = when {
@@ -872,35 +951,49 @@ class GearslipRunner(
             ((messageId shr 8) and 0xFF).toByte(), (messageId and 0xFF).toByte(),
         ) + body
 
-        synchronized(output) {
-            if (payload.size <= Frames.MAX_FRAME_PAYLOAD) {
-                val framePayload = if (encrypted) tls.encrypt(payload) else payload
-                output.write(Frames.build(channel, encrypted, framePayload, messageType))
-            } else {
-                // Split exactly as aasdk does: chunk the *plaintext*, encrypt each chunk
-                // separately, and carry the total plaintext length in the FIRST frame.
-                // Video keyframes for anything busier than a test card exceed 16 KB routinely.
-                var offset = 0
-                while (offset < payload.size) {
-                    val size = minOf(Frames.MAX_FRAME_PAYLOAD, payload.size - offset)
-                    val chunk = payload.copyOfRange(offset, offset + size)
-                    val frameType = when {
-                        offset == 0 -> Frames.TYPE_FIRST
-                        offset + size >= payload.size -> Frames.TYPE_LAST
-                        else -> Frames.TYPE_MIDDLE
+        // Every write goes through one thread, in order. The reading thread must never wait on
+        // a write: a head unit like LIVI writes its ack before it reads on, so a reader stuck
+        // behind a big video frame (to answer a ping) and a head unit stuck writing that ack
+        // held each other up until something timed out, about two seconds a time.
+        try {
+            writer.execute {
+                try {
+                    if (payload.size <= Frames.MAX_FRAME_PAYLOAD) {
+                        val framePayload = if (encrypted) tls.encrypt(payload) else payload
+                        output.write(Frames.build(channel, encrypted, framePayload, messageType))
+                    } else {
+                        // Split exactly as aasdk does: chunk the *plaintext*, encrypt each chunk
+                        // separately, and carry the total plaintext length in the FIRST frame.
+                        // Video keyframes for anything busier than a test card exceed 16 KB routinely.
+                        var offset = 0
+                        while (offset < payload.size) {
+                            val size = minOf(Frames.MAX_FRAME_PAYLOAD, payload.size - offset)
+                            val chunk = payload.copyOfRange(offset, offset + size)
+                            val frameType = when {
+                                offset == 0 -> Frames.TYPE_FIRST
+                                offset + size >= payload.size -> Frames.TYPE_LAST
+                                else -> Frames.TYPE_MIDDLE
+                            }
+                            val framePayload = if (encrypted) tls.encrypt(chunk) else chunk
+                            output.write(
+                                Frames.build(
+                                    channel, encrypted, framePayload, messageType, frameType,
+                                    if (frameType == Frames.TYPE_FIRST) payload.size else null,
+                                ),
+                            )
+                            offset += size
+                        }
+                        splitMessages++
                     }
-                    val framePayload = if (encrypted) tls.encrypt(chunk) else chunk
-                    output.write(
-                        Frames.build(
-                            channel, encrypted, framePayload, messageType, frameType,
-                            if (frameType == Frames.TYPE_FIRST) payload.size else null,
-                        ),
-                    )
-                    offset += size
+                    output.flush()
+                } catch (e: java.io.IOException) {
+                    if (running) log.w("send failed, stopping: ${e.message}")
+                    running = false
+                    videoSource?.stop()
                 }
-                splitMessages++
             }
-            output.flush()
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            // The session is over; nothing more goes out.
         }
     }
 
@@ -1039,6 +1132,9 @@ class GearslipRunner(
         const val STREAM_MEDIA = 3
         const val CODEC_H264_BP = 3
         const val VIDEO_FOCUS_PROJECTED = 1
+        const val VIDEO_FOCUS_NATIVE = 2
+        const val VIDEO_FOCUS_PROJECTED_NO_INPUT = 4
+        const val VIDEO_FOCUS_REASON_LAUNCH_NATIVE = 2
         const val SESSION_ID = 1
         const val MSG_INPUT_REPORT = 32769
         const val MSG_KEY_BINDING_REQUEST = 32770

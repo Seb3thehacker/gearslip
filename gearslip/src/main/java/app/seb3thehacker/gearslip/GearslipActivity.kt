@@ -40,6 +40,8 @@ import java.io.FileOutputStream
  * rotation or theme change from recreating it and dropping the connection.
  */
 class GearslipActivity : ComponentActivity(), Projection {
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
 
     private var descriptor: ParcelFileDescriptor? = null
     private var runner: GearslipRunner? = null
@@ -323,7 +325,9 @@ class GearslipActivity : ComponentActivity(), Projection {
     }
 
     override fun onTouch(action: Int, actionIndex: Int, points: List<TouchPoint>) {
-        runOnUiThread {
+        // To the front of the main thread's queue: a touch waiting behind other work is lag the
+        // driver feels, while the work it jumps ahead of can wait a frame.
+        mainHandler.postAtFrontOfQueue {
             // Mirroring drives one phone touch at a time, so it follows the first finger only.
             if (PhoneMirror.active.value) points.firstOrNull()?.let { relayTouch(action, it.x, it.y) }
             else screenProjector?.dispatchTouch(action, actionIndex, points)

@@ -28,7 +28,7 @@ fun VehicleDataScreen() {
     val readings by CarSensors.readings.collectAsState()
 
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
-        Text("Vehicle data", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        ScreenHeader("Vehicle data")
         Text(
             "Raw sensor channel from the connected head unit. Field meaning is a best guess - " +
                 "watch a row change while you do the thing (brake, drive, headlights) to confirm it.",

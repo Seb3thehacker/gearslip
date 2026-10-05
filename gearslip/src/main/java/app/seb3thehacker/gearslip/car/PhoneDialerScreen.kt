@@ -101,13 +101,7 @@ fun PhoneDialerScreen() {
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         // The tabs share the title's row, so the list and keypad get the height back.
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Phone",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
+        ScreenHeader("Phone") {
             if (hasPermissions) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DialerTab("Contacts", tab == TAB_CONTACTS, Modifier.width(140.dp)) { tab = TAB_CONTACTS }

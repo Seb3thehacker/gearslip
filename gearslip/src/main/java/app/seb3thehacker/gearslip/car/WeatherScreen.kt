@@ -41,6 +41,7 @@ fun WeatherScreen() {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
+        ScreenHeader("Weather")
         when (val s = state) {
             WeatherState.Loading -> Text("Getting the weather…", style = MaterialTheme.typography.titleMedium)
             is WeatherState.Unavailable -> Text(

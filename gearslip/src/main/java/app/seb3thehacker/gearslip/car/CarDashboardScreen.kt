@@ -60,7 +60,7 @@ fun CarDashboardScreen() {
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        Text("Today", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        ScreenHeader("Today")
         WeatherCard(context)
         AgendaCard(context)
         NotificationsSection()

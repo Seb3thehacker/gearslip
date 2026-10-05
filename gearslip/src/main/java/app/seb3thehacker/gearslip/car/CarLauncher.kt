@@ -167,7 +167,7 @@ internal fun rememberAllEntries(): List<Entry> {
 }
 
 /** The launcher's groups, in the order they're laid out. */
-private enum class AppGroup { PHONE, MAPS, MUSIC, MESSAGING, WEB, SCREEN_SHARING, OTHER, SETTINGS }
+private enum class AppGroup { PHONE, MAPS, MUSIC, MESSAGING, WEB, SCREEN_SHARING, OTHER, SETTINGS, EXIT }
 
 private fun groupOf(entry: Entry, mediaPackages: Set<String>): AppGroup {
     entry.builtIn?.let {
@@ -175,6 +175,7 @@ private fun groupOf(entry: Entry, mediaPackages: Set<String>): AppGroup {
             BuiltInApps.Phone -> AppGroup.PHONE
             BuiltInApps.Web -> AppGroup.WEB
             BuiltInApps.ScreenSharing -> AppGroup.SCREEN_SHARING
+            BuiltInApps.Exit -> AppGroup.EXIT
             else -> AppGroup.SETTINGS
         }
     }

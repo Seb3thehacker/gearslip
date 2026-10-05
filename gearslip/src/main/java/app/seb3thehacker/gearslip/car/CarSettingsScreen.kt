@@ -74,7 +74,7 @@ fun CarSettingsScreen() {
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        ScreenHeader("Settings")
 
         ChoiceRow(
             "Open on connect",

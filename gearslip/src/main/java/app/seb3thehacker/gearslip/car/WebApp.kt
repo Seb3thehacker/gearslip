@@ -10,6 +10,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +55,8 @@ fun WebApp(content: String) {
     }
 
     Column(Modifier.fillMaxSize()) {
+        // Back steps through the page's history first (the interceptor above), then leaves.
+        ScreenHeader("Web", Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         AndroidView(
             modifier = Modifier.weight(1f).fillMaxSize(),
             factory = { context ->

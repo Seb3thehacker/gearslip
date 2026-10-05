@@ -40,11 +40,26 @@ import app.seb3thehacker.gearslip.car.theme.GsButton
 import app.seb3thehacker.gearslip.car.theme.GsTone
 import app.seb3thehacker.gearslip.host.CarAppConnection
 import app.seb3thehacker.gearslip.media.CarMedia
+import app.seb3thehacker.gearslip.CarFocus
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.PathParser
 
 /** What a built-in app's id carries in a pin, so it can't collide with an installed app's component. */
 internal const val BUILT_IN_PREFIX = "gearslip:"
 
 /** One of Gearslip's own apps: a screen, with nothing running behind it once you leave. */
+/** Material's "directions car", drawn here because only the core icon set is bundled. */
+private val CarGlyph: ImageVector = ImageVector.Builder("Car", 24.dp, 24.dp, 24f, 24f).addPath(
+    PathParser().parsePathString(
+        "M18.92,6.01C18.72,5.42 18.16,5 17.5,5h-11c-0.66,0 -1.21,0.42 -1.42,1.01L3,12v8c0,0.55 0.45,1 1,1h1" +
+            "c0.55,0 1,-0.45 1,-1v-1h12v1c0,0.55 0.45,1 1,1h1c0.55,0 1,-0.45 1,-1v-8l-2.08,-5.99z" +
+            "M6.5,16c-0.83,0 -1.5,-0.67 -1.5,-1.5S5.67,13 6.5,13s1.5,0.67 1.5,1.5S7.33,16 6.5,16z" +
+            "M17.5,16c-0.83,0 -1.5,-0.67 -1.5,-1.5s0.67,-1.5 1.5,-1.5 1.5,0.67 1.5,1.5 -0.67,1.5 -1.5,1.5z" +
+            "M5,11l1.5,-4.5h11L19,11L5,11z",
+    ).toNodes(),
+    fill = SolidColor(Color.Black),
+).build()
+
 internal class BuiltInApp(
     val id: String,
     val label: String,
@@ -60,7 +75,10 @@ internal object BuiltInApps {
     val VehicleData = BuiltInApp("vehicle", "Vehicle data", Icons.Filled.Info, CarScreen.VehicleData) { it.vehicleData() }
     val Settings = BuiltInApp("settings", "Settings", Icons.Filled.Settings, CarScreen.Settings) { it.settings() }
 
-    val all = listOf(Web, ScreenSharing, Phone, VehicleData, Settings)
+    /** Hands the screen back to the car's own interface, like Android Auto's Exit. */
+    val Exit = BuiltInApp("exit", "Exit", CarGlyph, CarScreen.Home) { CarFocus.exitToCar() }
+
+    val all = listOf(Web, ScreenSharing, Phone, VehicleData, Settings, Exit)
     val entries: List<Entry> = all.map { Entry(it.label, icon = null, builtIn = it) }
 }
 
