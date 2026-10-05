@@ -2,6 +2,7 @@ package app.seb3thehacker.gearslip
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -12,6 +13,10 @@ import org.junit.Test
  * video sink on channel 1 and a microphone source on channel 3. Picking the right one out of that
  * set is the whole job of [ServiceDiscovery.findAudioServices], and getting it wrong is silent:
  * audio simply never arrives.
+ *
+ * The 2022 Dacia Jogger (LGE ULC 4.5, protocol 1.5) offers four: AAC media on channel 3, AAC
+ * guidance on 4, PCM media on 5 and PCM guidance on 6. Gearslip sends PCM, so it has to pick
+ * channel 5 even though channel 3 comes first; PCM pushed into the AAC sink plays as silence.
  */
 class ServiceDiscoveryAudioTest {
 
@@ -90,5 +95,35 @@ class ServiceDiscoveryAudioTest {
     fun `the video sink is still found alongside the audio ones`() {
         assertNotNull(ServiceDiscovery.findVideoService(uconnectResponse()))
         assertEquals(1, ServiceDiscovery.findVideoService(uconnectResponse())!!.serviceId)
+    }
+
+    private fun daciaResponse(): ByteArray =
+        audioSink(id = 3, codec = 4, audioType = 3, config = audioConfig(48_000, 16, 2)) +
+            audioSink(id = 4, codec = 4, audioType = 1, config = audioConfig(16_000, 16, 1)) +
+            audioSink(id = 5, codec = 1, audioType = 3, config = audioConfig(48_000, 16, 2)) +
+            audioSink(id = 6, codec = 1, audioType = 1, config = audioConfig(16_000, 16, 1))
+
+    @Test
+    fun `the Uconnect's only media sink is picked`() {
+        assertEquals(5, ServiceDiscovery.pickMediaSink(ServiceDiscovery.findAudioServices(uconnectResponse()))!!.serviceId)
+    }
+
+    @Test
+    fun `a PCM media sink wins over an earlier AAC one`() {
+        val sink = ServiceDiscovery.pickMediaSink(ServiceDiscovery.findAudioServices(daciaResponse()))!!
+        assertEquals(5, sink.serviceId)
+        assertEquals("AUDIO_PCM", sink.codecName)
+    }
+
+    @Test
+    fun `with only an AAC media sink, that one is used`() {
+        val aacOnly = audioSink(id = 3, codec = 4, audioType = 3, config = audioConfig(48_000, 16, 2))
+        assertEquals(3, ServiceDiscovery.pickMediaSink(ServiceDiscovery.findAudioServices(aacOnly))!!.serviceId)
+    }
+
+    @Test
+    fun `no media sink means none is picked`() {
+        val guidanceOnly = audioSink(id = 6, codec = 1, audioType = 1, config = audioConfig(16_000, 16, 1))
+        assertNull(ServiceDiscovery.pickMediaSink(ServiceDiscovery.findAudioServices(guidanceOnly)))
     }
 }

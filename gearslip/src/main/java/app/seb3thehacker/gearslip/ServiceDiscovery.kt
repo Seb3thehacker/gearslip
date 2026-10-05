@@ -99,6 +99,20 @@ object ServiceDiscovery {
         }
     }
 
+    /**
+     * The media sink to stream to. Gearslip sends raw PCM, so a PCM sink wins: the 2022 Dacia
+     * Jogger (LGE ULC 4.5) lists an AAC media sink on channel 3 before a PCM one on channel 5,
+     * and PCM pushed into the AAC sink was acked but played as silence. With no PCM sink, the
+     * first media sink is the best there is.
+     */
+    fun pickMediaSink(sinks: List<AudioService>): AudioService? {
+        val media = sinks.filter { it.streamType == STREAM_MEDIA }
+        return media.firstOrNull { it.codecType == CODEC_PCM } ?: media.firstOrNull()
+    }
+
+    const val STREAM_MEDIA = 3
+    const val CODEC_PCM = 1
+
     private val STREAMS = mapOf(0 to "NONE", 1 to "GUIDANCE", 2 to "SYSTEM_AUDIO", 3 to "MEDIA", 4 to "TELEPHONY")
 
     private val RESOLUTIONS = mapOf(

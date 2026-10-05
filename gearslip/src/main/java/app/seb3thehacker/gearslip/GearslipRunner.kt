@@ -357,6 +357,7 @@ class GearslipRunner(
         val info = ServiceDiscovery.findHeadUnitInfo(body)
         log.i("head unit: $info")
         SessionReport.headUnit(info.toString())
+        SessionReport.headUnitInfo = info
         vehicleProfile = runCatching { vehicleProfileFor(info) }.getOrNull()
         val profile = vehicleProfile
         SessionReport.profile(profile?.name)
@@ -430,12 +431,15 @@ class GearslipRunner(
                     sink.configs.joinToString(prefix = "[", postfix = "]") { "${it.sampleRate}Hz/${it.bits}bit/x${it.channels}" },
             )
         }
-        val media = sinks.firstOrNull { it.streamType == STREAM_MEDIA } ?: run {
+        val media = ServiceDiscovery.pickMediaSink(sinks) ?: run {
             log.w("no media audio sink advertised - media apps will play on the phone only")
             SessionReport.audio(
                 "no MEDIA sink; head unit offered ${sinks.joinToString { it.streamName }.ifEmpty { "none" }}",
             )
             return
+        }
+        if (media.codecType != ServiceDiscovery.CODEC_PCM) {
+            log.w("the car offers no PCM media sink, only ${media.codecName}; it may play our PCM as silence")
         }
         val first = media.configs.firstOrNull()
         SessionReport.audio(
@@ -481,7 +485,11 @@ class GearslipRunner(
 
     private fun logSensorEvent(body: ByteArray) {
         val types = Wire.fields(body).map { it.number }.toSet()
-        if (sensorTypesLogged.addAll(types)) log.i("<- SensorEvent (first of its kind):\n" + Protobuf.describe(body))
+        if (sensorTypesLogged.addAll(types)) {
+            // Type 1 is the car's GPS position; logs get shared, so say it arrived and nothing more.
+            if (SENSOR_LOCATION in types) log.i("<- SensorEvent (first of its kind): types=$types, location left out")
+            else log.i("<- SensorEvent (first of its kind):\n" + Protobuf.describe(body))
+        }
         sensorEventsSinceLog++
         val now = System.currentTimeMillis()
         if (sensorLoggedAt == 0L) sensorLoggedAt = now
@@ -763,6 +771,7 @@ class GearslipRunner(
             log.e("unsupported resolution ${config.resolutionName}")
             return
         }
+        config.visibleSize()?.let { (w, h) -> SessionReport.carScreen("${w}x$h", config.density) }
 
         val start = Protobuf.varintField(1, SESSION_ID.toLong()) +
             Protobuf.varintField(2, index.toLong())
@@ -1127,6 +1136,7 @@ class GearslipRunner(
         const val MSG_SENSOR_START_RESPONSE = 32770
         const val MSG_SENSOR_EVENT_INDICATION = 32771
         const val MSG_SENSOR_ERROR = 32772
+        private const val SENSOR_LOCATION = 1
         private const val SENSOR_LOG_EVERY_MS = 10_000L
 
         const val STREAM_MEDIA = 3

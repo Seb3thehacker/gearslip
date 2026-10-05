@@ -47,7 +47,6 @@ import androidx.compose.ui.graphics.vector.PathParser
 /** What a built-in app's id carries in a pin, so it can't collide with an installed app's component. */
 internal const val BUILT_IN_PREFIX = "gearslip:"
 
-/** One of Gearslip's own apps: a screen, with nothing running behind it once you leave. */
 /** Material's "directions car", drawn here because only the core icon set is bundled. */
 private val CarGlyph: ImageVector = ImageVector.Builder("Car", 24.dp, 24.dp, 24f, 24f).addPath(
     PathParser().parsePathString(
@@ -60,11 +59,15 @@ private val CarGlyph: ImageVector = ImageVector.Builder("Car", 24.dp, 24.dp, 24f
     fill = SolidColor(Color.Black),
 ).build()
 
+/**
+ * One of Gearslip's own apps: a screen, with nothing running behind it once you leave. [screen] is
+ * null for an action like Exit, which has no screen and so never shows as open.
+ */
 internal class BuiltInApp(
     val id: String,
     val label: String,
     val glyph: ImageVector,
-    val screen: CarScreen,
+    val screen: CarScreen?,
     val open: (CarNavigator) -> Unit,
 )
 
@@ -76,7 +79,7 @@ internal object BuiltInApps {
     val Settings = BuiltInApp("settings", "Settings", Icons.Filled.Settings, CarScreen.Settings) { it.settings() }
 
     /** Hands the screen back to the car's own interface, like Android Auto's Exit. */
-    val Exit = BuiltInApp("exit", "Exit", CarGlyph, CarScreen.Home) { CarFocus.exitToCar() }
+    val Exit = BuiltInApp("exit", "Exit", CarGlyph, screen = null) { CarFocus.exitToCar() }
 
     val all = listOf(Web, ScreenSharing, Phone, VehicleData, Settings, Exit)
     val entries: List<Entry> = all.map { Entry(it.label, icon = null, builtIn = it) }
@@ -128,7 +131,7 @@ internal fun rememberRunningApps(): Map<String, RunningSlot> {
             else -> false
         }
         mediaApp?.component?.flattenToString()?.takeIf { mediaLive }?.let { put(it, RunningSlot.MEDIA) }
-        BuiltInApps.all.firstOrNull { it.screen == current }?.let { put(BUILT_IN_PREFIX + it.id, RunningSlot.SCREEN) }
+        BuiltInApps.all.firstOrNull { it.screen != null && it.screen == current }?.let { put(BUILT_IN_PREFIX + it.id, RunningSlot.SCREEN) }
         (current as? CarScreen.Messages)?.let { put(MESSAGING_PREFIX + it.packageName, RunningSlot.SCREEN) }
     }
 }

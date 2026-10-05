@@ -84,11 +84,13 @@ object Weather {
             return
         }
         val data = runCatching { fetch(context, location) }
-            .onFailure { GearslipLog.w("weather fetch failed: ${it.message}") }
+            // Only the kind of error: some messages carry the request URL, and that holds the location.
+            .onFailure { GearslipLog.w("weather fetch failed: ${it.javaClass.simpleName}") }
             .getOrNull()
         if (data != null) {
             flow.value = WeatherState.Ready(data)
-            GearslipLog.i("weather: ${data.place} ${data.temp}${data.tempUnit} ${describe(data.code)}")
+            // No place name: logs get shared in bug reports.
+            GearslipLog.i("weather: loaded")
         }
         else if (flow.value !is WeatherState.Ready) flow.value = WeatherState.Unavailable("Could not reach the weather service.")
     }
