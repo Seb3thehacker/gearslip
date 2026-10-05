@@ -51,18 +51,17 @@ object UsageStats {
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /**
-     * Dev builds are the developer's own, so they always send everything and never ask: no switch
-     * in Settings, no page in setup. Only release builds offer the choice.
+     * Dev builds never send anything and never ask: no switch in Settings, no page in setup, so
+     * testing doesn't muddy the numbers. Only release builds offer the choice.
      */
     val choosable: Boolean get() = !BuildConfig.DEBUG
 
-    fun enabled(context: Context): Boolean = !choosable || prefs(context).getBoolean(KEY_ENABLED, false)
+    fun enabled(context: Context): Boolean = choosable && prefs(context).getBoolean(KEY_ENABLED, false)
 
     /** Whether the driver has answered the question in setup, either way. */
     fun asked(context: Context): Boolean = !choosable || prefs(context).getBoolean(KEY_ASKED, false)
 
     fun choices(context: Context): Choices {
-        if (!choosable) return Choices()
         val p = prefs(context)
         return Choices(
             android = p.getBoolean("share_android", true),
