@@ -60,6 +60,14 @@ class VideoSource(
             // Drops already ask for a fresh keyframe, so a long interval costs nothing in recovery
             // and spares the link a big frame every second.
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL_S)
+            if (mode == Mode.SURFACE) {
+                // A surface encoder only makes a frame when the screen changes, and many decoders
+                // show a frame only once the next one arrives. So the last change before the
+                // screen goes still (a menu closing) sat in the car's decoder until something
+                // else moved. Repeating the last frame after a short pause pushes it through;
+                // a repeat of an unchanged screen costs a few bytes. scrcpy does the same.
+                setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_AFTER_US)
+            }
             setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
             setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
             if (tuned) {
@@ -215,6 +223,7 @@ class VideoSource(
         const val MIN_BIT_RATE = 4_000_000
         const val MAX_BIT_RATE = 12_000_000
         const val I_FRAME_INTERVAL_S = 5
+        private const val REPEAT_AFTER_US = 100_000L
 
         /** (Y, Cb, Cr) - white, yellow, cyan, green, magenta, red, blue. */
         val BAR_COLOURS = listOf(
