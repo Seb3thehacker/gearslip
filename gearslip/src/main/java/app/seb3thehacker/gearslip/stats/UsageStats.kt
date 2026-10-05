@@ -51,15 +51,15 @@ object UsageStats {
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /**
-     * Dev builds never send anything and never ask: no switch in Settings, no page in setup, so
-     * testing doesn't muddy the numbers. Only release builds offer the choice.
+     * Dev builds show every switch and screen, so they can be tested, but never send anything:
+     * testing mustn't muddy the numbers.
      */
-    val choosable: Boolean get() = !BuildConfig.DEBUG
+    val sends: Boolean get() = !BuildConfig.DEBUG && BuildConfig.STATS_URL.isNotBlank()
 
-    fun enabled(context: Context): Boolean = choosable && prefs(context).getBoolean(KEY_ENABLED, false)
+    fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
 
     /** Whether the driver has answered the question in setup, either way. */
-    fun asked(context: Context): Boolean = !choosable || prefs(context).getBoolean(KEY_ASKED, false)
+    fun asked(context: Context): Boolean = prefs(context).getBoolean(KEY_ASKED, false)
 
     fun choices(context: Context): Choices {
         val p = prefs(context)
@@ -98,7 +98,7 @@ object UsageStats {
      * a car recorded mid-send still goes out.
      */
     private fun sendSoon(context: Context) {
-        if (!enabled(context)) return
+        if (!sends || !enabled(context)) return
         if (!sending.compareAndSet(false, true)) { sendAgain = true; return }
         val app = context.applicationContext
         Thread({
@@ -192,9 +192,8 @@ object UsageStats {
 
     /** Sends the note now; false when it didn't get through. */
     private fun send(context: Context): Boolean {
-        if (!enabled(context)) return true
+        if (!sends || !enabled(context)) return true
         val endpoint = BuildConfig.STATS_URL
-        if (endpoint.isBlank()) return true
         val p = prefs(context)
         val note = synchronized(carsLock) { preview(context) }
         val sentCars = note.optJSONArray("cars")?.toString()

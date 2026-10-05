@@ -55,7 +55,6 @@ import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.BuildConfig
 import app.seb3thehacker.gearslip.CertProvider
-import app.seb3thehacker.gearslip.stats.UsageStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -94,9 +93,7 @@ fun SettingsScreen(
             ConnectionSection()
             if (SHOW_RECOMMENDED_APPS) AppsSection(onOpenRecommendedApps)
             CertificateSection()
-            if (UsageStats.choosable) {
-                SettingsSection("Usage notes", header = USAGE_STATS_INTRO) { UsageStatsRows(showNote = true) }
-            }
+            SettingsSection("Usage notes", header = USAGE_STATS_INTRO) { UsageStatsRows(showNote = true) }
             Spacer(Modifier.height(16.dp))
         }
     }

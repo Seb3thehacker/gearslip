@@ -84,7 +84,11 @@ internal fun ColumnScope.UsageStatsRows(showNote: Boolean) {
     SettingsRow(
         "Send usage notes",
         Modifier.toggleable(on, role = Role.Switch) { on = it; save() },
-        subtitle = if (BuildConfig.STATS_URL.isBlank()) "This build has no stats server, so it sends nothing" else null,
+        subtitle = when {
+            BuildConfig.DEBUG -> "Dev build: nothing is ever sent"
+            BuildConfig.STATS_URL.isBlank() -> "This build has no stats server, so it sends nothing"
+            else -> null
+        },
         icon = Icons.Filled.Send,
         trailing = { Switch(checked = on, onCheckedChange = null) },
     )
@@ -154,11 +158,10 @@ private fun Choice(label: String, checked: Boolean, onChange: (Boolean) -> Unit)
 
 /**
  * Asks once, for people who set Gearslip up before usage notes existed and so never saw the
- * setup page. Either answer is final; Settings changes it later. Release builds only.
+ * setup page. Either answer is final; Settings changes it later.
  */
 @Composable
 internal fun UsageStatsPrompt() {
-    if (!UsageStats.choosable) return
     val context = LocalContext.current
     var show by remember { mutableStateOf(!UsageStats.asked(context)) }
     if (!show) return

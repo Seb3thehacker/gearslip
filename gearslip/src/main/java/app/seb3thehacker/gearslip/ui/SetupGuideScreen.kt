@@ -287,21 +287,18 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
 
     // --- The very end, every time: usage notes. The first time through, leaving the page
     // without turning them on is a no; on a replay, the switch shows what was chosen before.
-    // Dev builds never send, so they skip the page.
-    if (UsageStats.choosable) {
-        add(
-            GuidePage(
-                title = USAGE_STATS_TITLE,
-                explanation = USAGE_STATS_INTRO,
-                content = {
-                    UsageStatsChoices()
-                    DisposableEffect(Unit) {
-                        onDispose { if (!UsageStats.asked(context)) UsageStats.set(context, false) }
-                    }
-                },
-            ),
-        )
-    }
+    add(
+        GuidePage(
+            title = USAGE_STATS_TITLE,
+            explanation = USAGE_STATS_INTRO,
+            content = {
+                UsageStatsChoices()
+                DisposableEffect(Unit) {
+                    onDispose { if (!UsageStats.asked(context)) UsageStats.set(context, false) }
+                }
+            },
+        ),
+    )
 }
 
 /**
