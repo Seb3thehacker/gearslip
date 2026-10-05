@@ -74,6 +74,8 @@
          LAUNCHER query below to find, so the setup guide's Android Auto check needs this to see
          whether the package is installed at all. -->
     <package android:name="com.google.android.projection.gearhead" />
+    <!-- Every GrapheneOS install has this; the opt-in usage note uses it to say "GrapheneOS". -->
+    <package android:name="app.grapheneos.setupwizard" />
     <intent>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />

@@ -27,6 +27,7 @@ import app.seb3thehacker.gearslip.car.CarEnvironment
 import app.seb3thehacker.gearslip.car.CarSettings
 import app.seb3thehacker.gearslip.car.CarUi
 import app.seb3thehacker.gearslip.car.Prefetch
+import app.seb3thehacker.gearslip.stats.UsageStats
 import app.seb3thehacker.gearslip.ui.GearslipApp
 import app.seb3thehacker.gearslip.ui.GearslipTheme
 import java.io.FileInputStream
@@ -150,6 +151,7 @@ class GearslipActivity : ComponentActivity(), Projection {
     override fun onStart() {
         super.onStart()
         Prefetch.warm(this)
+        UsageStats.onAppOpened(this)
     }
 
     override fun onNewIntent(intent: Intent) {

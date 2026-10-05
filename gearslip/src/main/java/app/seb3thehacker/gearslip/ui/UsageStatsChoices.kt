@@ -1,0 +1,148 @@
+package app.seb3thehacker.gearslip.ui
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+import app.seb3thehacker.gearslip.BuildConfig
+import app.seb3thehacker.gearslip.stats.UsageStats
+
+internal const val USAGE_STATS_TITLE = "Help show which cars work"
+
+private const val INTRO_START =
+    "Gearslip can't tell which cars it works in unless drivers say so. Turn this on, and Gearslip " +
+        "sends a short note when you open it and after each drive, never in the background. The " +
+        "note carries the Gearslip version and whatever you tick below. "
+private const val INTRO_PRIVACY =
+    "It holds no name, account, or location, only a random number so your phone counts once. " +
+        "Cloudflare carries the note, and the server keeps no IP address."
+private const val INTRO_END =
+    " Nothing helps the project more: these notes tell the next driver whether their car " +
+        "will work before they install."
+
+/** The pitch for the usage notes, with the privacy promise in bold so it isn't missed. */
+internal val USAGE_STATS_INTRO: AnnotatedString = buildAnnotatedString {
+    append(INTRO_START)
+    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(INTRO_PRIVACY) }
+    append(INTRO_END)
+}
+
+/** The usage notes card for the setup guide: the same rows Settings shows, minus the note. */
+@Composable
+internal fun UsageStatsChoices(modifier: Modifier = Modifier) {
+    SettingsCard(modifier) { UsageStatsRows(showNote = false) }
+}
+
+/**
+ * The on switch, what to share, and (with [showNote]) the note itself, saved as they change.
+ * Rows only: the caller puts them in a card.
+ */
+@Composable
+internal fun ColumnScope.UsageStatsRows(showNote: Boolean) {
+    val context = LocalContext.current
+    var on by remember { mutableStateOf(UsageStats.enabled(context)) }
+    var choices by remember { mutableStateOf(UsageStats.choices(context)) }
+    var noteOpen by remember { mutableStateOf(false) }
+    fun save() = UsageStats.set(context, on, choices)
+
+    SettingsRow(
+        "Send usage notes",
+        Modifier.toggleable(on, role = Role.Switch) { on = it; save() },
+        subtitle = if (BuildConfig.STATS_URL.isBlank()) "This build has no stats server, so it sends nothing" else null,
+        icon = Icons.Filled.Send,
+        trailing = { Switch(checked = on, onCheckedChange = null) },
+    )
+    AnimatedVisibility(on) {
+        Column {
+            SettingsDivider()
+            Text(
+                "Also share",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 56.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+            )
+            Choice("Android version, and whether it's GrapheneOS", choices.android) { choices = choices.copy(android = it); save() }
+            Choice("Phone model", choices.phone) { choices = choices.copy(phone = it); save() }
+            Choice("Each car's head unit, model, year, and screen size, and whether it connected", choices.cars) {
+                choices = choices.copy(cars = it)
+                save()
+            }
+            if (showNote) {
+                SettingsDivider()
+                SettingsRow(
+                    "What gets sent",
+                    Modifier.clickable { noteOpen = !noteOpen },
+                    subtitle = "The Android version and phone model go only when they change, and once a month",
+                    icon = Icons.Filled.Info,
+                    trailing = {
+                        Icon(
+                            if (noteOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = if (noteOpen) "Hide the note" else "Show the note",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                )
+                AnimatedVisibility(noteOpen) {
+                    // Rebuilt from the saved choices each time one changes, so it always matches.
+                    val note = remember(choices) { UsageStats.preview(context, everything = true).toString(2) }
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    ) {
+                        Text(
+                            note,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A share choice: the label lines up with the rows' titles, the checkbox sits at the end. */
+@Composable
+private fun Choice(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().toggleable(checked, role = Role.Checkbox, onValueChange = onChange)
+            .padding(start = 56.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).padding(end = 12.dp))
+        Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.padding(vertical = 8.dp))
+    }
+}

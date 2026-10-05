@@ -35,6 +35,9 @@ android {
         versionCode = 7
         versionName = "0.1.10-alpha"
         manifestPlaceholders["appLabel"] = "Gearslip"
+        // Where opted-in phones send their daily usage note: the stats-worker/ Worker's address,
+        // set as gearslipStatsUrl in gradle.properties. Left empty, nothing is ever sent.
+        buildConfigField("String", "STATS_URL", "\"${project.findProperty("gearslipStatsUrl") ?: ""}\"")
     }
 
     signingConfigs {

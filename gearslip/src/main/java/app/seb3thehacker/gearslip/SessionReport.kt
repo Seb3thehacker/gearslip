@@ -1,6 +1,7 @@
 package app.seb3thehacker.gearslip
 
 import android.content.Context
+import app.seb3thehacker.gearslip.stats.UsageStats
 import android.os.Build
 
 /**
@@ -48,7 +49,10 @@ object SessionReport {
     @Volatile private var lastState = ""
     private var printed = false
 
+    private var appContext: Context? = null
+
     fun init(context: Context) {
+        appContext = context.applicationContext
         val info = runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
         appVersion = info?.versionName ?: "?"
         appCode = info?.longVersionCode ?: 0
@@ -59,6 +63,8 @@ object SessionReport {
         category = Category.NONE
         failure = ""; protocolVersion = ""; certSource = ""; certIssuer = ""
         tlsProtocol = ""; tlsCipher = ""; authStatus = null
+        headUnitInfo = null
+        carScreen = ""; carDpi = 0
         headUnit = ""; profile = ""; video = ""; lastStream = ""; lastState = ""
         printed = false
     }
@@ -68,6 +74,14 @@ object SessionReport {
     fun tls(protocol: String, cipher: String) { tlsProtocol = protocol; tlsCipher = cipher }
     fun auth(status: Int) { authStatus = status }
     fun headUnit(info: String) { headUnit = info }
+
+    /** Who the car said it is, for the opt-in usage note; null until service discovery. */
+    @Volatile var headUnitInfo: ServiceDiscovery.HeadUnitInfo? = null
+
+    /** The car screen's usable size once its margins are cropped, and its density; blank before video starts. */
+    @Volatile var carScreen = ""; private set
+    @Volatile var carDpi = 0; private set
+    fun carScreen(size: String, dpi: Int) { carScreen = size; carDpi = dpi }
     fun profile(name: String?) { profile = name ?: "none matched" }
     fun video(summary: String) { video = summary }
     fun audio(summary: String) { audio = summary }
@@ -121,6 +135,18 @@ object SessionReport {
         if (printed || startedAt == 0L) return
         printed = true
         render().lines().forEach { GearslipLog.i(it) }
+        appContext?.let { context ->
+            // Video started means the car showed Gearslip: that's a working car, and unplugging or
+            // switching the car off at the end shows up as a USB or ByeBye "failure" that isn't one.
+            val reached = carScreen.isNotEmpty()
+            val outcome = when {
+                reached && category in setOf(Category.NONE, Category.USB, Category.BYEBYE) -> "connected"
+                reached -> "connected, then ${category.label}"
+                category == Category.NONE -> "ended before video"
+                else -> category.label
+            }
+            runCatching { UsageStats.recordSession(context, headUnitInfo, protocolVersion, outcome, carScreen, carDpi) }
+        }
         GearslipLog.flush()
     }
 

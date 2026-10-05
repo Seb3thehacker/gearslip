@@ -15,8 +15,6 @@ keystore.properties
 .cxx/
 
 # Testing
-/docs/cert-sweep.sh
-extraction/
 /cloned-repos
 docs-internal/
 
@@ -31,6 +29,4 @@ CLAUDE.md
 
 # Other
 archive/
-
-# Side project notes, kept out of the repo
-backseat-jury.md
+.wrangler/

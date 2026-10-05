@@ -74,6 +74,27 @@ mode.
   adb commands: one removes the audio dialog for good, and the other keeps notifications
   visible while audio plays.
 
+## Usage notes
+
+Gearslip can send short notes that show which cars it works in. They stay off unless you
+turn them on, in setup or in Settings.
+
+- **When they go out.** When you open Gearslip, at most once a day, and after each drive.
+  Nothing runs in the background.
+- **What they carry.** The Gearslip version, plus whatever you tick: the Android version
+  and whether the phone runs GrapheneOS, the phone model, whether a car connected that
+  day, and each car's head unit, model, year, screen size, and connection result.
+  Settings shows the exact note.
+- **What they leave out.** Your name, accounts, location, contacts, messages, and
+  anything you type or play.
+- **How phones are counted.** A random number counts each phone once. The server keeps
+  only a salted hash of it.
+- **Where they go.** To a Cloudflare Worker, whose code is in
+  [stats-worker/](stats-worker/). Cloudflare sees your IP address in delivering a note,
+  as it would for any website; the Worker doesn't store it.
+
+Turn the notes off, and they stop at once.
+
 ## Building
 
 ```

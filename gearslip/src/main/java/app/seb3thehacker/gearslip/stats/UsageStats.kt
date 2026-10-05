@@ -1,0 +1,235 @@
+package app.seb3thehacker.gearslip.stats
+
+import android.app.job.JobScheduler
+import android.content.Context
+import android.os.Build
+import app.seb3thehacker.gearslip.BuildConfig
+import app.seb3thehacker.gearslip.GearslipLog
+import app.seb3thehacker.gearslip.ServiceDiscovery
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.time.LocalDate
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Opt-in usage counts: a short note to the stats Worker (stats-worker/ in the repo). Off until the
+ * driver turns it on in setup or Settings. Only the app version is always sent; everything else
+ * is one of the driver's [Choices]. A random install ID counts a phone once; nothing ties it to a
+ * person, and the Worker keeps no IP addresses.
+ *
+ * Notes go out only while Gearslip is in use: the first time the app is opened each day, and
+ * after every car session. Nothing runs in the background, so a phone that stops using Gearslip
+ * goes quiet. A note that fails waits for the next one. With no [BuildConfig.STATS_URL] set at
+ * build time, nothing is sent.
+ */
+object UsageStats {
+
+    /** What the driver agreed to share beyond the app version. */
+    data class Choices(
+        val android: Boolean = true,
+        val phone: Boolean = true,
+        val cars: Boolean = true,
+    )
+
+    private const val PREFS = "usage_stats"
+    private const val KEY_ENABLED = "enabled"
+    private const val KEY_ASKED = "asked"
+    private const val KEY_ID = "install_id"
+    /** The phone details the server last got, and when, so they go again only on a change. */
+    private const val KEY_SENT_DETAILS = "sent_details"
+    private const val KEY_DETAILS_DAY = "details_day"
+    private const val DETAILS_REFRESH_DAYS = 30L
+    private const val KEY_CARS = "cars"
+    private const val KEY_SENT_DAY = "sent_day"
+    /** The daily background job of earlier builds, cancelled wherever it's still scheduled. */
+    private const val OLD_JOB_ID = 4_207
+    private const val MAX_CARS = 10
+
+    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /**
+     * Dev builds are the developer's own, so they always send everything and never ask: no switch
+     * in Settings, no page in setup. Only release builds offer the choice.
+     */
+    val choosable: Boolean get() = !BuildConfig.DEBUG
+
+    fun enabled(context: Context): Boolean = !choosable || prefs(context).getBoolean(KEY_ENABLED, false)
+
+    /** Whether the driver has answered the question in setup, either way. */
+    fun asked(context: Context): Boolean = !choosable || prefs(context).getBoolean(KEY_ASKED, false)
+
+    fun choices(context: Context): Choices {
+        if (!choosable) return Choices()
+        val p = prefs(context)
+        return Choices(
+            android = p.getBoolean("share_android", true),
+            phone = p.getBoolean("share_phone", true),
+            cars = p.getBoolean("share_cars", true),
+        )
+    }
+
+    fun set(context: Context, enabled: Boolean, choices: Choices = choices(context)) {
+        prefs(context).edit()
+            .putBoolean(KEY_ENABLED, enabled)
+            .putBoolean(KEY_ASKED, true)
+            .putBoolean("share_android", choices.android)
+            .putBoolean("share_phone", choices.phone)
+            .putBoolean("share_cars", choices.cars)
+            .apply()
+        if (enabled) sendSoon(context)
+        else prefs(context).edit().remove(KEY_CARS).remove(KEY_SENT_DAY).apply()
+    }
+
+    /** Gearslip was opened: send today's note unless one already went out. */
+    fun onAppOpened(context: Context) {
+        context.getSystemService(JobScheduler::class.java)?.cancel(OLD_JOB_ID)
+        if (prefs(context).getString(KEY_SENT_DAY, null) != LocalDate.now().toString()) sendSoon(context)
+    }
+
+    private val sending = AtomicBoolean(false)
+    @Volatile private var sendAgain = false
+    /** Guards the saved car list, which a session's end and a finished send both rewrite. */
+    private val carsLock = Any()
+
+    /**
+     * Sends off the calling thread. A call while a note is in flight sends once more after it, so
+     * a car recorded mid-send still goes out.
+     */
+    private fun sendSoon(context: Context) {
+        if (!enabled(context)) return
+        if (!sending.compareAndSet(false, true)) { sendAgain = true; return }
+        val app = context.applicationContext
+        Thread({
+            try {
+                do { sendAgain = false } while (send(app) && sendAgain)
+            } finally {
+                sending.set(false)
+            }
+        }, "gearslip-stats").start()
+    }
+
+    private fun installId(context: Context): String {
+        val p = prefs(context)
+        return p.getString(KEY_ID, null) ?: UUID.randomUUID().toString().also { p.edit().putString(KEY_ID, it).apply() }
+    }
+
+    /**
+     * A car session ended. [info] is null when the car hung up before it said who it is, for
+     * instance after rejecting the certificate; the protocol version and [outcome] still say a lot.
+     */
+    fun recordSession(
+        context: Context,
+        info: ServiceDiscovery.HeadUnitInfo?,
+        protocol: String,
+        outcome: String,
+        screen: String = "",
+        dpi: Int = 0,
+    ) {
+        if (!enabled(context)) return
+        val p = prefs(context)
+        synchronized(carsLock) { addCar(p, info, protocol, outcome, screen, dpi) }
+        sendSoon(context)
+    }
+
+    private fun addCar(
+        p: android.content.SharedPreferences,
+        info: ServiceDiscovery.HeadUnitInfo?,
+        protocol: String,
+        outcome: String,
+        screen: String,
+        dpi: Int,
+    ) {
+        val cars = runCatching { JSONArray(p.getString(KEY_CARS, "[]")) }.getOrDefault(JSONArray())
+        val car = JSONObject()
+            .put("name", info?.headUnitName.orEmpty())
+            .put("car", info?.carModel.orEmpty())
+            .put("year", info?.carYear.orEmpty())
+            .put("make", info?.headUnitMake.orEmpty())
+            .put("model", info?.headUnitModel.orEmpty())
+            .put("protocol", protocol)
+            .put("result", outcome)
+        if (screen.isNotEmpty()) car.put("screen", screen).put("dpi", dpi)
+        // The same car and outcome twice in a day is one fact, not two.
+        val seen = (0 until cars.length()).any { cars.optJSONObject(it)?.toString() == car.toString() }
+        if (!seen && cars.length() < MAX_CARS) cars.put(car)
+        p.edit().putString(KEY_CARS, cars.toString()).apply()
+    }
+
+    // GrapheneOS reports the same build fields as stock Pixel firmware; its own apps give it away.
+    private fun isGrapheneOs(context: Context) =
+        runCatching { context.packageManager.getPackageInfo("app.grapheneos.setupwizard", 0) }.isSuccess
+
+    private fun details(context: Context, c: Choices) = JSONObject().apply {
+        if (c.android) put("android", Build.VERSION.RELEASE).put("os", if (isGrapheneOs(context)) "GrapheneOS" else "other")
+        if (c.phone) put("phone", "${Build.MANUFACTURER} ${Build.MODEL}")
+    }
+
+    /**
+     * What a note carries. With [everything], every field the driver shares, as Settings shows it;
+     * otherwise exactly what the next note would send, which leaves out unchanged phone details.
+     */
+    fun preview(context: Context, everything: Boolean = false): JSONObject {
+        val c = choices(context)
+        val p = prefs(context)
+        val note = JSONObject()
+            .put("id", installId(context))
+            .put("version", BuildConfig.VERSION_NAME)
+            .put("code", BuildConfig.VERSION_CODE)
+            .put("build", if (BuildConfig.DEBUG) "dev" else "release")
+        // Phone details change rarely, so they ride along only when they differ from what the
+        // server last got, or once a month in case it lost them. Unticked ones are left out, and
+        // the server keeps the last value it had.
+        val details = details(context, c)
+        val stale = p.getString(KEY_DETAILS_DAY, null)?.let { LocalDate.parse(it).plusDays(DETAILS_REFRESH_DAYS) <= LocalDate.now() } ?: true
+        if (details.length() > 0 && (everything || stale || details.toString() != p.getString(KEY_SENT_DETAILS, null))) {
+            details.keys().forEach { note.put(it, details.get(it)) }
+        }
+        if (c.cars) note.put("cars", runCatching { JSONArray(p.getString(KEY_CARS, "[]")) }.getOrDefault(JSONArray()))
+        return note
+    }
+
+    /** Sends the note now; false when it didn't get through. */
+    private fun send(context: Context): Boolean {
+        if (!enabled(context)) return true
+        val endpoint = BuildConfig.STATS_URL
+        if (endpoint.isBlank()) return true
+        val p = prefs(context)
+        val note = synchronized(carsLock) { preview(context) }
+        val sentCars = note.optJSONArray("cars")?.toString()
+        val sentDetails = if (note.has("android") || note.has("phone")) details(context, choices(context)).toString() else null
+        val body = note.toString().toByteArray()
+        return runCatching {
+            val conn = (URL("$endpoint/ping").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = 15_000
+                readTimeout = 15_000
+                setRequestProperty("Content-Type", "application/json")
+            }
+            conn.outputStream.use { it.write(body) }
+            val code = conn.responseCode
+            conn.disconnect()
+            if (code in 200..299) {
+                // Sent: the cars start over, unless a session ended meanwhile and added one, which
+                // stays for the next note.
+                synchronized(carsLock) {
+                    val edit = p.edit().putString(KEY_SENT_DAY, LocalDate.now().toString())
+                    if (sentDetails != null) edit.putString(KEY_SENT_DETAILS, sentDetails).putString(KEY_DETAILS_DAY, LocalDate.now().toString())
+                    if (sentCars == null || p.getString(KEY_CARS, "[]") == sentCars) edit.remove(KEY_CARS)
+                    edit.apply()
+                }
+                GearslipLog.i("stats: note sent")
+                true
+            } else {
+                GearslipLog.w("stats: the server answered $code")
+                false
+            }
+        }.getOrElse {
+            GearslipLog.w("stats: could not send: ${it.message}")
+            false
+        }
+    }
+}
