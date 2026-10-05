@@ -262,13 +262,15 @@ fun CarUi() {
 @Composable
 private fun CarSafetyWizard(onDone: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        // The card and its button share one width, capped so neither sprawls across a wide screen.
         Column(
-            Modifier.fillMaxWidth().padding(24.dp),
+            Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
                 shape = MaterialTheme.shapes.extraLarge,
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Drive safely", style = ChromeType.headline, fontWeight = FontWeight.Bold)
