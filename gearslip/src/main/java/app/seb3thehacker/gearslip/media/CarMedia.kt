@@ -6,6 +6,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadata
 import android.media.Rating
+import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -170,6 +171,17 @@ class CarMedia(private val context: Context) {
     /** A typed search on its way to the app; [Search.ignored] once it has played nothing for it. */
     class Search(val query: String, val ignored: Boolean = false)
 
+    /**
+     * What the app's own library search found for [query]. [entries] is null while it looks.
+     * [supported] is false when the app has no library search, so the panel can fall back to
+     * "play the best match" (see [search]).
+     */
+    class Results(val query: String, val entries: List<MediaEntry>? = null, val supported: Boolean = true)
+
+    private val _results = MutableStateFlow<Results?>(null)
+    val results: StateFlow<Results?> = _results.asStateFlow()
+    private var resultsQuery: String? = null
+
     private val _search = MutableStateFlow<Search?>(null)
     val search: StateFlow<Search?> = _search.asStateFlow()
     private var searchBefore: NowPlaying? = null
@@ -286,6 +298,7 @@ class CarMedia(private val context: Context) {
 
     private fun onConnected(app: MediaApp) {
         val mb = browser ?: return
+        searchComponent = app.component
         GearslipLog.i("media: connected to ${app.label}, root=${mb.root}")
         attach(MediaController(context, mb.sessionToken))
         rootId = mb.root
@@ -423,10 +436,101 @@ class CarMedia(private val context: Context) {
         main.removeCallbacks(searchTimeout)
         searchBefore = _now.value
         _search.value = Search(query)
-        GearslipLog.i("media: -> playFromSearch(\"$query\")")
+        GearslipLog.i("media: -> playFromSearch")
         c.transportControls.playFromSearch(query, Bundle())
         main.postDelayed(searchTimeout, SEARCH_WAIT_MS)
     }
+
+    /**
+     * Asks the app's library for matches to [query], to list for the driver to pick from. Unlike
+     * [search], nothing plays until one is chosen, so a wrong guess costs nothing. Metrolist and
+     * ViVi answer with songs from the library first, then YouTube Music.
+     */
+    fun searchLibrary(query: String) {
+        val q = query.trim()
+        if (q.isEmpty()) {
+            clearResults()
+            return
+        }
+        val component = searchComponent
+        if (component == null) {
+            _results.value = Results(q, emptyList(), supported = false)
+            return
+        }
+        resultsQuery = q
+        _results.value = Results(q)
+        val sb = searchBrowser
+        if (sb != null && sb.isConnected) {
+            runSearch(sb, q)
+            return
+        }
+        if (sb != null) return // still connecting; it searches for [resultsQuery] once connected
+        // The framework MediaBrowser has no search; the support library's does, over the same
+        // service. Opened on first use only, so apps nobody searches never see a second client.
+        lateinit var created: MediaBrowserCompat
+        created = MediaBrowserCompat(context, component, object : MediaBrowserCompat.ConnectionCallback() {
+            override fun onConnected() {
+                resultsQuery?.let { runSearch(created, it) }
+            }
+
+            override fun onConnectionFailed() {
+                GearslipLog.w("media: no library connection for search")
+                searchBrowser = null
+                resultsQuery?.let { _results.value = Results(it, emptyList(), supported = false) }
+            }
+        }, null)
+        searchBrowser = created
+        runCatching { created.connect() }.onFailure {
+            searchBrowser = null
+            _results.value = Results(q, emptyList(), supported = false)
+        }
+    }
+
+    private fun runSearch(sb: MediaBrowserCompat, q: String) {
+        runCatching {
+            sb.search(q, Bundle(), object : MediaBrowserCompat.SearchCallback() {
+                override fun onSearchResult(query: String, extras: Bundle?, items: List<MediaBrowserCompat.MediaItem>) {
+                    if (query != resultsQuery) return
+                    GearslipLog.i("media: library search found ${items.size}")
+                    _results.value = Results(query, items.map(::entryOfCompat))
+                }
+
+                override fun onError(query: String, extras: Bundle?) {
+                    if (query != resultsQuery) return
+                    GearslipLog.i("media: the app has no library search")
+                    _results.value = Results(query, emptyList(), supported = false)
+                }
+            })
+        }.onFailure {
+            GearslipLog.w("media: library search failed: ${it.message}")
+            _results.value = Results(q, emptyList(), supported = false)
+        }
+    }
+
+    private fun entryOfCompat(item: MediaBrowserCompat.MediaItem): MediaEntry {
+        val d = item.description
+        return MediaEntry(
+            id = item.mediaId.orEmpty(),
+            title = d.title?.toString().orEmpty(),
+            subtitle = d.subtitle?.toString().orEmpty(),
+            iconUri = d.iconUri,
+            iconBitmap = d.iconBitmap,
+            browsable = item.isBrowsable,
+            playable = item.isPlayable,
+        )
+    }
+
+    /** The connected app's service, for the search connection; null when nothing is connected. */
+    private var searchComponent: android.content.ComponentName? = null
+    private var searchBrowser: MediaBrowserCompat? = null
+
+    fun clearResults() {
+        resultsQuery = null
+        _results.value = null
+    }
+
+    /** Whether there's a library to search through, the better of the two searches. */
+    val canSearchLibrary: Boolean get() = browser?.isConnected == true && searchComponent != null
 
     fun dismissSearch() {
         main.removeCallbacks(searchTimeout)
@@ -437,7 +541,7 @@ class CarMedia(private val context: Context) {
     private val searchTimeout = Runnable {
         val pending = _search.value ?: return@Runnable
         if (pending.ignored) return@Runnable
-        GearslipLog.w("media: nothing new played for \"${pending.query}\"")
+        GearslipLog.w("media: nothing new played after a search")
         _search.value = Search(pending.query, ignored = true)
         main.postDelayed(clearSearch, SEARCH_NOTICE_MS)
     }
@@ -451,7 +555,7 @@ class CarMedia(private val context: Context) {
         val now = _now.value
         if (pending.ignored || !now.playing) return
         if (now.title != before.title || !before.playing) {
-            GearslipLog.i("media: search played \"${now.title}\"")
+            GearslipLog.i("media: search started playback")
             dismissSearch()
         }
     }
@@ -486,6 +590,10 @@ class CarMedia(private val context: Context) {
 
     fun disconnect() {
         connecting = null
+        runCatching { searchBrowser?.disconnect() }
+        searchBrowser = null
+        searchComponent = null
+        clearResults()
         main.removeCallbacksAndMessages(null)
         runCatching { compat?.unregisterCallback(compatCallback) }
         compat = null

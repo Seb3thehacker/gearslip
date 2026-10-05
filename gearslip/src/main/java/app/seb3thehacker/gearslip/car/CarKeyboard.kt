@@ -27,6 +27,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceIn
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.LaunchedEffect
 
 /**
  * Whether a [CarKeyboard] is on screen right now, so [CarUi] can give it the row of height the
@@ -72,64 +79,77 @@ fun CarKeyboard(
         onDispose { CarKeyboardVisibility.state.value = false }
     }
 
-    val rows = if (symbols) SYMBOL_ROWS else LETTER_ROWS
+    // The same field on the phone, for typing on its own keyboard: see [PhoneTyping].
+    val latestChange by rememberUpdatedState(onTextChange)
+    val latestSubmit by rememberUpdatedState(onSubmit)
+    val latestDismiss by rememberUpdatedState(onDismiss)
+    val phoneField = remember {
+        PhoneTyping.open(text, { latestChange(it) }, { latestSubmit() }, onDismiss?.let { { latestDismiss?.invoke() } })
+    }
+    DisposableEffect(phoneField) { onDispose { PhoneTyping.close(phoneField) } }
+    LaunchedEffect(text) { PhoneTyping.carText(phoneField, text) }
 
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Column(
-            Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+    val rows = if (symbols) SYMBOL_ROWS else LETTER_ROWS
+    val keyHeight = keyHeight(LocalConfiguration.current.screenHeightDp)
+
+    CompositionLocalProvider(LocalKeyHeight provides keyHeight) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = modifier.fillMaxWidth(),
         ) {
-            rows.dropLast(1).forEach { row ->
+            Column(
+                Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                rows.dropLast(1).forEach { row ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        row.forEach { key ->
+                            val label = if (shifted && !symbols) key.uppercase() else key
+                            Key(label, Modifier.weight(1f)) {
+                                onTextChange(text + label)
+                                shifted = false
+                            }
+                        }
+                    }
+                }
+
+                // The bottom letter row: shift and backspace bookend it, exactly where a physical
+                // keyboard puts them relative to the letter block, not down beside the space bar.
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    row.forEach { key ->
+                    if (!symbols) {
+                        Key(if (shifted) "SHIFT" else "shift", Modifier.weight(1.6f)) { shifted = !shifted }
+                    }
+                    rows.last().forEach { key ->
                         val label = if (shifted && !symbols) key.uppercase() else key
                         Key(label, Modifier.weight(1f)) {
                             onTextChange(text + label)
                             shifted = false
                         }
                     }
-                }
-            }
-
-            // The bottom letter row: shift and backspace bookend it, exactly where a physical
-            // keyboard puts them relative to the letter block, not down beside the space bar.
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                if (!symbols) {
-                    Key(if (shifted) "SHIFT" else "shift", Modifier.weight(1.6f)) { shifted = !shifted }
-                }
-                rows.last().forEach { key ->
-                    val label = if (shifted && !symbols) key.uppercase() else key
-                    Key(label, Modifier.weight(1f)) {
-                        onTextChange(text + label)
-                        shifted = false
+                    Key("⌫", Modifier.weight(1.6f)) {
+                        if (text.isNotEmpty()) onTextChange(text.dropLast(1))
                     }
                 }
-                Key("⌫", Modifier.weight(1.6f)) {
-                    if (text.isNotEmpty()) onTextChange(text.dropLast(1))
-                }
-            }
 
-            // Control row: no backspace here - it stays with the letters above, not next to the
-            // key most likely to be hit right after it by mistake. Dismiss (when offered) is the
-            // last key, bottom-right corner of the keyboard.
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Key(if (symbols) "abc" else "?123", Modifier.weight(1.4f)) { symbols = !symbols }
-                Key("space", Modifier.weight(if (onDismiss != null) 3.2f else 4f)) { onTextChange("$text ") }
-                SubmitKey(Modifier.weight(1.6f), submitIcon, submitImage, onSubmit)
-                if (onDismiss != null) {
-                    DismissKey(onDismiss, Modifier.weight(1.4f))
+                // Control row: no backspace here - it stays with the letters above, not next to the
+                // key most likely to be hit right after it by mistake. Dismiss (when offered) is the
+                // last key, bottom-right corner of the keyboard.
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Key(if (symbols) "abc" else "?123", Modifier.weight(1.4f)) { symbols = !symbols }
+                    Key("space", Modifier.weight(if (onDismiss != null) 3.2f else 4f)) { onTextChange("$text ") }
+                    SubmitKey(Modifier.weight(1.6f), submitIcon, submitImage, onSubmit)
+                    if (onDismiss != null) {
+                        DismissKey(onDismiss, Modifier.weight(1.4f))
+                    }
                 }
             }
         }
@@ -140,7 +160,7 @@ fun CarKeyboard(
 private fun Key(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     GsIconBox(
         onClick = onClick,
-        modifier = modifier.height(KEY_HEIGHT),
+        modifier = modifier.height(LocalKeyHeight.current),
         colors = GsColors(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurface),
         shape = RoundedCornerShape(8.dp),
     ) {
@@ -163,7 +183,7 @@ private fun Key(label: String, modifier: Modifier = Modifier, onClick: () -> Uni
 private fun DismissKey(onClick: () -> Unit, modifier: Modifier = Modifier) {
     GsIconBox(
         onClick = onClick,
-        modifier = modifier.height(KEY_HEIGHT),
+        modifier = modifier.height(LocalKeyHeight.current),
         colors = GsColors(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurfaceVariant),
         shape = RoundedCornerShape(8.dp),
     ) {
@@ -181,7 +201,7 @@ private fun DismissKey(onClick: () -> Unit, modifier: Modifier = Modifier) {
 private fun SubmitKey(modifier: Modifier, search: Boolean, image: ImageVector?, onClick: () -> Unit) {
     GsIconBox(
         onClick = onClick,
-        modifier = modifier.height(KEY_HEIGHT),
+        modifier = modifier.height(LocalKeyHeight.current),
         colors = GsColors(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary),
         shape = RoundedCornerShape(8.dp),
     ) {
@@ -199,10 +219,12 @@ private fun SubmitKey(modifier: Modifier, search: Boolean, image: ImageVector?, 
 }
 
 /**
- * Big enough to hit on a bumpy road, small enough that four rows plus a field plus a few
- * results all fit a 480px-tall screen - which is the real constraint here, not the key size.
+ * Big enough to hit on a bumpy road, small enough that four rows plus a field plus a few results
+ * still fit. A 480-tall screen sets the floor; a taller one (LIVI's 1280x720) gets bigger keys.
  */
-private val KEY_HEIGHT = 34.dp
+private fun keyHeight(screenHeightDp: Int): Dp = (screenHeightDp * 0.075f).dp.coerceIn(36.dp, 52.dp)
+
+private val LocalKeyHeight = compositionLocalOf { 36.dp }
 
 private val LETTER_ROWS = listOf(
     "qwertyuiop".map { it.toString() },

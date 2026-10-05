@@ -95,21 +95,21 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenCarPreview = { screen = Screen.CAR_PREVIEW },
                     onOpenHelp = { screen = Screen.HELP },
-                    onOpenWhatsNew = { screen = Screen.WHATS_NEW },
                     onDisconnect = onDisconnect,
                 )
-                Screen.WHATS_NEW -> WhatsNewScreen(onBack = { screen = Screen.HOME })
+                Screen.WHATS_NEW -> WhatsNewScreen(onBack = { screen = Screen.SETTINGS })
                 Screen.LOGS -> LogsScreen(onBack = { screen = Screen.HOME })
                 Screen.SETTINGS -> SettingsScreen(
                     onBack = { screen = Screen.HOME },
                     onOpenRecommendedApps = { screen = Screen.RECOMMENDED_APPS },
+                    onOpenWhatsNew = { screen = Screen.WHATS_NEW },
+                    onReplayTutorial = { screen = Screen.SETUP_GUIDE },
                 )
                 Screen.RECOMMENDED_APPS -> RecommendedAppsScreen(onBack = { screen = Screen.SETTINGS })
                 Screen.CAR_PREVIEW -> CarPreviewScreen(onBack = { screen = Screen.HOME })
                 Screen.HELP -> HelpScreen(
                     onBack = { screen = Screen.HOME },
                     onRequestCallScreening = onRequestCallScreening,
-                    onReplayTutorial = { screen = Screen.SETUP_GUIDE },
                 )
                 Screen.CERT_SETUP -> CertSetupScreen(
                     onDone = {
@@ -122,6 +122,8 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
                 )
             }
         }
+        // A car keyboard is open: offer the phone's own, for a passenger.
+        if (screen != Screen.CAR_PREVIEW) PhoneTypingBar()
     }
 
     CompatWarning()

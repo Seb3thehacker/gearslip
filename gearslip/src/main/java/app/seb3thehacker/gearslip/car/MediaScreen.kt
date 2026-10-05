@@ -70,6 +70,9 @@ import app.seb3thehacker.gearslip.media.MediaEntry
 import app.seb3thehacker.gearslip.media.NowPlaying
 import app.seb3thehacker.gearslip.media.QueueTrack
 import android.media.session.PlaybackState
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.PaddingValues
 
 /**
  * A media app on the car screen: what it is playing and its controls on the left, the tree it
@@ -134,7 +137,17 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
         if (searching) {
             SearchPanel(
                 appLabel = app.label,
-                onSearch = { query ->
+                media = media,
+                canPickForYou = now.canSearch,
+                onPlayed = {
+                    searching = false
+                    tab = Tab.NOW_PLAYING
+                },
+                onOpened = {
+                    searching = false
+                    tab = Tab.BROWSE
+                },
+                onPickForYou = { query ->
                     media.search(query)
                     searching = false
                     tab = Tab.NOW_PLAYING
@@ -167,7 +180,7 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
                     MediaTab("Browse", tab == Tab.BROWSE, Modifier.weight(1f)) { tab = Tab.BROWSE }
                     MediaTab("Up next", tab == Tab.QUEUE, Modifier.weight(1f)) { tab = Tab.QUEUE }
                     MediaTab("Lyrics", tab == Tab.LYRICS, Modifier.weight(1f)) { tab = Tab.LYRICS }
-                    if (now.canSearch) {
+                    if (now.canSearch || media.canSearchLibrary) {
                         GsIconButton(
                             Icons.Filled.Search,
                             "Search ${app.label}",
@@ -225,9 +238,36 @@ private enum class Tab { NOW_PLAYING, BROWSE, QUEUE, LYRICS }
  * Types a search for the app to play. The app picks the result and plays it, the way it would
  * for "play X" from a voice assistant, so there's no list to choose from.
  */
+/**
+ * Search inside the media app. It asks the app's library for matches half a second after the
+ * driver stops typing and lists them, so the driver picks exactly what plays: a song plays, an
+ * album or artist opens in Browse. The search key hides the keyboard to show more results; the
+ * field brings it back. An app with no library search can still be told to play its own best
+ * match, which is all the panel could do before.
+ */
 @Composable
-private fun SearchPanel(appLabel: String, onSearch: (String) -> Unit, onClose: () -> Unit) {
+private fun SearchPanel(
+    appLabel: String,
+    media: CarMedia,
+    canPickForYou: Boolean,
+    onPlayed: () -> Unit,
+    onOpened: () -> Unit,
+    onPickForYou: (String) -> Unit,
+    onClose: () -> Unit,
+) {
     var query by remember { mutableStateOf("") }
+    var typing by remember { mutableStateOf(true) }
+    val results by media.results.collectAsStateWithLifecycle()
+    LaunchedEffect(query) {
+        delay(SEARCH_PAUSE_MS)
+        media.searchLibrary(query)
+    }
+    DisposableEffect(Unit) { onDispose { media.clearResults() } }
+
+    val trimmed = query.trim()
+    val current = results?.takeIf { it.query == trimmed }
+    val unsupported = current?.supported == false
+
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -235,24 +275,71 @@ private fun SearchPanel(appLabel: String, onSearch: (String) -> Unit, onClose: (
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             GsIconButton(Icons.Filled.ArrowBack, "Back", onClose, size = ICON_BUTTON_SIZE)
-            SearchField(query, "Search $appLabel", Modifier.weight(1f), onClear = { query = "" })
-        }
-        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
-            Text(
-                "Type a song, artist, album, or playlist. $appLabel picks what to play.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            SearchField(
+                query,
+                "Search $appLabel",
+                Modifier.weight(1f).clickable { typing = true },
+                onClear = {
+                    query = ""
+                    typing = true
+                },
             )
         }
-        CarKeyboard(
-            text = query,
-            onTextChange = { query = it },
-            onSubmit = { if (query.isNotBlank()) onSearch(query.trim()) },
-            onDismiss = onClose,
+        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
+            val entries = current?.entries
+            when {
+                trimmed.isEmpty() -> SearchNote("Type a song, artist, album, or playlist.")
+                unsupported && canPickForYou ->
+                    SearchNote("$appLabel can't list results. Press search, and $appLabel picks what to play.")
+                unsupported -> SearchNote("$appLabel can't search from the car.")
+                entries == null -> SearchNote("Searching $appLabel…")
+                entries.isEmpty() -> SearchNote("$appLabel found nothing for \"$trimmed\".")
+                else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
+                    items(entries) { entry ->
+                        EntryRow(entry, media) {
+                            if (entry.browsable) {
+                                media.select(entry)
+                                onOpened()
+                            } else {
+                                media.playAll(entry)
+                                onPlayed()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (typing) {
+            CarKeyboard(
+                text = query,
+                onTextChange = { query = it },
+                onSubmit = {
+                    when {
+                        trimmed.isEmpty() -> Unit
+                        unsupported && canPickForYou -> onPickForYou(trimmed)
+                        else -> typing = false
+                    }
+                },
+                onDismiss = { if (trimmed.isEmpty()) onClose() else typing = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchNote(text: String) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     }
 }
+
+/** How long typing has to pause before the library is searched. */
+private const val SEARCH_PAUSE_MS = 1_000L
 
 /** A line under the tabs while the app works on a search, and if it plays nothing for it. */
 @Composable
@@ -572,13 +659,13 @@ private fun QueueRow(track: QueueTrack, media: CarMedia) {
 }
 
 @Composable
-private fun EntryRow(entry: MediaEntry, media: CarMedia) {
+private fun EntryRow(entry: MediaEntry, media: CarMedia, onClick: () -> Unit = { media.select(entry) }) {
     val context = LocalContext.current
     val icon by produceState(entry.iconBitmap, entry.iconUri) {
         value = entry.iconBitmap ?: MediaArt.load(context, entry.iconUri)
     }
     Surface(
-        onClick = { media.select(entry) },
+        onClick = onClick,
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier.fillMaxWidth(),
