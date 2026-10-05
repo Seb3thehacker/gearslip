@@ -2,28 +2,23 @@ package app.seb3thehacker.gearslip.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -157,39 +152,4 @@ private fun Choice(label: String, checked: Boolean, onChange: (Boolean) -> Unit)
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).padding(end = 12.dp))
         Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.padding(vertical = 8.dp))
     }
-}
-
-/**
- * Asks once, for people who set Gearslip up before usage notes existed and so never saw the
- * setup page. Either answer is final; Settings changes it later.
- */
-@Composable
-internal fun UsageStatsPrompt() {
-    val context = LocalContext.current
-    var show by remember { mutableStateOf(!UsageStats.asked(context)) }
-    if (!show) return
-    AlertDialog(
-        // An answer is needed: tapping outside would just bring it back next time.
-        onDismissRequest = {},
-        title = { Text(USAGE_STATS_TITLE) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(USAGE_STATS_INTRO)
-                Text(
-                    "Turning this on also shares the Android version, the phone model, and the cars you " +
-                        "connect to. You can untick any of them in Settings.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                UsageStats.set(context, true)
-                show = false
-                UsageStats.choicesClosed(context)
-            }) { Text("Turn on") }
-        },
-        dismissButton = { TextButton(onClick = { UsageStats.set(context, false); show = false }) { Text("No thanks") } },
-    )
 }

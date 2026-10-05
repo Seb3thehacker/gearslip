@@ -100,6 +100,21 @@ private fun hasNotificationAccess(context: Context): Boolean {
     return runCatching { manager.isNotificationListenerAccessGranted(component) }.getOrDefault(false)
 }
 
+/**
+ * The usage notes question: the setup guide's last page, and on its own the one screen people
+ * who set up before the notes existed see once. Leaving it without turning them on is a no.
+ */
+private fun usageNotesPage(context: Context) = GuidePage(
+    title = USAGE_STATS_TITLE,
+    explanation = USAGE_STATS_INTRO,
+    content = {
+        UsageStatsChoices()
+        DisposableEffect(Unit) {
+            onDispose { if (!UsageStats.asked(context)) UsageStats.set(context, false) }
+        }
+    },
+)
+
 private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<GuidePage> = buildList {
     // --- Safety: always first, and never skipped by an already-granted check ---------
     add(
@@ -285,20 +300,9 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
         )
     }
 
-    // --- The very end, every time: usage notes. The first time through, leaving the page
-    // without turning them on is a no; on a replay, the switch shows what was chosen before.
-    add(
-        GuidePage(
-            title = USAGE_STATS_TITLE,
-            explanation = USAGE_STATS_INTRO,
-            content = {
-                UsageStatsChoices()
-                DisposableEffect(Unit) {
-                    onDispose { if (!UsageStats.asked(context)) UsageStats.set(context, false) }
-                }
-            },
-        ),
-    )
+    // --- The very end, every time: usage notes. On a replay, the switch shows what was
+    // chosen before.
+    add(usageNotesPage(context))
 }
 
 /**
@@ -308,9 +312,9 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
  * driver takes on trust, with "Skip" sitting right next to it.
  */
 @Composable
-fun SetupGuideScreen(onRequestCallScreening: () -> Unit, onDone: () -> Unit) {
+fun SetupGuideScreen(onRequestCallScreening: () -> Unit, onDone: () -> Unit, onlyUsageNotes: Boolean = false) {
     val context = LocalContext.current
-    val pages = remember { pages(context, onRequestCallScreening) }
+    val pages = remember { if (onlyUsageNotes) listOf(usageNotesPage(context)) else pages(context, onRequestCallScreening) }
     var index by remember { mutableIntStateOf(0) }
 
     // Only ours to handle once there is a previous page to return to; at the first page, the
@@ -347,17 +351,20 @@ fun SetupGuideScreen(onRequestCallScreening: () -> Unit, onDone: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(24.dp))
-            LinearProgressIndicator(
-                progress = { (index + 1f) / pages.size },
-                modifier = Modifier.fillMaxWidth().height(10.dp).clip(MaterialTheme.shapes.extraLarge),
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "${index + 1} of ${pages.size}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            // A single page has no progress to show.
+            if (pages.size > 1) {
+                LinearProgressIndicator(
+                    progress = { (index + 1f) / pages.size },
+                    modifier = Modifier.fillMaxWidth().height(10.dp).clip(MaterialTheme.shapes.extraLarge),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "${index + 1} of ${pages.size}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             // The page scrolls between the progress bar and the buttons, so a tall page (the usage
             // note's choices, say) never pushes Next off the screen. Short pages stay centred.
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {

@@ -37,8 +37,9 @@ import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.BuildConfig
 import app.seb3thehacker.gearslip.CertProvider
+import app.seb3thehacker.gearslip.stats.UsageStats
 
-private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, CERT_SETUP, SETUP_GUIDE, HELP, WHATS_NEW, RECOMMENDED_APPS }
+private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, CERT_SETUP, SETUP_GUIDE, USAGE_NOTES, HELP, WHATS_NEW, RECOMMENDED_APPS }
 
 /** Three screens and a back stack of depth one: no navigation library needed. */
 @Composable
@@ -53,6 +54,8 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
             when {
                 needsCertSetup -> Screen.CERT_SETUP
                 needsSetupGuide -> Screen.SETUP_GUIDE
+                // Set up before usage notes existed: ask once, on the setup guide's own page.
+                !UsageStats.asked(context) -> Screen.USAGE_NOTES
                 else -> Screen.HOME
             },
         )
@@ -120,6 +123,11 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
                     onRequestCallScreening = onRequestCallScreening,
                     onDone = { screen = Screen.HOME },
                 )
+                Screen.USAGE_NOTES -> SetupGuideScreen(
+                    onRequestCallScreening = onRequestCallScreening,
+                    onDone = { screen = Screen.HOME },
+                    onlyUsageNotes = true,
+                )
             }
         }
         // A car keyboard is open: offer the phone's own, for a passenger.
@@ -127,8 +135,6 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
     }
 
     CompatWarning()
-    // Anyone who set up before usage notes existed gets asked once, on Home.
-    if (screen == Screen.HOME) UsageStatsPrompt()
 }
 
 /**
