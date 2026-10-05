@@ -25,6 +25,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,6 +81,8 @@ internal fun ColumnScope.UsageStatsRows(showNote: Boolean) {
     var choices by remember { mutableStateOf(UsageStats.choices(context)) }
     var noteOpen by remember { mutableStateOf(false) }
     fun save() = UsageStats.set(context, on, choices)
+    // Nothing goes out while the choices are on screen; leaving them sends the first note.
+    DisposableEffect(Unit) { onDispose { UsageStats.choicesClosed(context) } }
 
     SettingsRow(
         "Send usage notes",
@@ -180,7 +183,13 @@ internal fun UsageStatsPrompt() {
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { UsageStats.set(context, true); show = false }) { Text("Turn on") } },
+        confirmButton = {
+            TextButton(onClick = {
+                UsageStats.set(context, true)
+                show = false
+                UsageStats.choicesClosed(context)
+            }) { Text("Turn on") }
+        },
         dismissButton = { TextButton(onClick = { UsageStats.set(context, false); show = false }) { Text("No thanks") } },
     )
 }

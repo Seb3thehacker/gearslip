@@ -78,8 +78,14 @@ object UsageStats {
             .putBoolean("share_phone", choices.phone)
             .putBoolean("share_cars", choices.cars)
             .apply()
-        if (enabled) sendSoon(context)
-        else prefs(context).edit().remove(KEY_CARS).remove(KEY_SENT_DAY).apply()
+        // Turning it on sends nothing yet: the driver may still be ticking boxes. The first note
+        // waits for [choicesClosed].
+        if (!enabled) prefs(context).edit().remove(KEY_CARS).remove(KEY_SENT_DAY).apply()
+    }
+
+    /** The driver left the screen with the usage note choices: send today's note if it's due. */
+    fun choicesClosed(context: Context) {
+        if (prefs(context).getString(KEY_SENT_DAY, null) != LocalDate.now().toString()) sendSoon(context)
     }
 
     /** Gearslip was opened: send today's note unless one already went out. */
