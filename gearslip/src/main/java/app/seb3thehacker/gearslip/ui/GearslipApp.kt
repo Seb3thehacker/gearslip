@@ -127,6 +127,8 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
     }
 
     CompatWarning()
+    // Anyone who set up before usage notes existed gets asked once, on Home.
+    if (screen == Screen.HOME) UsageStatsPrompt()
 }
 
 /**
