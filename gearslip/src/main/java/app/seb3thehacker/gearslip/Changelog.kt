@@ -11,6 +11,27 @@ object Changelog {
 
     val releases = listOf(
         Release(
+            8, "0.2.00-alpha",
+            listOf(
+                "Exit takes you to the car's own screen. Tap Android Auto on the car to come back.",
+                "Gearslip listens through the car's microphone when the car has one, so voice works with the phone in a pocket.",
+                "A voice reply sends when its bar runs out, even over road noise or the radio. Say \"cancel\" or \"change it\" before then.",
+                "Maps turn dark when the car switches to night mode.",
+                "A moving map no longer makes the car screen fall behind your taps.",
+                "Gearslip asks to send sound to the car as soon as you connect, so videos in the web browser play in the car too.",
+                "Cars that offer more than one kind of music audio, such as the 2022 Dacia Jogger, play sound again.",
+                "When the car shows a keyboard, you can type on the phone instead. The car's keyboard is taller too.",
+                "Every car screen has a back button.",
+                "App icons show whether an app works in Gearslip. Metrolist works and shows the green check.",
+                "LIVI connects again, and touch works on cars with a second screen.",
+                "The phone's Settings screen has a new layout, with What's new and the setup guide at the top.",
+                "You can choose to send short usage notes that help the project. They hold no name, account, or location, and they're off unless you turn them on.",
+                "Searching inside a media app moved to Settings > Experimental features.",
+                "Under Settings > Media audio, the choices are now Phone audio and Car audio.",
+                "Logs leave out your location and the car's serial number.",
+            ),
+        ),
+        Release(
             7, "0.1.10-alpha",
             listOf(
                 "The launcher groups your apps: Phone, Maps, Music, Messaging, Web, Screen sharing, and Settings.",
