@@ -93,7 +93,7 @@ fun SettingsScreen(
             ConnectionSection()
             if (SHOW_RECOMMENDED_APPS) AppsSection(onOpenRecommendedApps)
             CertificateSection()
-            SettingsSection("Usage notes", header = USAGE_STATS_INTRO) { UsageStatsRows(showNote = true) }
+            SettingsSection("Usage notes", header = USAGE_STATS_INTRO) { UsageStatsRows() }
             Spacer(Modifier.height(16.dp))
         }
     }

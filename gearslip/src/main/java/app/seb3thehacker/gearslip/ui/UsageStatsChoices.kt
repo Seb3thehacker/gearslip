@@ -60,18 +60,18 @@ internal val USAGE_STATS_INTRO: AnnotatedString = buildAnnotatedString {
     append(INTRO_END)
 }
 
-/** The usage notes card for the setup guide: the same rows Settings shows, minus the note. */
+/** The usage notes card for the setup guide: the same rows Settings shows. */
 @Composable
 internal fun UsageStatsChoices(modifier: Modifier = Modifier) {
-    SettingsCard(modifier) { UsageStatsRows(showNote = false) }
+    SettingsCard(modifier) { UsageStatsRows() }
 }
 
 /**
- * The on switch, what to share, and (with [showNote]) the note itself, saved as they change.
+ * The on switch, what to share, and the note itself, saved as they change.
  * Rows only: the caller puts them in a card.
  */
 @Composable
-internal fun ColumnScope.UsageStatsRows(showNote: Boolean) {
+internal fun ColumnScope.UsageStatsRows() {
     val context = LocalContext.current
     var on by remember { mutableStateOf(UsageStats.enabled(context)) }
     var choices by remember { mutableStateOf(UsageStats.choices(context)) }
@@ -106,36 +106,34 @@ internal fun ColumnScope.UsageStatsRows(showNote: Boolean) {
                 choices = choices.copy(cars = it)
                 save()
             }
-            if (showNote) {
-                SettingsDivider()
-                SettingsRow(
-                    "What gets sent",
-                    Modifier.clickable { noteOpen = !noteOpen },
-                    subtitle = "Each car goes after the drive ends. The Android version and phone model go only when they change, and once a month",
-                    icon = Icons.Filled.Info,
-                    trailing = {
-                        Icon(
-                            if (noteOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                            contentDescription = if (noteOpen) "Hide the note" else "Show the note",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
-                )
-                AnimatedVisibility(noteOpen) {
-                    // Rebuilt from the saved choices each time one changes, so it always matches.
-                    val note = remember(choices) { UsageStats.preview(context, everything = true).toString(2) }
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    ) {
-                        Text(
-                            note,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(12.dp),
-                        )
-                    }
+            SettingsDivider()
+            SettingsRow(
+                "What gets sent",
+                Modifier.clickable { noteOpen = !noteOpen },
+                subtitle = "Each car goes after the drive ends. The Android version and phone model go only when they change, and once a month",
+                icon = Icons.Filled.Info,
+                trailing = {
+                    Icon(
+                        if (noteOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                        contentDescription = if (noteOpen) "Hide the note" else "Show the note",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+            )
+            AnimatedVisibility(noteOpen) {
+                // Rebuilt from the saved choices each time one changes, so it always matches.
+                val note = remember(choices) { UsageStats.preview(context, everything = true).toString(2) }
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                ) {
+                    Text(
+                        note,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(12.dp),
+                    )
                 }
             }
         }
