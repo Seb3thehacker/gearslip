@@ -49,8 +49,9 @@ private const val INTRO_PRIVACY =
     "It holds no name, account, or location, only a random number so your phone counts once. " +
         "Cloudflare carries the note, and the server keeps no IP address."
 private const val INTRO_END =
-    " Nothing helps the project more: these notes tell the next driver whether their car " +
-        "will work before they install."
+    " Nothing helps the project more. The notes show which cars work, so the next driver knows " +
+        "before installing. When a car fails, the note says where the connection broke, which is " +
+        "often enough to fix a car no one working on Gearslip owns."
 
 /** The pitch for the usage notes, with the privacy promise in bold so it isn't missed. */
 internal val USAGE_STATS_INTRO: AnnotatedString = buildAnnotatedString {
