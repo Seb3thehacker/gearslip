@@ -152,3 +152,24 @@ private fun Choice(label: String, checked: Boolean, onChange: (Boolean) -> Unit)
         Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.padding(vertical = 8.dp))
     }
 }
+
+/** Usage notes on Home, always: the switch, and once it's on, what to share. */
+@Composable
+internal fun UsageNotesHomeCard(modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(
+            USAGE_STATS_TITLE,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 16.dp, bottom = 4.dp),
+        )
+        Text(
+            "Share a short note after each drive, so the next driver knows whether Gearslip works " +
+                "in their car. No name, account, or location.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+        )
+        SettingsCard { UsageStatsRows() }
+    }
+}

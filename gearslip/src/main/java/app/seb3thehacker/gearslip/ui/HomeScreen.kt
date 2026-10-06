@@ -92,6 +92,7 @@ fun HomeScreen(
                 StatusCard(status)
                 Spacer(Modifier.height(16.dp))
                 UpdateCard()
+                UsageNotesHomeCard()
             }
 
             // Sits at the bottom, where a thumb reaches it.

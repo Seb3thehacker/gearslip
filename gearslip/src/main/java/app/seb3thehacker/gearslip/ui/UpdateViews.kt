@@ -96,6 +96,8 @@ fun UpdateCard() {
             }
         }
     }
+    // Room before whatever Home shows next; nothing when the card is hidden.
+    Spacer(Modifier.height(16.dp))
 }
 
 /** The Settings row: checks on tap, and carries on to download and install once something is found. */
