@@ -41,7 +41,7 @@ object VoiceReply {
         LISTENING,
         /**
          * Reading the reply back, then counting down to [State.until] while listening for
-         * "cancel" or "change it". [State.until] is 0 while the countdown is held.
+         * "cancel" or "change it". The countdown runs out whatever it hears.
          */
         CONFIRMING,
         SENT,
@@ -193,38 +193,22 @@ object VoiceReply {
         }
     }
 
-    /**
-     * Sends in [ms]. After a hold the bar carries on from where it stopped instead of jumping back
-     * to full: the span is stretched so the bar still runs out exactly at [ms].
-     */
+    /** Sends in [ms]. */
     private fun startCountdown(id: Int, ms: Long) {
         val sendAt = SystemClock.uptimeMillis() + ms
-        val held = _state.value.held
-        val span = if (held > 0f) (ms / held).toLong() else ms
-        _state.value = _state.value.copy(until = sendAt, span = span, held = 0f)
+        _state.value = _state.value.copy(until = sendAt, span = ms, held = 0f)
         main.removeCallbacksAndMessages(SEND_TOKEN)
         main.postAtTime({ if (id == run) send() }, SEND_TOKEN, sendAt)
     }
 
     /**
-     * Listens through the countdown for "cancel", "change it" or "send". The countdown holds from
-     * the first word, so a reply can't go out while the driver is still saying "cancel".
+     * Listens through the countdown for "cancel", "change it" or "send". The countdown never
+     * pauses: in a noisy car it held for road noise and the radio, and the reply never went.
      */
     private fun listenForCommand(id: Int) {
         CarAssistant.dictate(
             onPartial = {},
             cue = false,
-            onSpeaking = {
-                if (id != run) return@dictate
-                main.removeCallbacksAndMessages(SEND_TOKEN)
-                val s = _state.value
-                val left = if (s.until > 0L && s.span > 0L) {
-                    ((s.until - SystemClock.uptimeMillis()).toFloat() / s.span).coerceIn(0.05f, 1f)
-                } else {
-                    s.held
-                }
-                _state.value = s.copy(until = 0L, span = 0L, held = left)
-            },
             onResult = { text ->
                 if (id != run) return@dictate
                 when (command(text)) {
@@ -238,18 +222,14 @@ object VoiceReply {
                         ask(id)
                     }
                     Command.SEND -> send()
-                    // Talk that wasn't meant for us, a passenger or the radio: carry on counting,
-                    // and keep listening so a "cancel" after it still lands.
-                    null -> {
-                        startCountdown(id, RESUME_MS)
-                        listenForCommand(id)
-                    }
+                    // Talk that wasn't meant for us, a passenger or the radio: keep listening, so a
+                    // "cancel" after it still lands before the countdown runs out.
+                    null -> listenForCommand(id)
                 }
             },
             // Silence ends the recognizer before the countdown does: listen again until it sends.
             onError = {
                 if (id != run) return@dictate
-                if (_state.value.until == 0L) startCountdown(id, RESUME_MS)
                 // A short gap, so a recognizer that fails at once can't spin.
                 main.postDelayed({ if (id == run) listenForCommand(id) }, RELISTEN_MS)
             },
@@ -397,7 +377,5 @@ object VoiceReply {
     /** How long "Do you want to reply?" waits for an answer: the start beep, then the engine's silence limit. */
     private const val OFFER_MS = 6_500L
     private const val OFFER_GRACE_MS = 1_500L
-    /** After talk that wasn't a command, the reply waits this long again before it goes. */
-    private const val RESUME_MS = 3_000L
     private const val RELISTEN_MS = 400L
 }
