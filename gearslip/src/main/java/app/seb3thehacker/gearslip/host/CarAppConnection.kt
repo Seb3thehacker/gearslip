@@ -587,10 +587,19 @@ class CarAppConnection(private val context: Context) {
         override fun openMicrophone(request: Bundleable?): Bundleable? = null
     }
 
+    private val _trip = MutableStateFlow<androidx.car.app.navigation.model.Trip?>(null)
+    /** The route as the app tells clusters about it: steps and how far to each. Null when not navigating. */
+    val trip: StateFlow<androidx.car.app.navigation.model.Trip?> = _trip.asStateFlow()
+
     private val navigationHost = object : INavigationHost.Stub() {
         override fun navigationStarted() = GearslipLog.i("host: navigation started")
-        override fun navigationEnded() = GearslipLog.i("host: navigation ended")
-        override fun updateTrip(trip: Bundleable?) = Unit
+        override fun navigationEnded() {
+            GearslipLog.i("host: navigation ended")
+            _trip.value = null
+        }
+        override fun updateTrip(trip: Bundleable?) {
+            _trip.value = runCatching { trip?.get() as? androidx.car.app.navigation.model.Trip }.getOrNull()
+        }
     }
 
     /**

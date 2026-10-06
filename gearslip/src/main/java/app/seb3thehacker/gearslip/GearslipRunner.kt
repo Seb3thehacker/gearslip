@@ -4,6 +4,7 @@ import android.os.Build
 import app.seb3thehacker.gearslip.audio.AudioLink
 import app.seb3thehacker.gearslip.audio.CarMic
 import app.seb3thehacker.gearslip.media.CarMediaStatus
+import app.seb3thehacker.gearslip.car.ClusterNav
 import app.seb3thehacker.gearslip.car.CarAssistant
 import app.seb3thehacker.gearslip.car.CarEnvironment
 import app.seb3thehacker.gearslip.car.CarKeys
@@ -70,6 +71,7 @@ class GearslipRunner(
     @Volatile private var inputKeycodes: List<Int> = emptyList()
     @Volatile private var sensorChannelId: Int = -1
     @Volatile private var mediaStatus: CarMediaStatus? = null
+    @Volatile private var clusterNav: ClusterNav? = null
     private var sensorTypes: List<Int> = emptyList()
     @Volatile private var audioLink: AudioLink? = null
     private var audioMessagesSeen = 0
@@ -145,6 +147,8 @@ class GearslipRunner(
         CarMic.current = null
         mediaStatus?.stop()
         mediaStatus = null
+        clusterNav?.stop()
+        clusterNav = null
         lastSensorNight = null
         CarEnvironment.setSensorNight(null) // back to the clock until a car says otherwise
         projection?.onProjectionStopped()
@@ -180,6 +184,8 @@ class GearslipRunner(
                 onInputMessage(messageId, body)
             } else if (frame.channel == sensorChannelId) {
                 onSensorMessage(messageId, body)
+            } else if (frame.channel == clusterNav?.channelId) {
+                clusterNav?.onMessage(messageId, body)
             } else if (frame.channel == mediaStatus?.channelId) {
                 mediaStatus?.onMessage(messageId, body)
             } else if (frame.channel == CarMic.current?.channelId) {
@@ -424,6 +430,7 @@ class GearslipRunner(
         startSensorChannel(serviceDiscoveryResponse)
         startMicChannel(serviceDiscoveryResponse)
         startMediaStatusChannel(serviceDiscoveryResponse)
+        startClusterNavChannel(serviceDiscoveryResponse)
 
         val input = ServiceDiscovery.findInputService(serviceDiscoveryResponse, video.displayId)
         if (input == null) {
@@ -493,6 +500,17 @@ class GearslipRunner(
         }
         log.i("media status channel: $channel")
         mediaStatus = CarMediaStatus(channel) { id, body -> send(id, body, encrypted = true, channel = channel) }
+        openChannel(channel)
+    }
+
+    /** Turn-by-turn for the instrument cluster: the next turn, its road, and how far. */
+    private fun startClusterNavChannel(serviceDiscoveryResponse: ByteArray) {
+        val channel = ServiceDiscovery.findNavStatusChannel(serviceDiscoveryResponse) ?: run {
+            log.i("no navigation status channel - the cluster won't show turns")
+            return
+        }
+        log.i("navigation status channel: $channel")
+        clusterNav = ClusterNav(channel) { id, body -> send(id, body, encrypted = true, channel = channel) }
         openChannel(channel)
     }
 

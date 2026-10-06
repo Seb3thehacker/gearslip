@@ -33,6 +33,9 @@ object CarServices {
     val nav: CarAppConnection by lazy { CarAppConnection(requireNotNull(context)) }
     val media: CarMedia by lazy { CarMedia(requireNotNull(context)) }
 
+    /** [nav], or null before the car screen has set things up. */
+    fun navOrNull(): CarAppConnection? = if (context != null) nav else null
+
     /** [media], or null before the car screen has set things up: for code outside the car UI. */
     fun mediaOrNull(): CarMedia? = if (context != null) media else null
 
