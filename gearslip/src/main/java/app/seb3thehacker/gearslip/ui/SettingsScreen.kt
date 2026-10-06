@@ -106,7 +106,7 @@ private fun Arrow() = Icon(
     tint = MaterialTheme.colorScheme.onSurfaceVariant,
 )
 
-/** What's new and the setup guide, one tap from the top. */
+/** What's new, updates and the setup guide, one tap from the top. */
 @Composable
 private fun AboutSection(onOpenWhatsNew: () -> Unit, onReplayTutorial: () -> Unit) {
     SettingsSection {
@@ -117,6 +117,10 @@ private fun AboutSection(onOpenWhatsNew: () -> Unit, onReplayTutorial: () -> Uni
             icon = Icons.Filled.Star,
             trailing = { Arrow() },
         )
+        SettingsDivider()
+        UpdateRow()
+        SettingsDivider()
+        UpdateNotifyRow()
         SettingsDivider()
         SettingsRow(
             "Replay the setup guide",

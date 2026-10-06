@@ -146,6 +146,7 @@ object SessionReport {
                 else -> category.label
             }
             runCatching { UsageStats.recordSession(context, headUnitInfo, protocolVersion, outcome, carScreen, carDpi) }
+            runCatching { app.seb3thehacker.gearslip.update.UpdateChecker.onDriveEnded(context) }
         }
         GearslipLog.flush()
     }

@@ -152,6 +152,7 @@ class GearslipActivity : ComponentActivity(), Projection {
         super.onStart()
         Prefetch.warm(this)
         UsageStats.onAppOpened(this)
+        app.seb3thehacker.gearslip.update.UpdateChecker.onAppOpened(this)
     }
 
     override fun onNewIntent(intent: Intent) {

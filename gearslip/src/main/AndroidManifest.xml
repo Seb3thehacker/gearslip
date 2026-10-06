@@ -4,6 +4,7 @@
 
     <!-- The projected WebView loads real pages; without this every load fails silently. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!--
       Phone mirroring. Android refuses to hand over a MediaProjection unless a foreground
