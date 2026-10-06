@@ -2,6 +2,7 @@ package app.seb3thehacker.gearslip
 
 import android.os.Build
 import app.seb3thehacker.gearslip.audio.AudioLink
+import app.seb3thehacker.gearslip.audio.CarMic
 import app.seb3thehacker.gearslip.car.CarAssistant
 import app.seb3thehacker.gearslip.car.CarEnvironment
 import app.seb3thehacker.gearslip.car.CarKeys
@@ -139,6 +140,9 @@ class GearslipRunner(
         audioLink?.close()
         audioLink = null
         CarSensors.clear()
+        CarMic.current = null
+        lastSensorNight = null
+        CarEnvironment.setSensorNight(null) // back to the clock until a car says otherwise
         projection?.onProjectionStopped()
         SessionStatus.disconnected()
     }
@@ -172,6 +176,8 @@ class GearslipRunner(
                 onInputMessage(messageId, body)
             } else if (frame.channel == sensorChannelId) {
                 onSensorMessage(messageId, body)
+            } else if (frame.channel == CarMic.current?.channelId) {
+                CarMic.current?.onMessage(messageId, body)
             } else if (frame.channel == audioLink?.channelId) {
                 // The audio channel is the one still being reverse-engineered, and its first few
                 // replies are what tell us why. Raw bytes for those, then quiet.
@@ -346,7 +352,9 @@ class GearslipRunner(
 
     private fun onServiceDiscoveryResponse(body: ByteArray) {
         log.i("<- ServiceDiscoveryResponse (${body.size} bytes, decrypted successfully)")
-        log.i("head unit describes itself as:\n" + Protobuf.describe(body))
+        // Field 5 is the car's serial number. Logs get shared, so it stays out of them.
+        val described = Protobuf.describe(body).replace(Regex("(?m)^  #5 string = .*$"), "  #5 string = (car serial, left out)")
+        log.i("head unit describes itself as:\n" + described)
         log.verdict(
             "VIABLE",
             "The head unit accepted the presented phone certificate, completed TLS, and is " +
@@ -405,6 +413,7 @@ class GearslipRunner(
         openChannel(video.serviceId)
         startAudioChannel(serviceDiscoveryResponse)
         startSensorChannel(serviceDiscoveryResponse)
+        startMicChannel(serviceDiscoveryResponse)
 
         val input = ServiceDiscovery.findInputService(serviceDiscoveryResponse, video.displayId)
         if (input == null) {
@@ -454,6 +463,18 @@ class GearslipRunner(
         openChannel(media.serviceId)
     }
 
+    /** The car's microphone, for voice: opened now, recording only while something listens. */
+    private fun startMicChannel(serviceDiscoveryResponse: ByteArray) {
+        val mic = ServiceDiscovery.findMicService(serviceDiscoveryResponse) ?: run {
+            log.i("no microphone advertised - voice uses the phone's")
+            return
+        }
+        val config = mic.configs.first()
+        log.i("car microphone: channel=${mic.serviceId} ${mic.codecName} ${config.sampleRate}Hz/${config.bits}bit/x${config.channels}")
+        CarMic.current = CarMic(mic) { id, body -> send(id, body, encrypted = true, channel = mic.serviceId) }
+        openChannel(mic.serviceId)
+    }
+
     /**
      * Every sensor type the head unit advertised, subscribed to at once - there is no screen
      * to pick and choose yet, this is meant to show everything reachable. [CarSensors] answers
@@ -500,6 +521,22 @@ class GearslipRunner(
         }
     }
 
+    /**
+     * The car's own day/night signal (its headlights or light sensor): NightData { bool is_night = 1; }.
+     * It replaces the clock guess, so maps go dark when the car does.
+     */
+    private fun onNightSensor(body: ByteArray) {
+        val night = Wire.bytes(Wire.fields(body), SENSOR_NIGHT) ?: return
+        val isNight = Wire.varint(Wire.fields(night), 1) == 1L
+        if (isNight != lastSensorNight) {
+            lastSensorNight = isNight
+            log.i("car says it's ${if (isNight) "night" else "day"}")
+            CarEnvironment.setSensorNight(isNight)
+        }
+    }
+
+    private var lastSensorNight: Boolean? = null
+
     private fun onSensorMessage(messageId: Int, body: ByteArray) {
         when (messageId) {
             MSG_CHANNEL_OPEN_RESPONSE -> {
@@ -527,6 +564,7 @@ class GearslipRunner(
             MSG_SENSOR_EVENT_INDICATION -> {
                 CarSensors.onEvent(body)
                 logSensorEvent(body)
+                onNightSensor(body)
             }
 
             // SensorError { required SensorType sensor_type = 1; required SensorErrorType sensor_error_type = 2; }
@@ -574,6 +612,12 @@ class GearslipRunner(
 
             MSG_INPUT_REPORT -> {
                 val report = Wire.fields(body)
+                // The 2018 Uconnect agrees to Exit but keeps showing our last frame and sending
+                // touches, which looked like a crash. A touch means our screen is still up there.
+                if (videoStarted && !videoProjected && Wire.bytes(report, 3) != null) {
+                    log.w("the car said it took its screen back but still sends touches - showing ours again")
+                    onVideoFocus(VIDEO_FOCUS_PROJECTED)
+                }
                 Wire.bytes(report, 4)?.let(::onKeyEvent)
                 Wire.bytes(report, 6)?.let(::onRelativeEvent)
                 val touch = Wire.bytes(report, 3) ?: Wire.bytes(report, 7)
@@ -898,21 +942,31 @@ class GearslipRunner(
                 inFlight = 0
                 ackLock.notifyAll()
             }
+            val start = Protobuf.varintField(1, SESSION_ID.toLong()) +
+                Protobuf.varintField(2, (selectedConfigIndex ?: 0).toLong())
+            send(MSG_MEDIA_START, start, encrypted = true, channel = videoChannelId)
+            log.i("-> Start(session_id=$SESSION_ID)")
             lastCodecConfig?.let { send(MSG_MEDIA_CODEC_CONFIG, it, encrypted = true, channel = videoChannelId) }
             videoSource?.requestSyncFrame()
         } else {
-            log.i("the car is showing its own screen - video paused, audio carries on")
+            // A phone ends the stream when the car takes its screen. LIVI switches on the focus
+            // answer alone, but the 2018 Uconnect kept showing our last frame until it got Stop.
+            send(MSG_MEDIA_STOP, Protobuf.varintField(1, SESSION_ID.toLong()), encrypted = true, channel = videoChannelId)
+            log.i("the car is showing its own screen - video stopped, audio carries on")
         }
     }
 
     /** Android Auto's Exit: asks the car for its own interface, leaving the session running. */
     private fun requestNativeFocus() {
         if (!videoStarted) return
-        // VideoFocusRequestNotification { mode = 2; reason = 3 }
-        val request = Protobuf.varintField(2, VIDEO_FOCUS_NATIVE.toLong()) +
+        // VideoFocusRequestNotification { disp_channel_id = 1; mode = 2; reason = 3 }. The
+        // display's channel is deprecated, but the 2018 Uconnect (protocol 1.3) predates that:
+        // without it, it agreed to show its own screen and never did. LIVI ignores the field.
+        val request = Protobuf.varintField(1, videoChannelId.toLong()) +
+            Protobuf.varintField(2, VIDEO_FOCUS_NATIVE.toLong()) +
             Protobuf.varintField(3, VIDEO_FOCUS_REASON_LAUNCH_NATIVE.toLong())
         send(MSG_VIDEO_FOCUS_REQUEST, request, encrypted = true, channel = videoChannelId)
-        log.i("-> VideoFocusRequest(mode=NATIVE, reason=LAUNCH_NATIVE)")
+        log.i("-> VideoFocusRequest(display=$videoChannelId, mode=NATIVE, reason=LAUNCH_NATIVE)")
     }
 
     /** Arrival time of the last tap still waiting to be seen in a frame; 0 when none is. */
@@ -1137,6 +1191,7 @@ class GearslipRunner(
         const val MSG_SENSOR_EVENT_INDICATION = 32771
         const val MSG_SENSOR_ERROR = 32772
         private const val SENSOR_LOCATION = 1
+        private const val SENSOR_NIGHT = 10
         private const val SENSOR_LOG_EVERY_MS = 10_000L
 
         const val STREAM_MEDIA = 3

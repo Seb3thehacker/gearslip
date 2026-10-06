@@ -110,6 +110,34 @@ object ServiceDiscovery {
         return media.firstOrNull { it.codecType == CODEC_PCM } ?: media.firstOrNull()
     }
 
+    /**
+     * The car's microphone, from MediaSourceService (Service field 5):
+     *   MediaSourceService { MediaCodecType available_type = 1; AudioConfiguration audio_config = 2;
+     *                        bool available_while_in_call = 3; }
+     * Null when the head unit has none.
+     */
+    fun findMicService(response: ByteArray): AudioService? {
+        for (channel in Wire.allBytes(Wire.fields(response), 1)) {
+            val service = Wire.fields(channel)
+            val id = Wire.varint(service, 1)?.toInt() ?: continue
+            val source = Wire.fields(Wire.bytes(service, 5) ?: continue)
+            val f = Wire.fields(Wire.bytes(source, 2) ?: continue)
+            return AudioService(
+                serviceId = id,
+                streamType = 0,
+                codecType = Wire.varint(source, 1)?.toInt() ?: CODEC_PCM,
+                configs = listOf(
+                    AudioConfig(
+                        sampleRate = Wire.varint(f, 1)?.toInt() ?: 16_000,
+                        bits = Wire.varint(f, 2)?.toInt() ?: 16,
+                        channels = Wire.varint(f, 3)?.toInt() ?: 1,
+                    ),
+                ),
+            )
+        }
+        return null
+    }
+
     const val STREAM_MEDIA = 3
     const val CODEC_PCM = 1
 

@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import app.seb3thehacker.gearslip.GearslipLog
+import app.seb3thehacker.gearslip.audio.CarMic
 import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.log10
@@ -25,7 +26,8 @@ import kotlin.math.sqrt
  * none). whisper.cpp runs FUTO's ACFT Whisper model, which are tuned for short phrases: a reply
  * of a few seconds comes back in well under a second on a recent phone.
  *
- * Whisper needs the whole phrase before it starts, so this records from the phone's microphone,
+ * Whisper needs the whole phrase before it starts, so this records from the car's microphone (the
+ * phone's when the car has none or sends nothing),
  * decides when the driver has stopped talking (a stretch of quiet after speech), then transcribes
  * once. Everything runs on one worker thread; callbacks arrive on the main thread.
  */
@@ -45,6 +47,9 @@ object SpeechEngine {
     private const val CALIBRATE_MS = 300L
     private const val PRE_ROLL = RATE * 3 / 10 // keep 300 ms before the first word
     private const val CUE_VOLUME = 80
+    /** How long the car gets to start sending once asked, before the phone's microphone takes over. */
+    private const val CAR_FIRST_AUDIO_MS = 1_500L
+    private const val CAR_GAP_MS = 1_000L
     private const val CUE_MS = 150
     /** The car plays what the phone sends a moment late; waiting this out keeps the beep off the recording. */
     private const val CUE_TAIL_MS = 250L
@@ -132,14 +137,73 @@ object SpeechEngine {
      * or null when nobody spoke. The speech threshold follows the noise in the first 300 ms, so a
      * loud cabin needs a louder voice than a quiet one to count as talking.
      */
+    /** Where a phrase is recorded from: [read] fills [frame] and returns how many samples it got. */
+    private interface Mic {
+        fun read(frame: ShortArray): Int
+        fun close()
+    }
+
     @SuppressLint("MissingPermission") // checked in listen()
-    private fun record(id: Int, onSpeaking: () -> Unit): FloatArray? {
+    private fun phoneMic(): Mic {
         val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val recorder = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION, RATE,
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, max(min, FRAME * 8),
         )
         check(recorder.state == AudioRecord.STATE_INITIALIZED) { "AudioRecord didn't initialize" }
+        recorder.startRecording()
+        return object : Mic {
+            override fun read(frame: ShortArray) = recorder.read(frame, 0, frame.size)
+            override fun close() {
+                runCatching { recorder.stop() }
+                recorder.release()
+            }
+        }
+    }
+
+    /**
+     * The car's microphone, which hears the driver better than a phone in a cup holder. The car
+     * sends audio in its own sized pieces; they're cut to [FRAME]s here. Null when there's no car
+     * microphone, or it sends nothing at first, so the phone's is used instead.
+     */
+    private fun carMic(): Mic? {
+        val car = CarMic.current ?: return null
+        if (!car.start()) return null
+        val first = car.read(CAR_FIRST_AUDIO_MS)
+        if (first == null) {
+            car.stop()
+            GearslipLog.w("speech: the car's microphone sent nothing - using the phone's")
+            return null
+        }
+        GearslipLog.i("speech: listening through the car's microphone")
+        return object : Mic {
+            var pending = first
+            var at = 0
+            override fun read(frame: ShortArray): Int {
+                var filled = 0
+                while (filled < frame.size) {
+                    val chunk = pending ?: car.read(CAR_GAP_MS) ?: break
+                    pending = chunk
+                    val n = minOf(frame.size - filled, chunk.size - at)
+                    System.arraycopy(chunk, at, frame, filled, n)
+                    filled += n
+                    at += n
+                    if (at == chunk.size) { pending = null; at = 0 }
+                }
+                // The car stopped sending mid-phrase: end the recording rather than wait forever.
+                return if (filled == 0) -1 else filled
+            }
+            override fun close() = car.stop()
+        }
+    }
+
+    /**
+     * Records until the driver stops talking. Returns the phrase from just before the first word,
+     * or null when nobody spoke. The speech threshold follows the noise in the first 300 ms, so a
+     * loud cabin needs a louder voice than a quiet one to count as talking.
+     */
+    private fun record(id: Int, onSpeaking: () -> Unit): FloatArray? {
+        val mic = carMic() ?: phoneMic()
         val samples = FloatArray((RATE * MAX_MS / 1000).toInt())
         var count = 0
         val frame = ShortArray(FRAME)
@@ -147,11 +211,11 @@ object SpeechEngine {
         var noiseFrames = 0
         var speechStart = -1
         var lastSpeech = 0
-        recorder.startRecording()
         try {
             while (id == run && count + FRAME <= samples.size) {
-                val n = recorder.read(frame, 0, FRAME)
-                if (n <= 0) continue
+                val n = mic.read(frame)
+                if (n < 0) break
+                if (n == 0) continue
                 var sum = 0.0
                 for (i in 0 until n) {
                     val v = frame[i] / 32768f
@@ -178,8 +242,7 @@ object SpeechEngine {
                 if (speechStart >= 0 && (count - lastSpeech) * 1000L / RATE > END_SILENCE_MS) break
             }
         } finally {
-            runCatching { recorder.stop() }
-            recorder.release()
+            mic.close()
         }
         if (speechStart < 0) return null
         return samples.copyOfRange(speechStart, count)
