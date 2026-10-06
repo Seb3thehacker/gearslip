@@ -37,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -91,6 +92,7 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
     val search by media.search.collectAsStateWithLifecycle()
     var tab by remember { mutableStateOf(Tab.NOW_PLAYING) }
     var searching by remember { mutableStateOf(false) }
+    val searchAllowed = CarSettings.experimentalFeaturesEnabled.collectAsState().value && CarSettings.mediaSearchEnabled.collectAsState().value
 
     // The connection outlives this screen: the home screen's player is the same one.
     LaunchedEffect(app) { CarServices.openMedia(app) }
@@ -180,7 +182,7 @@ fun MediaScreen(app: MediaApp, onExit: () -> Unit) {
                     MediaTab("Browse", tab == Tab.BROWSE, Modifier.weight(1f)) { tab = Tab.BROWSE }
                     MediaTab("Up next", tab == Tab.QUEUE, Modifier.weight(1f)) { tab = Tab.QUEUE }
                     MediaTab("Lyrics", tab == Tab.LYRICS, Modifier.weight(1f)) { tab = Tab.LYRICS }
-                    if (now.canSearch || media.canSearchLibrary) {
+                    if (searchAllowed && (now.canSearch || media.canSearchLibrary)) {
                         GsIconButton(
                             Icons.Filled.Search,
                             "Search ${app.label}",

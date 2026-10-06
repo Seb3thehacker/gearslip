@@ -60,6 +60,7 @@ fun CarSettingsScreen() {
     val experimentalFeatures by CarSettings.experimentalFeaturesEnabled.collectAsState()
     val voiceAssistant by CarSettings.voiceAssistantEnabled.collectAsState()
     val carSensors by CarSettings.carSensorsEnabled.collectAsState()
+    val mediaSearch by CarSettings.mediaSearchEnabled.collectAsState()
     val display by CarEnvironment.display.collectAsState()
     val vehicle by CarEnvironment.vehicle.collectAsState()
     val context = LocalContext.current
@@ -126,14 +127,13 @@ fun CarSettingsScreen() {
 
         ChoiceRow(
             "Media audio",
-            listOf(false to "Phone output", true to "Through Gearslip"),
+            listOf(false to "Phone audio", true to "Car audio"),
             pipeAudio,
         ) { CarSettings.setPipeAudio(it) }
         Text(
-            "Through Gearslip sends the sound over the USB link. Android asks for consent the " +
-                "first time a media app plays in the car, and some apps refuse to be captured at " +
-                "all. Phone output needs no permission: the app plays as it normally would, for " +
-                "example over Bluetooth to the car.",
+            "Car audio sends the phone's sound to the car over USB. Android asks for permission " +
+                "when the car connects, and a few apps block it. Phone audio plays as the phone " +
+                "normally would, for example over Bluetooth to the car.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -148,7 +148,7 @@ fun CarSettingsScreen() {
             experimentalFeatures,
         ) { CarSettings.setExperimentalFeaturesEnabled(it) }
         if (experimentalFeatures) {
-            ExperimentalFeaturesList(voiceAssistant, carSensors)
+            ExperimentalFeaturesList(voiceAssistant, carSensors, mediaSearch)
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -205,7 +205,7 @@ private fun <T> ChoiceRow(title: String, options: List<Pair<T, String>>, selecte
  * so the list reads fine whether there's one entry or several.
  */
 @Composable
-private fun ExperimentalFeaturesList(voiceAssistant: Boolean, carSensors: Boolean) {
+private fun ExperimentalFeaturesList(voiceAssistant: Boolean, carSensors: Boolean, mediaSearch: Boolean) {
     Column(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -228,6 +228,13 @@ private fun ExperimentalFeaturesList(voiceAssistant: Boolean, carSensors: Boolea
                 "guess, not a fact, until you've watched one change for yourself.",
             checked = carSensors,
         ) { CarSettings.setCarSensorsEnabled(it) }
+
+        ExperimentalFeatureRow(
+            title = "Media search",
+            description = "Adds a search button to the media screen. Some apps ignore the search " +
+                "or play something else.",
+            checked = mediaSearch,
+        ) { CarSettings.setMediaSearchEnabled(it) }
     }
 }
 

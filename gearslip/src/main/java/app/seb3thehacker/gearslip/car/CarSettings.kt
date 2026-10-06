@@ -38,6 +38,7 @@ object CarSettings {
     private const val KEY_EXPERIMENTAL_FEATURES = "car_experimental_features"
     private const val KEY_VOICE_ASSISTANT = "car_voice_assistant"
     private const val KEY_CAR_SENSORS = "car_sensors_enabled"
+    private const val KEY_MEDIA_SEARCH = "car_media_search_enabled"
     private const val KEY_SEEN_SAFETY_WARNING = "car_seen_safety_warning"
     private const val KEY_UNITS = "car_units"
     private const val KEY_WHATS_NEW = "car_whats_new_after_updates"
@@ -71,6 +72,7 @@ object CarSettings {
     private val experimentalFeaturesFlow = MutableStateFlow(false)
     private val voiceAssistantFlow = MutableStateFlow(false)
     private val carSensorsFlow = MutableStateFlow(false)
+    private val mediaSearchFlow = MutableStateFlow(false)
     private val seenSafetyWarningFlow = MutableStateFlow(false)
     private val unitsFlow = MutableStateFlow(Units.AUTO)
 
@@ -172,6 +174,13 @@ object CarSettings {
     val carSensorsEnabled: StateFlow<Boolean> = carSensorsFlow
 
     /**
+     * Searching inside a media app is experimental and off by default: many apps claim to take
+     * searches and then ignore them or play something else. The media screen's search button
+     * shows only once this and [experimentalFeaturesEnabled] are both on.
+     */
+    val mediaSearchEnabled: StateFlow<Boolean> = mediaSearchFlow
+
+    /**
      * Whether the car screen's own "drive safely" warning has already been shown and dismissed
      * once, from this same install. Separate from the phone side's own compat/safety dialogs -
      * a driver who only ever plugs in and never opens the phone app should still see this once,
@@ -207,6 +216,7 @@ object CarSettings {
         experimentalFeaturesFlow.value = AppSettings.getString(app, KEY_EXPERIMENTAL_FEATURES, "false") == "true"
         voiceAssistantFlow.value = AppSettings.getString(app, KEY_VOICE_ASSISTANT, "false") == "true"
         carSensorsFlow.value = AppSettings.getString(app, KEY_CAR_SENSORS, "false") == "true"
+        mediaSearchFlow.value = AppSettings.getString(app, KEY_MEDIA_SEARCH, "false") == "true"
         seenSafetyWarningFlow.value = AppSettings.getString(app, KEY_SEEN_SAFETY_WARNING, "false") == "true"
         unitsFlow.value = runCatching {
             Units.valueOf(AppSettings.getString(app, KEY_UNITS, Units.AUTO.name))
@@ -273,6 +283,11 @@ object CarSettings {
     fun setCarSensorsEnabled(on: Boolean) {
         carSensorsFlow.value = on
         AppSettings.putString(app, KEY_CAR_SENSORS, on.toString())
+    }
+
+    fun setMediaSearchEnabled(on: Boolean) {
+        mediaSearchFlow.value = on
+        AppSettings.putString(app, KEY_MEDIA_SEARCH, on.toString())
     }
 
     fun setNightMode(mode: NightMode) {

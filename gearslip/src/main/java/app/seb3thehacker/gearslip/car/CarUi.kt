@@ -122,6 +122,10 @@ fun CarUi() {
     }
     remember(appContext) { Prefetch.warm(appContext, force = true); CarServices.init(appContext) }
     DisposableEffect(Unit) { onDispose { CarServices.shutdown() } }
+    // Ask for the phone's sound as soon as the car connects, not only when a media app opens:
+    // a video in the web browser or a map's voice needs it too. Asks once, after the car offers
+    // somewhere to play it.
+    LaunchedEffect(Unit) { if (CarSettings.pipeAudio.value) app.seb3thehacker.gearslip.audio.CarAudio.request() }
     // The map follows the light outside, whatever the app's own theme is set to.
     LaunchedEffect(darkOutside) { CarServices.nav.pushConfiguration() }
 
