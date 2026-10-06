@@ -43,6 +43,8 @@ object UsageStats {
     private const val KEY_DETAILS_DAY = "details_day"
     private const val DETAILS_REFRESH_DAYS = 30L
     private const val KEY_CARS = "cars"
+    /** The cars the last note carried, so Settings can show them after the queue empties. */
+    private const val KEY_LAST_CARS = "last_cars"
     private const val KEY_SENT_DAY = "sent_day"
     /** The daily background job of earlier builds, cancelled wherever it's still scheduled. */
     private const val OLD_JOB_ID = 4_207
@@ -80,7 +82,7 @@ object UsageStats {
             .apply()
         // Turning it on sends nothing yet: the driver may still be ticking boxes. The first note
         // waits for [choicesClosed].
-        if (!enabled) prefs(context).edit().remove(KEY_CARS).remove(KEY_SENT_DAY).apply()
+        if (!enabled) prefs(context).edit().remove(KEY_CARS).remove(KEY_LAST_CARS).remove(KEY_SENT_DAY).apply()
     }
 
     /** The driver left the screen with the usage note choices: send today's note if it's due. */
@@ -192,7 +194,15 @@ object UsageStats {
         if (details.length() > 0 && (everything || stale || details.toString() != p.getString(KEY_SENT_DETAILS, null))) {
             details.keys().forEach { note.put(it, details.get(it)) }
         }
-        if (c.cars) note.put("cars", runCatching { JSONArray(p.getString(KEY_CARS, "[]")) }.getOrDefault(JSONArray()))
+        if (c.cars) {
+            var cars = runCatching { JSONArray(p.getString(KEY_CARS, "[]")) }.getOrDefault(JSONArray())
+            // A car joins the queue when a drive ends and goes out straight away, so the queue
+            // is nearly always empty. Settings shows the last cars sent instead of a bare [].
+            if (everything && cars.length() == 0) {
+                cars = runCatching { JSONArray(p.getString(KEY_LAST_CARS, "[]")) }.getOrDefault(JSONArray())
+            }
+            note.put("cars", cars)
+        }
         return note
     }
 
@@ -222,6 +232,7 @@ object UsageStats {
                 synchronized(carsLock) {
                     val edit = p.edit().putString(KEY_SENT_DAY, LocalDate.now().toString())
                     if (sentDetails != null) edit.putString(KEY_SENT_DETAILS, sentDetails).putString(KEY_DETAILS_DAY, LocalDate.now().toString())
+                    if (sentCars != null && sentCars != "[]") edit.putString(KEY_LAST_CARS, sentCars)
                     if (sentCars == null || p.getString(KEY_CARS, "[]") == sentCars) edit.remove(KEY_CARS)
                     edit.apply()
                 }

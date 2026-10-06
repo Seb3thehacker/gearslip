@@ -111,7 +111,7 @@ internal fun ColumnScope.UsageStatsRows(showNote: Boolean) {
                 SettingsRow(
                     "What gets sent",
                     Modifier.clickable { noteOpen = !noteOpen },
-                    subtitle = "The Android version and phone model go only when they change, and once a month",
+                    subtitle = "Each car goes after the drive ends. The Android version and phone model go only when they change, and once a month",
                     icon = Icons.Filled.Info,
                     trailing = {
                         Icon(
