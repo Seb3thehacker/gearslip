@@ -352,8 +352,11 @@ class GearslipRunner(
 
     private fun onServiceDiscoveryResponse(body: ByteArray) {
         log.i("<- ServiceDiscoveryResponse (${body.size} bytes, decrypted successfully)")
-        // Field 5 is the car's serial number. Logs get shared, so it stays out of them.
-        val described = Protobuf.describe(body).replace(Regex("(?m)^  #5 string = .*$"), "  #5 string = (car serial, left out)")
+        // Field 5 is the car's serial number, and the Bluetooth service carries the car's
+        // Bluetooth address. Either one identifies the car, and logs get shared, so both stay out.
+        val described = Protobuf.describe(body)
+            .replace(Regex("(?m)^  #5 string = .*$"), "  #5 string = (car serial, left out)")
+            .replace(Regex("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}"), "(Bluetooth address, left out)")
         log.i("head unit describes itself as:\n" + described)
         log.verdict(
             "VIABLE",
