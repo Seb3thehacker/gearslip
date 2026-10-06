@@ -67,6 +67,11 @@ class VideoSource(
                 // else moved. Repeating the last frame after a short pause pushes it through;
                 // a repeat of an unchanged screen costs a few bytes. scrcpy does the same.
                 setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_AFTER_US)
+                // An app that draws nonstop (a moving map) renders at the phone's refresh rate,
+                // faster than the car acks. Every extra frame queued inside the encoder, and the
+                // car's screen fell 25 seconds behind. Capping the input drops the extras before
+                // they're encoded, so the car always gets the newest frame.
+                setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, frameRate.toFloat())
             }
             setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
             setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
