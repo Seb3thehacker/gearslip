@@ -49,8 +49,10 @@ export default {
       if (!env.DASHBOARD_KEY || url.searchParams.get('key') !== env.DASHBOARD_KEY) {
         return new Response('Not found', { status: 404 })
       }
-      // The daily trigger normally saves today's counts; this covers a missed or late one.
-      await snapshotDownloads(env, false).catch((e) => console.log('github:', e.message))
+      // Opening the dashboard refreshes today's counts, at most every few minutes, so it matches
+      // GitHub instead of showing the morning's numbers. GitHub allows 60 requests an hour.
+      const stale = Date.now() - lastFetched > REFRESH_MS
+      await snapshotDownloads(env, stale).catch((e) => console.log('github:', e.message))
       const summary = await summarize(env)
       if (url.pathname === '/api/summary') return Response.json(summary)
       return new Response(dashboard(summary), { headers: { 'content-type': 'text/html; charset=utf-8' } })
@@ -66,6 +68,9 @@ export default {
 
 // Saves each release's APK download count for today. GitHub only keeps a running total, so
 // downloads per day come from the difference between days.
+let lastFetched = 0
+const REFRESH_MS = 5 * 60 * 1000
+
 async function snapshotDownloads(env, force) {
   if (!env.GITHUB_REPO) return
   const day = today()
@@ -85,6 +90,7 @@ async function snapshotDownloads(env, force) {
     ]
   })
   if (statements.length) await env.DB.batch(statements)
+  lastFetched = Date.now()
 }
 
 const today = () => new Date().toISOString().slice(0, 10)
