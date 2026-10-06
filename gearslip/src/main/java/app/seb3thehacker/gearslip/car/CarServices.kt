@@ -33,6 +33,9 @@ object CarServices {
     val nav: CarAppConnection by lazy { CarAppConnection(requireNotNull(context)) }
     val media: CarMedia by lazy { CarMedia(requireNotNull(context)) }
 
+    /** [media], or null before the car screen has set things up: for code outside the car UI. */
+    fun mediaOrNull(): CarMedia? = if (context != null) media else null
+
     /**
      * A second, independent connection for templated apps that aren't navigation apps - Spotify's
      * own Car App Library service is the first of these. Kept apart from [nav] so opening one
