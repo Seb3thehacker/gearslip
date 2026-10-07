@@ -4,6 +4,8 @@
 
 An Android Auto alternative built for everyone.
 
+[<img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="54">](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/Seb3thehacker/gearslip)
+
 ## What Gearslip is
 
 Gearslip is an Android Auto client for the phone. It speaks the Android Auto protocol
