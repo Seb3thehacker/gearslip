@@ -106,6 +106,10 @@ internal fun ColumnScope.UsageStatsRows() {
                 choices = choices.copy(cars = it)
                 save()
             }
+            Choice("How each drive went: how far the connection got, how long it lasted, and how it ended, crashes included", choices.failures) {
+                choices = choices.copy(failures = it)
+                save()
+            }
             SettingsDivider()
             SettingsRow(
                 "What gets sent",
@@ -122,7 +126,14 @@ internal fun ColumnScope.UsageStatsRows() {
             )
             AnimatedVisibility(noteOpen) {
                 // Rebuilt from the saved choices each time one changes, so it always matches.
-                val note = remember(choices) { UsageStats.preview(context, everything = true).toString(2) }
+                val note = remember(choices) {
+                    val preview = UsageStats.preview(context, everything = true)
+                    // Until the first drive the list is empty, so show what one entry looks like.
+                    val example = if (preview.optJSONArray("sessions")?.length() == 0) {
+                        "\n\nExample, not sent: one drive adds this to \"sessions\"\n" + UsageStats.exampleSession.toString(2)
+                    } else ""
+                    preview.toString(2) + example
+                }
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainerLowest,
                     shape = MaterialTheme.shapes.medium,

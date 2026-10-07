@@ -237,7 +237,7 @@ class GearslipRunner(
         }
         log.w("<- ByeByeRequest: reason=$reason ($name) in state $state")
         log.hex("   byebye raw", body)
-        SessionReport.fail(SessionReport.Category.BYEBYE, "ByeByeRequest reason=$reason ($name)", state.name)
+        SessionReport.fail(SessionReport.Category.BYEBYE, "ByeByeRequest reason=$reason ($name)", state.name, "bye $reason")
         send(MSG_BYEBYE_RESPONSE, ByteArray(0), encrypted = true)
         log.i("-> ByeByeResponse")
     }
@@ -316,7 +316,7 @@ class GearslipRunner(
                 sendServiceDiscoveryRequest()
             }
             -2 -> {
-                SessionReport.fail(SessionReport.Category.CERTIFICATE, "AuthComplete status -2 (certificate error)", state.name)
+                SessionReport.fail(SessionReport.Category.CERTIFICATE, "AuthComplete status -2 (certificate error)", state.name, "auth -2")
                 log.verdict(
                     "NOT VIABLE (STATUS_CERTIFICATE_ERROR)",
                     "The head unit explicitly rejected the phone's self-signed certificate. " +
@@ -330,7 +330,7 @@ class GearslipRunner(
                 state = State.DONE
             }
             -3 -> {
-                SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status -3 (authentication failure)", state.name)
+                SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status -3 (authentication failure)", state.name, "auth -3")
                 log.verdict(
                     "NOT VIABLE (STATUS_AUTHENTICATION_FAILURE)",
                     "Authentication rejected. Broader than a pure certificate error, but the " +
@@ -343,7 +343,7 @@ class GearslipRunner(
                 state = State.DONE
             }
             else -> {
-                SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status $status (unexpected)", state.name)
+                SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status $status (unexpected)", state.name, "auth $status")
                 log.verdict(
                     "INCONCLUSIVE (AuthComplete status=$status)",
                     "Unexpected status. Check MessageStatus.proto in aasdk for the meaning " +
@@ -411,7 +411,7 @@ class GearslipRunner(
         val video = ServiceDiscovery.findVideoService(serviceDiscoveryResponse)
         if (video == null) {
             log.w("no video service in the discovery response - cannot start Phase A")
-            SessionReport.fail(SessionReport.Category.VIDEO, "head unit advertised no video service", state.name)
+            SessionReport.fail(SessionReport.Category.VIDEO, "head unit advertised no video service", state.name, "no video service")
             return
         }
         videoChannelId = video.serviceId
@@ -1101,10 +1101,10 @@ class GearslipRunner(
 
     private fun reportDisconnect() {
         when (state) {
-            State.WAIT_VERSION -> SessionReport.fail(SessionReport.Category.NO_HANDSHAKE, "no VersionRequest arrived", state.name)
-            State.TLS_HANDSHAKE -> SessionReport.fail(SessionReport.Category.TLS, "head unit dropped the link during TLS", state.name)
-            State.WAIT_AUTH -> SessionReport.fail(SessionReport.Category.AUTH, "dropped after TLS, before AuthComplete", state.name)
-            State.WAIT_SDR -> SessionReport.fail(SessionReport.Category.SERVICE_DISCOVERY, "accepted, then dropped before service discovery", state.name)
+            State.WAIT_VERSION -> SessionReport.fail(SessionReport.Category.NO_HANDSHAKE, "no VersionRequest arrived", state.name, "closed")
+            State.TLS_HANDSHAKE -> SessionReport.fail(SessionReport.Category.TLS, "head unit dropped the link during TLS", state.name, "closed")
+            State.WAIT_AUTH -> SessionReport.fail(SessionReport.Category.AUTH, "dropped after TLS, before AuthComplete", state.name, "closed")
+            State.WAIT_SDR -> SessionReport.fail(SessionReport.Category.SERVICE_DISCOVERY, "accepted, then dropped before service discovery", state.name, "closed")
             State.DONE -> {}
         }
         when (state) {
