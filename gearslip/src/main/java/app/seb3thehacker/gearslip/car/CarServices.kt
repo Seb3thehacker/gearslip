@@ -200,6 +200,32 @@ object CarServices {
         return playingPackages.firstNotNullOfOrNull { pkg -> catalog.firstOrNull { it.component.packageName == pkg } }
     }
 
+    /**
+     * The car went away mid-song: pause it, as Android Auto does, so it doesn't carry on out of
+     * the phone's speaker. Unplugging a USB accessory isn't "audio becoming noisy" the way
+     * headphones are, so the apps won't pause themselves. Every playing session is paused, not
+     * just the one Gearslip opened: anything the car was playing was going through the car.
+     */
+    fun pausePhoneMedia() {
+        val ctx = context ?: return
+        val manager = ctx.getSystemService(MediaSessionManager::class.java)
+        val listener = ComponentName(ctx, GearslipNotificationListener::class.java)
+        val playing = try {
+            manager.getActiveSessions(listener).filter { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+        } catch (e: SecurityException) {
+            null
+        }
+        if (playing == null) {
+            // No notification access: the app Gearslip itself is driving is all it can reach.
+            mediaOrNull()?.let { if (it.now.value.playing) it.togglePlay() }
+            return
+        }
+        playing.forEach { runCatching { it.transportControls.pause() } }
+        if (playing.isNotEmpty()) {
+            app.seb3thehacker.gearslip.GearslipLog.i("media: paused ${playing.joinToString { it.packageName }} as the car left")
+        }
+    }
+
     /** The car went away: nothing should keep running for a screen that no longer exists. */
     fun shutdown() {
         context?.let { app.seb3thehacker.gearslip.notify.CarMotion.stop(it) }
