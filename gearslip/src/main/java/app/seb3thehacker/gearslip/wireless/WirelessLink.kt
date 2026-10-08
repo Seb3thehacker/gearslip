@@ -11,6 +11,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiNetworkSpecifier
+import android.provider.Settings
 import app.seb3thehacker.gearslip.GearslipLog
 import app.seb3thehacker.gearslip.Protobuf
 import app.seb3thehacker.gearslip.SessionStatus
@@ -51,8 +52,12 @@ object WirelessLink {
     private const val MSG_START_REQUEST = 1
     private const val MSG_INFO_REQUEST = 2
     private const val MSG_INFO_RESPONSE = 3
-    /** The wireless setup's status for success, shared by every message that carries one. */
-    private const val STATUS_SUCCESS = 1L
+    /**
+     * The wireless setup's status for success, shared by every message that carries one.
+     * aa-proxy-rs sends 0 to real cars and they carry on; a Renault Media Nav given 1 went quiet
+     * and closed the channel. (open-android-auto's table, which says 1, is marked unverified.)
+     */
+    private const val STATUS_SUCCESS = 0L
     private const val MSG_VERSION_REQUEST = 4
     private const val MSG_VERSION_RESPONSE = 5
     private const val MSG_CONNECTION_STATUS = 6
@@ -110,6 +115,11 @@ object WirelessLink {
         network = null
     }
 
+    /** A stable id for this phone as this app sees it, standing in for the serial a real phone sends. */
+    @SuppressLint("HardwareIds")
+    private fun deviceId(context: Context): String =
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "gearslip"
+
     @SuppressLint("MissingPermission")
     private fun run(context: Context, device: BluetoothDevice) {
         val name = name(device)
@@ -153,16 +163,20 @@ object WirelessLink {
                     MSG_VERSION_REQUEST -> {
                         log.i("<- VersionRequest")
                         log.hex("   version", body)
-                        // Fields 1 and 2 are the major and minor version: answering with the
-                        // car's own has worked on LIVI. Field 4 is the status, and 1 is success
-                        // (0 means "unsolicited message"), per open-android-auto's
-                        // WifiVersionStatusEnum.proto. LIVI never reads it, so it proved nothing.
+                        // Laid out the way a real phone's reply is (aa-proxy-rs and LIVI both
+                        // parse it from real phones): 1 and 2 the version, echoing the car's;
+                        // 3 a serial; 4 the status; 6 the device's ids.
                         val f = Wire.fields(body)
+                        val serial = deviceId(context)
+                        val ids = Protobuf.stringField(1, serial) + Protobuf.stringField(2, UUID.randomUUID().toString())
                         val reply = Protobuf.varintField(1, Wire.varint(f, 1) ?: 1) +
                             Protobuf.varintField(2, Wire.varint(f, 2) ?: 0) +
-                            Protobuf.varintField(4, STATUS_SUCCESS)
+                            Protobuf.stringField(3, serial) +
+                            Protobuf.varintField(4, STATUS_SUCCESS) +
+                            Protobuf.varint(((6 shl 3) or 2).toLong()) + Protobuf.varint(ids.size.toLong()) + ids
                         send(output, MSG_VERSION_RESPONSE, reply)
                         log.i("-> VersionResponse")
+                        log.hex("   reply", reply)
                     }
                     MSG_START_REQUEST -> {
                         val f = Wire.fields(body)
@@ -239,7 +253,6 @@ object WirelessLink {
 
             override fun onUnavailable() {
                 log.w("Wi-Fi: couldn't join \"$ssid\" (declined, out of range, or wrong password)")
-                // -1: Wi-Fi network unavailable.
                 runCatching { send(output, MSG_CONNECTION_STATUS, Protobuf.varintField(1, -1)) }
                 SessionStatus.failed(
                     "Couldn't join the car's Wi-Fi",
