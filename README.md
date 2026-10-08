@@ -63,8 +63,8 @@ mode.
 - **Some apps refuse Gearslip.** Spotify, Waze, and Google Messages use a version of
   Google's car library that accepts only Android Auto itself. Spotify still plays through
   Gearslip's own player.
-- **Gearslip works best with cars from before 2020.** Some newer head units reject its
-  certificate.
+- **Most cars work.** Starting in 2020, some cars added newer security standards that
+  reject Gearslip's certificate, and Gearslip can't run in those cars.
 - **Calls use the car's Bluetooth,** as they do in Android Auto. Pair the phone with the
   car to hear calls through its speakers.
 - **Audio reaches the car by capturing playback, not by mirroring the screen.** Android
