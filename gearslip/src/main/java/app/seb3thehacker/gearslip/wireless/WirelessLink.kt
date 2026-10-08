@@ -51,6 +51,8 @@ object WirelessLink {
     private const val MSG_START_REQUEST = 1
     private const val MSG_INFO_REQUEST = 2
     private const val MSG_INFO_RESPONSE = 3
+    /** The wireless setup's status for success, shared by every message that carries one. */
+    private const val STATUS_SUCCESS = 1L
     private const val MSG_VERSION_REQUEST = 4
     private const val MSG_VERSION_RESPONSE = 5
     private const val MSG_CONNECTION_STATUS = 6
@@ -83,7 +85,15 @@ object WirelessLink {
     fun start(context: Context, device: BluetoothDevice) {
         stop(context)
         val app = context.applicationContext
-        worker = Thread({ run(app, device) }, "gearslip-wireless").apply { isDaemon = true; start() }
+        worker = Thread({
+            // A test feature: anything unexpected ends the attempt, not the app.
+            try {
+                run(app, device)
+            } catch (e: Exception) {
+                log.e("wireless start-up failed", e)
+                SessionStatus.failed("Wireless start-up failed", "${e.javaClass.simpleName}: ${e.message}")
+            }
+        }, "gearslip-wireless").apply { isDaemon = true; start() }
     }
 
     /** Closes the Bluetooth channel, the socket and the Wi-Fi request. Safe to call any time. */
@@ -106,8 +116,18 @@ object WirelessLink {
         log.i("--- wireless start-up with $name (${device.address}) ---")
         SessionStatus.connecting("Bluetooth: reaching $name")
         val socket = try {
-            context.getSystemService(BluetoothManager::class.java)?.adapter?.cancelDiscovery()
+            // A running scan slows the connect, but stopping one needs BLUETOOTH_SCAN on Android
+            // 12+, which Gearslip doesn't ask for. Gearslip never scans, so skipping it is fine.
+            runCatching { context.getSystemService(BluetoothManager::class.java)?.adapter?.cancelDiscovery() }
             device.createRfcommSocketToServiceRecord(AA_UUID).also { it.connect() }
+        } catch (e: SecurityException) {
+            log.e("Bluetooth: permission refused while opening the channel on $name", e)
+            SessionStatus.failed(
+                "Bluetooth permission missing",
+                "Gearslip needs the Nearby devices permission to reach $name. Allow it in the app's " +
+                    "settings, then try again.",
+            )
+            return
         } catch (e: IOException) {
             log.e("Bluetooth: could not open the Android Auto channel on $name", e)
             SessionStatus.failed(
@@ -133,12 +153,14 @@ object WirelessLink {
                     MSG_VERSION_REQUEST -> {
                         log.i("<- VersionRequest")
                         log.hex("   version", body)
-                        // The fields' meaning isn't known; answering with the car's own numbers
-                        // has worked on LIVI. Field 4 is required, so it goes as 0.
+                        // Fields 1 and 2 are the major and minor version: answering with the
+                        // car's own has worked on LIVI. Field 4 is the status, and 1 is success
+                        // (0 means "unsolicited message"), per open-android-auto's
+                        // WifiVersionStatusEnum.proto. LIVI never reads it, so it proved nothing.
                         val f = Wire.fields(body)
                         val reply = Protobuf.varintField(1, Wire.varint(f, 1) ?: 1) +
                             Protobuf.varintField(2, Wire.varint(f, 2) ?: 0) +
-                            Protobuf.varintField(4, 0)
+                            Protobuf.varintField(4, STATUS_SUCCESS)
                         send(output, MSG_VERSION_RESPONSE, reply)
                         log.i("-> VersionResponse")
                     }
@@ -217,7 +239,8 @@ object WirelessLink {
 
             override fun onUnavailable() {
                 log.w("Wi-Fi: couldn't join \"$ssid\" (declined, out of range, or wrong password)")
-                runCatching { send(output, MSG_CONNECTION_STATUS, Protobuf.varintField(1, -11)) }
+                // -1: Wi-Fi network unavailable.
+                runCatching { send(output, MSG_CONNECTION_STATUS, Protobuf.varintField(1, -1)) }
                 SessionStatus.failed(
                     "Couldn't join the car's Wi-Fi",
                     "Android didn't connect to $name's network. If a \"Connect to device\" prompt " +
@@ -245,8 +268,8 @@ object WirelessLink {
                 tcp = socket
                 log.i("TCP: connected to $ip:$port (try ${attempt + 1})")
                 runCatching {
-                    send(output, MSG_START_RESPONSE, Protobuf.varintField(3, 0))
-                    send(output, MSG_CONNECTION_STATUS, Protobuf.varintField(1, 0))
+                    send(output, MSG_START_RESPONSE, Protobuf.varintField(3, STATUS_SUCCESS))
+                    send(output, MSG_CONNECTION_STATUS, Protobuf.varintField(1, STATUS_SUCCESS))
                 }
                 val start = onConnected
                 if (start == null) {
