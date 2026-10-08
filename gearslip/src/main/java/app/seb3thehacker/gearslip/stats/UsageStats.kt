@@ -80,6 +80,7 @@ object UsageStats {
     }
 
     fun set(context: Context, enabled: Boolean, choices: Choices = choices(context)) {
+        val wasEnabled = enabled(context)
         prefs(context).edit()
             .putBoolean(KEY_ENABLED, enabled)
             .putBoolean(KEY_ASKED, true)
@@ -93,6 +94,8 @@ object UsageStats {
         if (!enabled) prefs(context).edit().remove(KEY_CARS).remove(KEY_LAST_CARS).remove(KEY_SENT_DAY)
             .remove(KEY_SESSIONS).remove(KEY_LAST_SESSIONS).apply()
         if (!choices.failures) prefs(context).edit().remove(KEY_SESSIONS).remove(KEY_LAST_SESSIONS).apply()
+        // Turned on anywhere - Settings, Home, or the ask itself - answers the one-time ask.
+        if (enabled && !wasEnabled) WorkedPrompt.onSharingOn(context)
     }
 
     /** The driver left the screen with the usage note choices: send today's note if it's due. */

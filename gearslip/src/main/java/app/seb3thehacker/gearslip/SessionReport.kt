@@ -220,6 +220,9 @@ object SessionReport {
             runCatching {
                 UsageStats.recordSession(context, headUnitInfo, protocolVersion, outcome, carScreen, carDpi, sessionNote())
             }
+            if (outcome == "connected") runCatching {
+                app.seb3thehacker.gearslip.stats.WorkedPrompt.onDriveWorked(context, headUnitInfo, protocolVersion, carScreen, carDpi)
+            }
             runCatching { app.seb3thehacker.gearslip.update.UpdateChecker.onDriveEnded(context) }
         }
         GearslipLog.flush()

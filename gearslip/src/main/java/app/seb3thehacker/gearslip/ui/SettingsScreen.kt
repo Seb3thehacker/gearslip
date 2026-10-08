@@ -181,7 +181,8 @@ private fun CertificateSection() {
     val scope = rememberCoroutineScope()
 
     var refresh by remember { mutableIntStateOf(0) }
-    val summary by produceState<CertSummary?>(null, refresh) {
+    // The cached summary shows at once; the read still runs, in case the cert changed since.
+    val summary by produceState(CertSummary.cached, refresh) {
         value = withContext(Dispatchers.Default) { CertSummary.read(context) }
     }
 

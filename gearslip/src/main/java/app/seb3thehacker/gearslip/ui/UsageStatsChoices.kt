@@ -5,6 +5,13 @@ import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import app.seb3thehacker.gearslip.stats.WorkedPrompt
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -171,6 +178,54 @@ private fun buildNote(): String? = when {
     BuildConfig.DEBUG -> "Dev build: nothing is ever sent"
     BuildConfig.STATS_URL.isBlank() -> "This build has no stats server, so it sends nothing"
     else -> null
+}
+
+/**
+ * The one-time ask after the first drive that worked, in the status card's place on Home. Share
+ * turns on usage notes like the switch does; the link shows exactly what that sends first.
+ */
+@Composable
+internal fun WorkedCard(car: String, onSeeWhatsSent: () -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier,
+        color = scheme.primaryContainer,
+        contentColor = scheme.onPrimaryContainer,
+        shape = MaterialTheme.shapes.extraLarge,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Check, contentDescription = null)
+                Text(
+                    WorkedPrompt.TITLE_START + car,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 12.dp),
+                )
+            }
+            Text(
+                "Share that so the next driver knows it works? No name, account, or location.",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            buildNote()?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(onClick = onSeeWhatsSent, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                    Text("What gets sent")
+                }
+                Spacer(Modifier.weight(1f))
+                OutlinedButton(onClick = { WorkedPrompt.answer(context, share = false) }) { Text("Not now") }
+                Button(onClick = { WorkedPrompt.answer(context, share = true) }) { Text("Share") }
+            }
+        }
+    }
 }
 
 /**
