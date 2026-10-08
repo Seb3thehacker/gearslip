@@ -57,6 +57,9 @@ import app.seb3thehacker.gearslip.BuildConfig
 import app.seb3thehacker.gearslip.CertProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,7 +69,16 @@ fun SettingsScreen(
     onOpenRecommendedApps: () -> Unit,
     onOpenWhatsNew: () -> Unit,
     onReplayTutorial: () -> Unit,
+    atUsageNotes: Boolean = false,
 ) {
+    val scroll = rememberScrollState()
+    // Opened from Home's usage notes row: usage notes is the last section, so start at the end.
+    if (atUsageNotes) {
+        LaunchedEffect(Unit) {
+            snapshotFlow { scroll.maxValue }.first { it > 0 && it < Int.MAX_VALUE }
+            scroll.scrollTo(scroll.maxValue)
+        }
+    }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -85,7 +97,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scroll),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             Spacer(Modifier.height(0.dp))

@@ -60,6 +60,8 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
             },
         )
     }
+    // Home's usage notes row opens Settings at that section rather than at the top.
+    var settingsAtUsageNotes by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = screen != Screen.HOME) {
         screen = if (screen == Screen.RECOMMENDED_APPS) Screen.SETTINGS else Screen.HOME
     }
@@ -95,18 +97,20 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
             when (screen) {
                 Screen.HOME -> HomeScreen(
                     onOpenLogs = { screen = Screen.LOGS },
-                    onOpenSettings = { screen = Screen.SETTINGS },
+                    onOpenSettings = { settingsAtUsageNotes = false; screen = Screen.SETTINGS },
                     onOpenCarPreview = { screen = Screen.CAR_PREVIEW },
                     onOpenHelp = { screen = Screen.HELP },
+                    onOpenUsageNotes = { settingsAtUsageNotes = true; screen = Screen.SETTINGS },
                     onDisconnect = onDisconnect,
                 )
                 Screen.WHATS_NEW -> WhatsNewScreen(onBack = { screen = Screen.SETTINGS })
                 Screen.LOGS -> LogsScreen(onBack = { screen = Screen.HOME })
                 Screen.SETTINGS -> SettingsScreen(
                     onBack = { screen = Screen.HOME },
-                    onOpenRecommendedApps = { screen = Screen.RECOMMENDED_APPS },
-                    onOpenWhatsNew = { screen = Screen.WHATS_NEW },
+                    onOpenRecommendedApps = { settingsAtUsageNotes = false; screen = Screen.RECOMMENDED_APPS },
+                    onOpenWhatsNew = { settingsAtUsageNotes = false; screen = Screen.WHATS_NEW },
                     onReplayTutorial = { screen = Screen.SETUP_GUIDE },
+                    atUsageNotes = settingsAtUsageNotes,
                 )
                 Screen.RECOMMENDED_APPS -> RecommendedAppsScreen(onBack = { screen = Screen.SETTINGS })
                 Screen.CAR_PREVIEW -> CarPreviewScreen(onBack = { screen = Screen.HOME })

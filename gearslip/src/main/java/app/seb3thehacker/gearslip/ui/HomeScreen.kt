@@ -48,6 +48,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenCarPreview: () -> Unit,
     onOpenHelp: () -> Unit,
+    onOpenUsageNotes: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
     val status by SessionStatus.state.collectAsStateWithLifecycle()
@@ -92,7 +93,6 @@ fun HomeScreen(
                 StatusCard(status)
                 Spacer(Modifier.height(16.dp))
                 UpdateCard()
-                UsageNotesHomeCard()
             }
 
             // Sits at the bottom, where a thumb reaches it.
@@ -105,6 +105,9 @@ fun HomeScreen(
                     }
                     Spacer(Modifier.height(16.dp))
                 }
+
+                UsageNotesHomeCard(onOpen = onOpenUsageNotes)
+                Spacer(Modifier.height(16.dp))
 
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.extraLarge) {
                     Column {

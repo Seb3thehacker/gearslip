@@ -1,6 +1,7 @@
 package app.seb3thehacker.gearslip.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -9,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -83,11 +86,7 @@ internal fun ColumnScope.UsageStatsRows() {
     SettingsRow(
         "Send usage notes",
         Modifier.toggleable(on, role = Role.Switch) { on = it; save() },
-        subtitle = when {
-            BuildConfig.DEBUG -> "Dev build: nothing is ever sent"
-            BuildConfig.STATS_URL.isBlank() -> "This build has no stats server, so it sends nothing"
-            else -> null
-        },
+        subtitle = buildNote(),
         icon = Icons.Filled.Send,
         trailing = { Switch(checked = on, onCheckedChange = null) },
     )
@@ -126,14 +125,7 @@ internal fun ColumnScope.UsageStatsRows() {
             )
             AnimatedVisibility(noteOpen) {
                 // Rebuilt from the saved choices each time one changes, so it always matches.
-                val note = remember(choices) {
-                    val preview = UsageStats.preview(context, everything = true)
-                    // Until the first drive the list is empty, so show what one entry looks like.
-                    val example = if (preview.optJSONArray("sessions")?.length() == 0) {
-                        "\n\nExample, not sent: one drive adds this to \"sessions\"\n" + UsageStats.exampleSession.toString(2)
-                    } else ""
-                    preview.toString(2) + example
-                }
+                val note = remember(choices) { notePreview(context) }
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainerLowest,
                     shape = MaterialTheme.shapes.medium,
@@ -164,23 +156,60 @@ private fun Choice(label: String, checked: Boolean, onChange: (Boolean) -> Unit)
     }
 }
 
-/** Usage notes on Home, always: the switch, and once it's on, what to share. */
+/** The note as it would go out now, with an example drive until a real one is in it. */
+private fun notePreview(context: Context): String {
+    val preview = UsageStats.preview(context, everything = true)
+    // Until the first drive the list is empty, so show what one entry looks like.
+    val example = if (preview.optJSONArray("sessions")?.length() == 0) {
+        "\n\nExample, not sent: one drive adds this to \"sessions\"\n" + UsageStats.exampleSession.toString(2)
+    } else ""
+    return preview.toString(2) + example
+}
+
+/** Why this build sends nothing, when it doesn't; null for a normal release. */
+private fun buildNote(): String? = when {
+    BuildConfig.DEBUG -> "Dev build: nothing is ever sent"
+    BuildConfig.STATS_URL.isBlank() -> "This build has no stats server, so it sends nothing"
+    else -> null
+}
+
+/**
+ * Usage notes on Home, one row with one action either way. While they're off, the row is the
+ * switch, so opting in is a single tap. Once they're on, it shrinks to a quiet line that opens
+ * Settings at its usage notes section, so a driver already sharing isn't pitched again.
+ */
 @Composable
-internal fun UsageNotesHomeCard(modifier: Modifier = Modifier) {
-    Column(modifier) {
-        Text(
-            USAGE_STATS_TITLE,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 16.dp, bottom = 4.dp),
-        )
-        Text(
-            "Share a short note after each drive, so the next driver knows whether Gearslip works " +
-                "in their car. No name, account, or location.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-        )
-        SettingsCard { UsageStatsRows() }
+internal fun UsageNotesHomeCard(onOpen: () -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var on by remember { mutableStateOf(UsageStats.enabled(context)) }
+
+    SettingsCard(modifier) {
+        if (on) {
+            SettingsRow(
+                "Sharing usage notes",
+                Modifier.clickable(onClick = onOpen),
+                subtitle = buildNote(),
+                icon = Icons.Filled.Check,
+                trailing = {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+            )
+        } else {
+            SettingsRow(
+                USAGE_STATS_TITLE,
+                Modifier.toggleable(false, role = Role.Switch) {
+                    UsageStats.set(context, true, UsageStats.choices(context))
+                    on = true
+                },
+                subtitle = buildNote() ?: ("A short note after each drive tells the next driver " +
+                    "whether their car works. No name, account, or location"),
+                icon = Icons.Filled.Send,
+                trailing = { Switch(checked = false, onCheckedChange = null) },
+            )
+        }
     }
 }
