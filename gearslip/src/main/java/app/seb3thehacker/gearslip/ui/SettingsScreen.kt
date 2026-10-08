@@ -225,7 +225,7 @@ private fun CertificateSection() {
         }
         SettingsDivider()
         SettingsRow(
-            if (downloading) "Downloading…" else "Download certificate",
+            if (downloading) "Downloading…" else "Download from aasdk",
             Modifier.clickable(enabled = !downloading) {
                 downloading = true
                 scope.launch {
@@ -239,13 +239,14 @@ private fun CertificateSection() {
                     }
                 }
             },
+            subtitle = "The certificate the open-source aasdk project publishes on GitHub. Gearslip doesn't include one",
             icon = Icons.Filled.Refresh,
         )
         SettingsDivider()
         SettingsRow(
-            "Import a certificate",
+            "Import my own file",
             Modifier.clickable { picker.launch(arrayOf("*/*")) },
-            subtitle = "A .p12 file with its private key",
+            subtitle = "A .p12 file with its private key, from wherever you choose",
             icon = Icons.Filled.Add,
         )
         val removable = when (s?.kind) {
