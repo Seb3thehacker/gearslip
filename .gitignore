@@ -31,10 +31,3 @@ CLAUDE.md
 archive/
 .wrangler/
 stats-worker/
-
-# Certificates and keys never go in the repo; the app downloads or imports them on the phone.
-*.p12
-*.pfx
-*.pem
-*.crt
-*.key
