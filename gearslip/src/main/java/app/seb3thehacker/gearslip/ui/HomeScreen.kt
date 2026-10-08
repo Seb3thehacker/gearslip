@@ -91,6 +91,7 @@ fun HomeScreen(
                 Spacer(Modifier.height(16.dp))
                 StatusCard(status)
                 Spacer(Modifier.height(16.dp))
+                if (status.phase != SessionStatus.Phase.PROJECTING) WirelessCard()
             }
 
             // Sits at the bottom, where a thumb reaches it.

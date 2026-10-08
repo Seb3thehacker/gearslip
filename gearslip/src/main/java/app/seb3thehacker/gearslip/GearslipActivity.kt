@@ -45,6 +45,8 @@ class GearslipActivity : ComponentActivity(), Projection {
 
 
     private var descriptor: ParcelFileDescriptor? = null
+    /** The wireless session's socket, when the car came over Wi-Fi instead of USB. */
+    private var wirelessSocket: java.net.Socket? = null
     private var runner: GearslipRunner? = null
     private var screenProjector: ScreenProjector? = null
     private var worker: Thread? = null
@@ -92,7 +94,8 @@ class GearslipActivity : ComponentActivity(), Projection {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == UsbManager.ACTION_USB_ACCESSORY_DETACHED) {
                 GearslipLog.w("accessory detached")
-                closeAccessory()
+                // A wireless session has no accessory to lose; leave it running.
+                if (wirelessSocket == null) closeAccessory()
             }
         }
     }
@@ -115,6 +118,9 @@ class GearslipActivity : ComponentActivity(), Projection {
         GearslipLog.init(this)
         GearslipLog.installCrashHandler()
         GearslipLog.i("Gearslip ready")
+        app.seb3thehacker.gearslip.wireless.WirelessLink.onConnected = { socket ->
+            runOnUiThread { startWireless(socket) }
+        }
         CarSettings.init(this)
         AppSettings.applyGearslipEnabled(this)
         // A capture that died without tidying up would leave notifications exposed to every
@@ -127,7 +133,7 @@ class GearslipActivity : ComponentActivity(), Projection {
 
         setContent {
             GearslipTheme {
-                GearslipApp(onDisconnect = ::closeAccessory, onRequestCallScreening = ::requestCallScreeningRole)
+                GearslipApp(onDisconnect = { closeAccessory() }, onRequestCallScreening = ::requestCallScreeningRole)
             }
         }
 
@@ -161,6 +167,7 @@ class GearslipActivity : ComponentActivity(), Projection {
 
     override fun onDestroy() {
         super.onDestroy()
+        app.seb3thehacker.gearslip.wireless.WirelessLink.onConnected = null
         runCatching { unregisterReceiver(detachReceiver) }
         PhoneMirror.onStartRequested = null
         PhoneMirror.onTokenReady = null
@@ -296,16 +303,43 @@ class GearslipActivity : ComponentActivity(), Projection {
         worker = Thread { runner.run() }.apply { name = "gearslip"; start() }
     }
 
+    /** A wireless session: the same runner, on the socket [WirelessLink] opened to the car. */
+    private fun startWireless(socket: java.net.Socket) {
+        closeAccessory(stopWireless = false)
+        if (!AppSettings.gearslipEnabled(this)) {
+            GearslipLog.i("wireless: Gearslip is switched off - not connecting")
+            runCatching { socket.close() }
+            return
+        }
+        GearslipLog.i("wireless: starting a session over Wi-Fi to ${socket.inetAddress?.hostAddress}:${socket.port}")
+        wirelessSocket = socket
+        val runner = GearslipRunner(
+            input = socket.getInputStream(),
+            output = socket.getOutputStream(),
+            identityProvider = { CertProvider.load(this) },
+            projection = this,
+            vehicleProfileFor = { info -> VehicleProfiles.find(VehicleProfiles.load(this), info) },
+        )
+        this.runner = runner
+        worker = Thread { runner.run() }.apply { name = "gearslip"; start() }
+    }
+
     private fun describe(accessory: UsbAccessory) {
         GearslipLog.i("accessory: manufacturer=${accessory.manufacturer} model=${accessory.model}")
         GearslipLog.i("           version=${accessory.version} description=${accessory.description}")
     }
 
-    private fun closeAccessory() {
+    private fun closeAccessory() = closeAccessory(stopWireless = true)
+
+    /** Ends the session, wired or wireless. [stopWireless] also drops the car's Bluetooth and Wi-Fi. */
+    private fun closeAccessory(stopWireless: Boolean) {
         runner?.stop()
         SessionReport.print()
         runCatching { descriptor?.close() }
         descriptor = null
+        runCatching { wirelessSocket?.close() }
+        wirelessSocket = null
+        if (stopWireless) app.seb3thehacker.gearslip.wireless.WirelessLink.stop(this)
         runner = null
     }
 
