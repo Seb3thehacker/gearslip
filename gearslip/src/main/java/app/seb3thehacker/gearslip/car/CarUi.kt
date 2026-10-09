@@ -226,6 +226,7 @@ fun CarUi() {
                                 }
                             }
                         }
+                        CarToastOverlay(Modifier.align(Alignment.BottomCenter))
                         PopupTimer()
                         // The dashboard is already listing them, so it needs no popup.
                         NotificationPopup(
