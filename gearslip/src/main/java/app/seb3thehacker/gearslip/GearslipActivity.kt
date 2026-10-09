@@ -152,6 +152,7 @@ class GearslipActivity : ComponentActivity(), Projection {
         super.onStart()
         Prefetch.warm(this)
         UsageStats.onAppOpened(this)
+        app.seb3thehacker.gearslip.update.UpdateChecker.onAppOpened(this)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -337,6 +338,8 @@ class GearslipActivity : ComponentActivity(), Projection {
     }
 
     override fun onProjectionStopped() {
+        // Before the car UI goes, while the media connection is still up.
+        app.seb3thehacker.gearslip.car.CarServices.pausePhoneMedia()
         runOnUiThread {
             PhoneMirror.requestStop()
             app.seb3thehacker.gearslip.car.CarKeys.focusSink = null

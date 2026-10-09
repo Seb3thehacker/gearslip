@@ -57,6 +57,9 @@ import app.seb3thehacker.gearslip.BuildConfig
 import app.seb3thehacker.gearslip.CertProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,7 +69,16 @@ fun SettingsScreen(
     onOpenRecommendedApps: () -> Unit,
     onOpenWhatsNew: () -> Unit,
     onReplayTutorial: () -> Unit,
+    atUsageNotes: Boolean = false,
 ) {
+    val scroll = rememberScrollState()
+    // Opened from Home's usage notes row: usage notes is the last section, so start at the end.
+    if (atUsageNotes) {
+        LaunchedEffect(Unit) {
+            snapshotFlow { scroll.maxValue }.first { it > 0 && it < Int.MAX_VALUE }
+            scroll.scrollTo(scroll.maxValue)
+        }
+    }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -85,7 +97,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scroll),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             Spacer(Modifier.height(0.dp))
@@ -106,7 +118,7 @@ private fun Arrow() = Icon(
     tint = MaterialTheme.colorScheme.onSurfaceVariant,
 )
 
-/** What's new and the setup guide, one tap from the top. */
+/** What's new, updates and the setup guide, one tap from the top. */
 @Composable
 private fun AboutSection(onOpenWhatsNew: () -> Unit, onReplayTutorial: () -> Unit) {
     SettingsSection {
@@ -117,6 +129,10 @@ private fun AboutSection(onOpenWhatsNew: () -> Unit, onReplayTutorial: () -> Uni
             icon = Icons.Filled.Star,
             trailing = { Arrow() },
         )
+        SettingsDivider()
+        UpdateRow()
+        SettingsDivider()
+        UpdateNotifyRow()
         SettingsDivider()
         SettingsRow(
             "Replay the setup guide",
@@ -165,7 +181,8 @@ private fun CertificateSection() {
     val scope = rememberCoroutineScope()
 
     var refresh by remember { mutableIntStateOf(0) }
-    val summary by produceState<CertSummary?>(null, refresh) {
+    // The cached summary shows at once; the read still runs, in case the cert changed since.
+    val summary by produceState(CertSummary.cached, refresh) {
         value = withContext(Dispatchers.Default) { CertSummary.read(context) }
     }
 
