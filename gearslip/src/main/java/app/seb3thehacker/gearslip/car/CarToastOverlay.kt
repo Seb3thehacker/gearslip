@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,15 +40,15 @@ internal fun CarToastOverlay(modifier: Modifier = Modifier) {
         modifier
             .padding(horizontal = 24.dp, vertical = 16.dp)
             .widthIn(max = 560.dp)
-            .clip(MaterialTheme.shapes.medium)
-            .background(MaterialTheme.colorScheme.inverseSurface)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .semantics { liveRegion = LiveRegionMode.Polite },
     ) {
         Text(
             message.text,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-            color = MaterialTheme.colorScheme.inverseOnSurface,
-            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.titleMedium,
             maxLines = 3,
             overflow = TextOverflow.Ellipsis,
         )

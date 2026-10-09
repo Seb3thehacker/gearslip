@@ -17,7 +17,8 @@ internal object CarToasts {
 
     fun show(owner: Any, text: String, duration: Int) {
         if (text.isBlank()) return
-        val durationMs = if (duration == CarToast.LENGTH_LONG) 3_500L else 2_000L
+        // Longer than a phone toast: the driver only glances at the screen now and then.
+        val durationMs = if (duration == CarToast.LENGTH_LONG) 7_000L else 4_000L
         current.value = Message(owner, text, durationMs)
     }
 

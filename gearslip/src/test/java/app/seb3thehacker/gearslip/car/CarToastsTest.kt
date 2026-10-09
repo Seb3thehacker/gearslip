@@ -71,10 +71,10 @@ class CarToastsTest {
     fun unknownDurationsFallBackToShortRatherThanStayingVisible() {
         val owner = Any()
         CarToasts.show(owner, "Short", CarToast.LENGTH_SHORT)
-        assertEquals(2_000L, CarToasts.message.value?.durationMs)
+        assertEquals(4_000L, CarToasts.message.value?.durationMs)
         CarToasts.show(owner, "Long", CarToast.LENGTH_LONG)
-        assertEquals(3_500L, CarToasts.message.value?.durationMs)
+        assertEquals(7_000L, CarToasts.message.value?.durationMs)
         CarToasts.show(owner, "Unknown", Int.MAX_VALUE)
-        assertEquals(2_000L, CarToasts.message.value?.durationMs)
+        assertEquals(4_000L, CarToasts.message.value?.durationMs)
     }
 }
