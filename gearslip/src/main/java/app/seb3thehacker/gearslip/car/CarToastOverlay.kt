@@ -20,6 +20,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Draw inside the encoded car display; a normal Android Toast would appear on the phone. */
 @Composable
@@ -31,7 +33,11 @@ internal fun CarToastOverlay(modifier: Modifier = Modifier) {
         val timeout = accessibility?.calculateRecommendedTimeoutMillis(
             message.durationMs, containsIcons = false, containsText = true, containsControls = false,
         ) ?: message.durationMs
-        delay(timeout)
+        // The full time, unless another toast is waiting: then it gives way after the minimum.
+        delay(minOf(timeout, CarToasts.MIN_SHOWN_MS))
+        withTimeoutOrNull((timeout - CarToasts.MIN_SHOWN_MS).coerceAtLeast(0)) {
+            CarToasts.waiting.first { it > 0 }
+        }
         CarToasts.dismiss(message)
     }
 
