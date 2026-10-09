@@ -1,6 +1,7 @@
 package app.seb3thehacker.gearslip.host
 
 import app.seb3thehacker.gearslip.car.CarEnvironment
+import app.seb3thehacker.gearslip.car.CarToasts
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -81,6 +82,8 @@ class CarAppConnection(private val context: Context) {
     val template: StateFlow<Template?> = _template.asStateFlow()
 
     private val main = Handler(Looper.getMainLooper())
+    /** Captured by each host Binder so callbacks queued by a replaced app cannot show a toast. */
+    private var toastOwner = Any()
 
     private var carApp: ICarApp? = null
     private var appManager: IAppManager? = null
@@ -220,6 +223,7 @@ class CarAppConnection(private val context: Context) {
     fun disconnect() = disconnect(keepLocation = false)
 
     private fun disconnect(keepLocation: Boolean) {
+        clearToasts()
         lent?.let { sendSurfaceDestroyed(it) }
         lent = null
         val carApp = this.carApp
@@ -290,7 +294,7 @@ class CarAppConnection(private val context: Context) {
             ?: Intent(Intent.ACTION_MAIN).setComponent(component)
         pendingDestination = null
         call("onAppCreate", onValue = { onCreated() }) {
-            app.onAppCreate(carHost, intent, carConfiguration(), it)
+            app.onAppCreate(createCarHost(toastOwner), intent, carConfiguration(), it)
         }
     }
 
@@ -563,14 +567,19 @@ class CarAppConnection(private val context: Context) {
 
     // --- host interfaces the app calls back into -----------------------------------------
 
-    private val appHost = object : IAppHost.Stub() {
+    private fun createAppHost(owner: Any) = object : IAppHost.Stub() {
         override fun invalidate() {
             GearslipLog.i("host: app invalidated its template")
             main.post { requestTemplate() }
         }
 
         override fun showToast(text: CharSequence?, duration: Int) {
-            GearslipLog.i("host: toast \"$text\"")
+            val message = text?.toString() ?: return
+            main.post {
+                if (toastOwner !== owner) return@post
+                GearslipLog.i("host: toast \"$message\"")
+                CarToasts.show(owner, message, duration)
+            }
         }
 
         /**
@@ -670,7 +679,9 @@ class CarAppConnection(private val context: Context) {
         override fun updateSuggestions(suggestions: Bundleable?) = Unit
     }
 
-    private val carHost = object : ICarHost.Stub() {
+    private fun createCarHost(owner: Any) = object : ICarHost.Stub() {
+        private val appHost = createAppHost(owner)
+
         override fun getHost(type: String?): IBinder? = when (type) {
             CarContext.APP_SERVICE -> appHost.asBinder()
             CarContext.NAVIGATION_SERVICE -> navigationHost.asBinder()
@@ -759,8 +770,14 @@ class CarAppConnection(private val context: Context) {
     }
 
     private fun fail(phase: Phase, detail: String) {
+        clearToasts()
         GearslipLog.e("host: $detail")
         update { it.copy(phase = phase, detail = detail) }
+    }
+
+    private fun clearToasts() {
+        CarToasts.clear(toastOwner)
+        toastOwner = Any()
     }
 
     private fun update(block: (Status) -> Status) {
