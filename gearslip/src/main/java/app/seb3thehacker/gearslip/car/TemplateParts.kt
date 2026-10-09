@@ -5,6 +5,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.Image
 import kotlinx.coroutines.Dispatchers
@@ -468,7 +469,10 @@ internal fun CarGlyph(icon: CarIcon?, modifier: Modifier = Modifier, standard: I
         val white = remember(bitmap) { bitmap.isPlainWhite() }
         // Untinted white artwork is a template-app habit from dark surfaces; it is coloured like
         // text so it stays readable on a light one.
-        val tint = icon?.tint?.color(dark, content) ?: content.takeIf { white }
+        // An app's own tint is kept only if it can be seen: MAPS.ME asks for dark grey on dark
+        // buttons. Android Auto drops colours that fail contrast the same way.
+        val tint = icon?.tint?.color(dark, content)?.takeIf { it.readableOn(content) }
+            ?: content.takeIf { white || icon?.tint != null }
         Image(
             bitmap, contentDescription = null, modifier = modifier,
             colorFilter = tint?.let { ColorFilter.tint(it) },
@@ -660,6 +664,17 @@ internal fun RowItem(row: CarRow, selection: RowSelection? = null, large: Boolea
 
 /** A row's place in a single-choice list: whether it is the chosen one, and what picking it does. */
 internal class RowSelection(val selected: Boolean, val onPick: () -> Unit)
+
+/**
+ * Whether this colour stands out against the background that [content] was chosen for: at least
+ * 3:1, the WCAG minimum for icons. The background is taken as the opposite of the content colour.
+ */
+private fun Color.readableOn(content: Color): Boolean {
+    val background = if (content.luminanceIsDark()) Color.White else Color(0xFF121212)
+    val a = luminance() + 0.05f
+    val b = background.luminance() + 0.05f
+    return maxOf(a, b) / minOf(a, b) >= 3f
+}
 
 internal fun Color.luminanceIsDark(): Boolean =
     (red * 0.299f + green * 0.587f + blue * 0.114f) < 0.5f
