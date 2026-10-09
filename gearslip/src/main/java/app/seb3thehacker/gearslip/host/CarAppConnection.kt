@@ -9,6 +9,7 @@ import android.content.res.Configuration
 import android.graphics.Rect
 import android.location.Location
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -139,7 +140,11 @@ class CarAppConnection(private val context: Context) {
             // Replaced by another connect (or a disconnect) while waiting on the location service.
             if (binding !== connection) return@bind
             var bindError: Throwable? = null
-            val flags = Context.BIND_AUTO_CREATE or LocationKeepAlive.BIND_INCLUDE_CAPABILITIES
+            // BIND_ALLOW_ACTIVITY_STARTS lets the app start its own location service while
+            // Gearslip's car window is showing. Since Android 14 a bound app only inherits that
+            // from a visible host that opts in, and MapQuest crashes as navigation starts without it.
+            val flags = Context.BIND_AUTO_CREATE or LocationKeepAlive.BIND_INCLUDE_CAPABILITIES or
+                (if (Build.VERSION.SDK_INT >= 34) Context.BIND_ALLOW_ACTIVITY_STARTS else 0)
             val bound = runCatching {
                 // Without BIND_FOREGROUND_SERVICE, an app bound by a foreground service (which is
                 // all Gearslip is once the phone screen leaves it) only reaches "important

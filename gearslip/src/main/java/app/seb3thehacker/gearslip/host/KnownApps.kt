@@ -18,6 +18,7 @@ object KnownApps {
         "com.vivi.vivimusic", // Vivi Music: browse, play, seek, works well
         "com.metrolist.music", // Metrolist: browse, play, works
         "nl.flitsmeister", // Flitsmeister: map, routing, alerts - works well
+        "com.mapquest.android.ace", // MapQuest: map, routing, navigation
     )
 
     fun works(packageName: String): Boolean = packageName in working
