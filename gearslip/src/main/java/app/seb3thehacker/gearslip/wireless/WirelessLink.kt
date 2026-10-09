@@ -34,8 +34,9 @@ import java.util.UUID
  *        <- VersionRequest            -> VersionResponse
  *        <- StartRequest {ip, port}   -> InfoRequest
  *        <- InfoResponse {ssid, password, bssid, security}
- *   3. Join the car's Wi-Fi as a local-only network, so the phone's internet stays on mobile data.
- *        -> StartResponse {status}    -> ConnectionStatus {status}
+ *   3. Join the car's Wi-Fi as a local-only network, so the phone's internet stays on mobile data,
+ *      and say so over Bluetooth before connecting:
+ *        -> StartResponse {phone ip, status}    -> ConnectionStatus {status}
  *   4. TCP to {ip, port} over that network, and hand the socket to [onConnected].
  *
  * The Bluetooth channel stays open for the whole drive: the car pings over it, and some cars end
@@ -65,7 +66,7 @@ object WirelessLink {
     private const val MSG_PING = 8
     private const val MSG_PONG = 9
 
-    private const val TCP_TRIES = 5
+    private const val TCP_TRIES = 12 // about a minute: a car's projection listener can start well after its Wi-Fi
     private const val WIFI_WAIT_MS = 60_000
 
     /** Set by the activity: starts a session on the car's socket. */
@@ -248,6 +249,15 @@ object WirelessLink {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(net: Network) {
                 log.i("Wi-Fi: joined \"$ssid\"")
+                // Real phones report the join over Bluetooth before opening TCP, and some cars
+                // only start listening once they hear it.
+                val phoneIp = manager.getLinkProperties(net)?.linkAddresses
+                    ?.firstOrNull { it.address is java.net.Inet4Address }?.address?.hostAddress.orEmpty()
+                runCatching {
+                    send(output, MSG_START_RESPONSE, Protobuf.stringField(1, phoneIp) + Protobuf.varintField(3, STATUS_SUCCESS))
+                    send(output, MSG_CONNECTION_STATUS, Protobuf.varintField(1, STATUS_SUCCESS))
+                    log.i("-> StartResponse (phone at $phoneIp), ConnectionStatus: success")
+                }.onFailure { log.w("Bluetooth: couldn't report the Wi-Fi join (${it.message})") }
                 Thread({ connectTcp(output, name, net, ip, port) }, "gearslip-wireless-tcp").start()
             }
 
@@ -280,10 +290,6 @@ object WirelessLink {
                 socket.connect(InetSocketAddress(ip, port), 5_000)
                 tcp = socket
                 log.i("TCP: connected to $ip:$port (try ${attempt + 1})")
-                runCatching {
-                    send(output, MSG_START_RESPONSE, Protobuf.varintField(3, STATUS_SUCCESS))
-                    send(output, MSG_CONNECTION_STATUS, Protobuf.varintField(1, STATUS_SUCCESS))
-                }
                 val start = onConnected
                 if (start == null) {
                     log.w("TCP: connected, but nothing is waiting for the socket")
