@@ -123,7 +123,7 @@ can render: templated apps, media apps, and the Gearslip app protocol.
 
 The bundled TLS certificate, chain, and matching key come from Android Auto 17.9.664004's
 built-in CarService identity. The leaf certificate expires on **20 January 2027 at
-22:48:17 UTC**. An app update is needed to replace it; Settings shows its details and expiry.
+22:48:17 UTC**. An app update is needed to replace it; Settings shows its expiry.
 
 Leaf SHA-256: `39b7417be3f2bcd60b30e3acd4a2995d82661d6d66110e45c10a15d2a3c2ee6e`.
 The identity is separate from Gearslip's APK signing key. It does not replace the remaining

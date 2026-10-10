@@ -1,6 +1,5 @@
 package app.seb3thehacker.gearslip.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,13 +13,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +37,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.BuildConfig
+import app.seb3thehacker.gearslip.CertProvider
+import java.text.DateFormat
 import kotlinx.coroutines.Dispatchers
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
@@ -89,7 +87,6 @@ fun SettingsScreen(
             AboutSection(onOpenWhatsNew, onReplayTutorial)
             ConnectionSection()
             if (SHOW_RECOMMENDED_APPS) AppsSection(onOpenRecommendedApps)
-            CertificateSection()
             SettingsSection("Usage notes", header = USAGE_STATS_INTRO) { UsageStatsRows() }
             Spacer(Modifier.height(16.dp))
         }
@@ -145,6 +142,8 @@ private fun ConnectionSection() {
             icon = Icons.Filled.Settings,
             trailing = { Switch(checked = enabled, onCheckedChange = null) },
         )
+        SettingsDivider()
+        CertificateExpiryRow()
     }
 }
 
@@ -160,46 +159,21 @@ private fun AppsSection(onOpenRecommendedApps: () -> Unit) {
     }
 }
 
-/** The projection identity is part of this build; only its public details are shown. */
+/** Read the bundled certificate so the displayed expiry follows identity updates. */
 @Composable
-private fun CertificateSection() {
+private fun CertificateExpiryRow() {
     val context = LocalContext.current
-    val summary by produceState(CertSummary.cached, context) {
-        value = withContext(Dispatchers.Default) { CertSummary.read(context) }
-    }
-    var detailsOpen by remember { mutableStateOf(false) }
-    val s = summary
-    SettingsSection("Certificate", footer = "Included with Gearslip. Certificate updates come with app updates.") {
-        SettingsRow(
-            s?.headline ?: "Checking…",
-            Modifier.clickable(enabled = s != null) { detailsOpen = !detailsOpen },
-            subtitle = s?.validUntil?.let { if (s.expired) "Expired on $it" else "Valid until $it" },
-            icon = if (s?.expired == true) Icons.Filled.Warning else Icons.Filled.Lock,
-            tint = if (s?.expired == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            trailing = {
-                Icon(
-                    if (detailsOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (detailsOpen) "Hide details" else "Show details",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-        )
-        AnimatedVisibility(detailsOpen && s != null) {
-            Column(
-                Modifier.padding(start = 56.dp, end = 16.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                s?.subject?.let { Detail("Subject", it) }
-                s?.issuer?.let { Detail("Issuer", it) }
-            }
+    val expiry by produceState("Checking…", context) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                DateFormat.getDateInstance(DateFormat.LONG)
+                    .format(CertProvider.load(context).certificate.notAfter)
+            }.getOrDefault("Unavailable")
         }
     }
-}
-
-@Composable
-private fun Detail(label: String, value: String) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyMedium)
-    }
+    SettingsRow(
+        "Certificate expiry",
+        subtitle = expiry,
+        icon = Icons.Filled.Lock,
+    )
 }
