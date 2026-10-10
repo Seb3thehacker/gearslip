@@ -14,6 +14,7 @@ import java.security.cert.X509Certificate
  * path supplies their own. Sources, in priority order:
  *
  *  1. **Imported** in the app (Settings > Certificate): a PKCS#12 file plus its password,
+ *     or a PEM certificate chain and its RSA private key,
  *     copied into the app's private storage.
  *  2. **Downloaded** from the public opencardev/aasdk repository. Fetched only when the
  *     user asks; the app never ships or hosts the certificate.
@@ -79,6 +80,7 @@ object CertProvider {
         val dir = context.getExternalFilesDir(null)
         val files = listOf(
             importedFile(context, P12_NAME),
+            importedFile(context, PASS_NAME),
             downloadedFile(context, P12_NAME),
             dir?.let { File(it, P12_NAME) },
             dir?.let { File(it, PASS_NAME) },
@@ -148,11 +150,27 @@ object CertProvider {
             target.parentFile?.mkdirs()
             staging.copyTo(target, overwrite = true)
             importedFile(context, PASS_NAME).writeText(password)
+            cached = null
             log.i("imported a certificate: ${identity.certificate.subjectX500Principal}")
             return identity
         } finally {
             staging.delete()
         }
+    }
+
+    /** Imports a user-selected phone certificate chain and its matching RSA private key. */
+    fun importPem(context: Context, certificateUri: Uri, privateKeyUri: Uri): Identity {
+        val certificatePem = context.contentResolver.openInputStream(certificateUri)?.use {
+            it.bufferedReader(Charsets.UTF_8).readText()
+        } ?: throw IllegalArgumentException("could not open the certificate file")
+        val privateKey = context.contentResolver.openInputStream(privateKeyUri)?.use { it.readBytes() }
+            ?: throw IllegalArgumentException("could not open the private key file")
+        val result = PemKeyParser.build(certificatePem, privateKey)
+        val bytes = ByteArrayOutputStream().use {
+            result.keyStore.store(it, CharArray(0))
+            it.toByteArray()
+        }
+        return importFromBytes(context, bytes, "")
     }
 
     fun hasImported(context: Context): Boolean = importedFile(context, P12_NAME).isFile
@@ -196,6 +214,7 @@ object CertProvider {
             target.parentFile?.mkdirs()
             staging.copyTo(target, overwrite = true)
             importedFile(context, PASS_NAME).writeText(password)
+            cached = null
             log.i("imported a certificate from bytes: ${identity.certificate.subjectX500Principal}")
             return identity
         } finally {

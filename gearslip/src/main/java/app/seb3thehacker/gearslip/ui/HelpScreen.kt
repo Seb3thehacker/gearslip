@@ -44,7 +44,7 @@ private class Step(
 )
 
 private fun setupSteps(onRequestCallScreening: () -> Unit) = listOf(
-    Step("Use a car from 2020 or earlier.", "Newer head units reject the certificate."),
+    Step("Try a phone certificate.", "If the downloaded certificate is rejected, open Settings and import a phone certificate with its matching key."),
     Step(
         "On GrapheneOS, exempt Gearslip from exploit protections.",
         "Open Settings, then Apps, then Gearslip, and turn on Exploit protection compatibility mode.",

@@ -9,7 +9,22 @@ An Android Auto alternative built for everyone.
 ## Which cars work
 
 Most cars work. Starting around 2020, some cars added newer security standards that reject
-Gearslip's certificate, and Gearslip can't run in those cars.
+the certificate downloaded from aasdk. Importing a phone certificate may work in those cars;
+acceptance depends on the head unit.
+
+## Certificate setup
+
+Download from aasdk during setup or in **Settings > Certificate**, or import your own identity:
+
+- **Import my own file** loads a PKCS#12 (.p12) file containing the certificate and private key.
+  Enter its password when asked.
+- **Import phone certificate and key** loads a PEM certificate chain and its matching RSA
+  private key. Put the phone certificate first, followed by its issuers. The key can be
+  unencrypted PKCS#1 or PKCS#8 PEM, or binary PKCS#8 (.pk8).
+
+Gearslip validates the files before replacing the imported identity and keeps them in private
+app storage. The imported identity takes priority on the next connection. Removing it in
+Settings restores the downloaded certificate, if present. Gearslip ships no certificates or keys.
 
 ## What Gearslip is
 

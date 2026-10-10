@@ -186,6 +186,7 @@ private fun CertificateSection() {
         value = withContext(Dispatchers.Default) { CertSummary.read(context) }
     }
 
+    var phoneImportOpen by remember { mutableStateOf(false) }
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var downloading by remember { mutableStateOf(false) }
@@ -249,6 +250,13 @@ private fun CertificateSection() {
             subtitle = "A .p12 file with its private key, from wherever you choose",
             icon = Icons.Filled.Add,
         )
+        SettingsDivider()
+        SettingsRow(
+            "Import phone certificate and key",
+            Modifier.clickable { phoneImportOpen = true },
+            subtitle = "A PEM certificate chain and its matching private key",
+            icon = Icons.Filled.Add,
+        )
         val removable = when (s?.kind) {
             CertProvider.Kind.IMPORTED -> "Remove imported certificate"
             CertProvider.Kind.DOWNLOADED -> "Remove downloaded certificate"
@@ -268,6 +276,17 @@ private fun CertificateSection() {
                 titleColor = MaterialTheme.colorScheme.error,
             )
         }
+    }
+
+    if (phoneImportOpen) {
+        PhoneCertificateDialog(
+            onDismiss = { phoneImportOpen = false },
+            onImported = {
+                phoneImportOpen = false
+                notice = "Phone certificate imported."
+                refresh++
+            },
+        )
     }
 
     pendingUri?.let { uri ->
