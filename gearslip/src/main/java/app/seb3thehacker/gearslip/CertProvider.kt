@@ -8,54 +8,46 @@ import java.security.cert.X509Certificate
 import java.security.interfaces.RSAPrivateCrtKey
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
-import java.util.Date
 
 /**
  * Bundled projection identities, with the Android Auto phone identity preferred.
  *
  * The shared CarService TLS identity is unrelated to either app's APK signing key. Its
  * chain includes the Google Automotive Link root, leaf-first as the official app sends it.
- * After its 2027-01-20 expiry, new sessions use the DHU 2.0 identity (expires 2048-08-01).
+ * Try CarService even after its 2027-01-20 expiry: some head units may still accept it.
+ * The DHU 2.0 identity (expires 2048-08-01) is reserved for a failed attempt or debugging.
  * The DHU sends only its leaf; its root is used separately to verify its peer.
  */
 object CertProvider {
+    enum class Source(val statsKey: String, val description: String) {
+        ANDROID_AUTO("android_auto", "bundled Android Auto 17.9.664004 projection identity"),
+        HEAD_UNIT("dhu", "bundled DHU 2.0 fallback identity"),
+    }
+
     class Identity(
         val keyStore: KeyStore,
         val certificate: X509Certificate,
         val password: CharArray,
         val source: String,
+        val statsKey: String = "other",
     )
 
     private val cached = mutableMapOf<Int, Identity>()
 
-    /** Recheck the date for every session, even when the identities were already warmed. */
-    fun load(context: Context): Identity {
-        val primary = loadBundled(
-            context, R.raw.projection_chain, R.raw.projection_key,
-            "bundled Android Auto 17.9.664004 projection identity",
-        )
-        return selectIdentity(primary, Date()) {
-            loadBundled(
-                context, R.raw.projection_fallback, R.raw.projection_fallback_key,
-                "bundled DHU 2.0 fallback identity",
-            )
-        }
+    /** Expiry is informational; let the head unit decide whether to accept this identity. */
+    fun load(context: Context, source: Source = Source.ANDROID_AUTO): Identity = when (source) {
+        Source.ANDROID_AUTO -> loadBundled(context, R.raw.projection_chain, R.raw.projection_key, source)
+        Source.HEAD_UNIT -> loadBundled(context, R.raw.projection_fallback, R.raw.projection_fallback_key, source)
     }
 
-    /** Expiry alone enables the fallback; loading errors and head-unit rejection do not. */
-    internal fun selectIdentity(primary: Identity, now: Date, fallback: () -> Identity): Identity {
-        if (!now.after(primary.certificate.notAfter)) return primary
-        return fallback().also { it.certificate.checkValidity(now) }
-    }
-
-    /** Cache parsed resources, not the date-dependent choice of identity. */
+    /** Both identities are immutable resources; parse each at most once per process. */
     @Synchronized
-    private fun loadBundled(context: Context, certificate: Int, key: Int, source: String): Identity =
+    private fun loadBundled(context: Context, certificate: Int, key: Int, source: Source): Identity =
         cached.getOrPut(certificate) {
             readIdentity(
                 context.resources.openRawResource(certificate).use { it.readBytes() },
                 context.resources.openRawResource(key).use { it.readBytes() },
-                source,
+                source.description, source.statsKey,
             )
         }
 
@@ -68,7 +60,8 @@ object CertProvider {
     internal fun readIdentity(
         chainBytes: ByteArray,
         keyBytes: ByteArray,
-        source: String = "bundled Android Auto 17.9.664004 projection identity",
+        source: String = Source.ANDROID_AUTO.description,
+        statsKey: String = Source.ANDROID_AUTO.statsKey,
     ): Identity {
         val chain = CertificateFactory.getInstance("X.509")
             .generateCertificates(chainBytes.inputStream()).map { it as X509Certificate }
@@ -91,6 +84,6 @@ object CertProvider {
             load(null, null)
             setKeyEntry("projection", key, password, chain.toTypedArray())
         }
-        return Identity(keyStore, chain.first(), password, source)
+        return Identity(keyStore, chain.first(), password, source, statsKey)
     }
 }

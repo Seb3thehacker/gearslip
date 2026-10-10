@@ -40,10 +40,13 @@ object SelfSignedCert {
 
     class Result(val keyStore: KeyStore, val certificate: X509Certificate)
 
-    fun generate(commonName: String = "Gearslip", organisation: String = "Gearslip"): Result {
+    fun generate(
+        commonName: String = "Gearslip",
+        organisation: String = "Gearslip",
+        now: Long = System.currentTimeMillis(),
+    ): Result {
         val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
 
-        val now = System.currentTimeMillis()
         val notBefore = Date(now - 86_400_000L)            // a day of slack for head-unit clock skew
         val notAfter = Date(now + 20L * 365 * 86_400_000L) // ~2046, still inside UTCTime's pre-2050 range
 
@@ -53,7 +56,7 @@ object SelfSignedCert {
         val certificate = CertificateFactory.getInstance("X.509")
             .generateCertificate(ByteArrayInputStream(der)) as X509Certificate
         certificate.verify(keyPair.public)
-        certificate.checkValidity()
+        certificate.checkValidity(Date(now))
 
         val keyStore = KeyStore.getInstance("PKCS12").apply {
             load(null, null)

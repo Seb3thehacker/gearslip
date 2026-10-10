@@ -13,7 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -28,7 +27,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -37,13 +35,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.BuildConfig
-import app.seb3thehacker.gearslip.CertProvider
-import java.text.DateFormat
-import kotlinx.coroutines.Dispatchers
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -143,7 +137,7 @@ private fun ConnectionSection() {
             trailing = { Switch(checked = enabled, onCheckedChange = null) },
         )
         SettingsDivider()
-        CertificateExpiryRow()
+        CertificateSettings()
     }
 }
 
@@ -157,23 +151,4 @@ private fun AppsSection(onOpenRecommendedApps: () -> Unit) {
             trailing = { Arrow() },
         )
     }
-}
-
-/** Read the bundled certificate so the displayed expiry follows identity updates. */
-@Composable
-private fun CertificateExpiryRow() {
-    val context = LocalContext.current
-    val expiry by produceState("Checking…", context) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                DateFormat.getDateInstance(DateFormat.LONG)
-                    .format(CertProvider.load(context).certificate.notAfter)
-            }.getOrDefault("Unavailable")
-        }
-    }
-    SettingsRow(
-        "Certificate expiry",
-        subtitle = expiry,
-        icon = Icons.Filled.Lock,
-    )
 }

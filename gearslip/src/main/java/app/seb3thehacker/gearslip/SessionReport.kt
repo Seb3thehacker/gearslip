@@ -56,6 +56,9 @@ object SessionReport {
     @Volatile private var protocolVersion = ""
     @Volatile private var certSource = ""
     @Volatile private var certIssuer = ""
+    @Volatile private var certKey = ""
+    @Volatile private var certExpired = false
+    @Volatile private var certForced = false
     @Volatile private var tlsProtocol = ""
     @Volatile private var tlsCipher = ""
     @Volatile private var authStatus: Int? = null
@@ -80,6 +83,7 @@ object SessionReport {
         startedAt = System.currentTimeMillis()
         category = Category.NONE
         failure = ""; protocolVersion = ""; certSource = ""; certIssuer = ""
+        certKey = ""; certExpired = false; certForced = false
         stage = Stage.USB; failCode = ""; failedAfter = 0
         tlsProtocol = ""; tlsCipher = ""; authStatus = null
         headUnitInfo = null
@@ -92,7 +96,14 @@ object SessionReport {
     private fun reached(next: Stage) { if (next > stage) stage = next }
 
     fun protocolVersion(major: Int, minor: Int) { protocolVersion = "$major.$minor"; reached(Stage.VERSIONS) }
-    fun certificate(source: String, issuer: String) { certSource = source; certIssuer = issuer }
+    /** Record the identity when its handshake starts, not when background preloading finishes. */
+    fun certificate(identity: CertProvider.Identity, forced: Boolean, now: java.util.Date = java.util.Date()) {
+        certSource = identity.source
+        certIssuer = identity.certificate.issuerX500Principal.toString()
+        certKey = identity.statsKey
+        certExpired = now.after(identity.certificate.notAfter)
+        certForced = forced
+    }
     fun tls(protocol: String, cipher: String) { tlsProtocol = protocol; tlsCipher = cipher; reached(Stage.TLS) }
     fun auth(status: Int) { authStatus = status; if (status == 0) reached(Stage.ACCEPTED) }
     fun headUnit(info: String) { headUnit = info }
@@ -153,8 +164,9 @@ object SessionReport {
             .put("code", failCode)
             .put("failed_at", if (category == Category.NONE) 0 else rounded(failedAfter))
             .put("seconds", rounded(seconds))
-            // Keep the server's existing category vocabulary for the bundled identity.
-            .put("cert", if (certSource.isEmpty()) "" else "other")
+            .put("cert", certKey)
+            .put("cert_expired", certExpired)
+            .put("cert_forced", certForced)
     }
 
     /** Seconds rounded so a drive's length can't be matched to anything: 5 s, then minutes, then 5 minutes. */
@@ -186,6 +198,10 @@ object SessionReport {
             append("\n")
             append(row("phone cert", certSource))
             append(row("cert issuer", certIssuer))
+            if (certKey.isNotEmpty()) {
+                append(row("cert expired", certExpired.toString()))
+                append(row("cert forced", certForced.toString()))
+            }
             append(row("TLS", listOf(tlsProtocol, tlsCipher).filter { it.isNotEmpty() }.joinToString(" / ")))
             append(row("auth status", authStatus?.let { "$it (${authName(it)})" } ?: ""))
             append("\n")

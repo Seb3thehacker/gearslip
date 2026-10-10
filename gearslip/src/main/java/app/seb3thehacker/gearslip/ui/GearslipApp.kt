@@ -59,6 +59,8 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
         screen = if (screen == Screen.RECOMMENDED_APPS) Screen.SETTINGS else Screen.HOME
     }
 
+    if (screen == Screen.HOME) CompatWarning()
+
     // Home stays upright; every other screen turns with the phone.
     LaunchedEffect(screen) {
         (context as? Activity)?.requestedOrientation = if (screen == Screen.HOME) {

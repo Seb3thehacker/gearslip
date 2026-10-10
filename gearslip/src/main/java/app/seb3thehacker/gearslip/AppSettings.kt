@@ -22,6 +22,19 @@ object AppSettings {
         prefs(context).edit().putString(key, value).apply()
     }
 
+    /** A release build ignores any debug override left in preferences. */
+    fun certificateMode(context: Context): CertificateMode {
+        if (!BuildConfig.DEBUG) return CertificateMode.AUTOMATIC
+        val saved = getString(context, "certificate_mode", CertificateMode.AUTOMATIC.name)
+        return CertificateMode.entries.firstOrNull { it.name == saved } ?: CertificateMode.AUTOMATIC
+    }
+
+    fun setCertificateMode(context: Context, mode: CertificateMode) {
+        if (!BuildConfig.DEBUG) return
+        putString(context, "certificate_mode", mode.name)
+        CertificateRetry.shared.clear()
+    }
+
     /** Blank means "use the built-in test page". */
     fun startupUrl(context: Context): String =
         prefs(context).getString(KEY_STARTUP_URL, "").orEmpty()

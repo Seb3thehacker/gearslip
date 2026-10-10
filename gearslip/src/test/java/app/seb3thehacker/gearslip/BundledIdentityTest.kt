@@ -2,13 +2,10 @@ package app.seb3thehacker.gearslip
 
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
-import java.security.cert.CertificateExpiredException
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.time.Instant
-import java.util.Date
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,7 +19,7 @@ class BundledIdentityTest {
 
     private fun fallback() = CertProvider.readIdentity(
         resource("projection_fallback.pem"), resource("projection_fallback_key.pk8"),
-        "bundled DHU 2.0 fallback identity",
+        "bundled DHU 2.0 fallback identity", CertProvider.Source.HEAD_UNIT.statsKey,
     )
 
     @Test fun `bundled chain is the official phone identity and has its matching key`() {
@@ -82,37 +79,6 @@ class BundledIdentityTest {
 
     @Test fun `fallback identity completes TLS and encrypts projection data`() {
         assertTrue(TlsSelfTest.run(fallback()))
-    }
-
-    @Test fun `primary is kept through its expiry instant without loading fallback`() {
-        val primary = identity()
-        for (now in listOf(primary.certificate.notBefore, primary.certificate.notAfter)) {
-            assertSame(primary, CertProvider.selectIdentity(primary, now) { error("Fallback loaded too soon") })
-        }
-    }
-
-    @Test fun `cached primary switches only after expiry and respects clock corrections`() {
-        val primary = identity()
-        val fallback = fallback()
-        val expiry = primary.certificate.notAfter.time
-        assertSame(fallback, CertProvider.selectIdentity(primary, Date(expiry + 1)) { fallback })
-        assertSame(primary, CertProvider.selectIdentity(primary, Date(expiry - 1)) { error("Fallback should not stick") })
-    }
-
-    @Test fun `expired fallback is rejected instead of sending another expired identity`() {
-        val fallback = fallback()
-        assertThrows(CertificateExpiredException::class.java) {
-            CertProvider.selectIdentity(identity(), Date(fallback.certificate.notAfter.time + 1)) { fallback }
-        }
-    }
-
-    @Test fun `fallback loading failure is propagated`() {
-        val primary = identity()
-        val failure = IllegalStateException("Unreadable fallback")
-        val thrown = assertThrows(IllegalStateException::class.java) {
-            CertProvider.selectIdentity(primary, Date(primary.certificate.notAfter.time + 1)) { throw failure }
-        }
-        assertSame(failure, thrown)
     }
 
     private fun sha256(certificate: X509Certificate): String =

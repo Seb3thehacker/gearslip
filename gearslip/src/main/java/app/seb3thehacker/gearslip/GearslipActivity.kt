@@ -48,6 +48,7 @@ class GearslipActivity : ComponentActivity(), Projection {
     private var runner: GearslipRunner? = null
     private var screenProjector: ScreenProjector? = null
     private var worker: Thread? = null
+    private var certificateAttempt: CertificateRetry.Attempt? = null
 
     /** The encoder's input Surface, kept so the car's picture can be switched to the mirror. */
     private var surface: Surface? = null
@@ -286,10 +287,15 @@ class GearslipActivity : ComponentActivity(), Projection {
         }
         descriptor = pfd
 
+        // This local key is never logged or sent in stats; only a reconnect to this accessory retries.
+        val attempt = CertificateRetry.shared.begin(certificateKey(accessory), AppSettings.certificateMode(this))
+        certificateAttempt = attempt
         val runner = GearslipRunner(
             input = FileInputStream(pfd.fileDescriptor),
             output = FileOutputStream(pfd.fileDescriptor),
-            identityProvider = { CertProvider.load(this) },
+            identityProvider = { CertProvider.load(this, attempt.source) },
+            certificateForced = attempt.forced,
+            onCertificateFailure = { CertificateRetry.shared.failed(attempt) },
             projection = this,
             vehicleProfileFor = { info -> VehicleProfiles.find(VehicleProfiles.load(this), info) },
         )
@@ -297,12 +303,20 @@ class GearslipActivity : ComponentActivity(), Projection {
         worker = Thread { runner.run() }.apply { name = "gearslip"; start() }
     }
 
+    /** UsbAccessory.toString() contains a Binder identity that changes on every reattachment. */
+    private fun certificateKey(accessory: UsbAccessory): String = listOf(
+        accessory.manufacturer, accessory.model, accessory.description, accessory.version,
+        accessory.uri, runCatching { accessory.serial }.getOrNull(),
+    ).joinToString("\u0000") { it.orEmpty() }
+
     private fun describe(accessory: UsbAccessory) {
         GearslipLog.i("accessory: manufacturer=${accessory.manufacturer} model=${accessory.model}")
         GearslipLog.i("           version=${accessory.version} description=${accessory.description}")
     }
 
     private fun closeAccessory() {
+        certificateAttempt?.let { CertificateRetry.shared.closed(it) }
+        certificateAttempt = null
         runner?.stop()
         SessionReport.print()
         runCatching { descriptor?.close() }

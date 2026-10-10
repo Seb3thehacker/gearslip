@@ -143,6 +143,8 @@ dependencies {
     implementation(libs.androidx.car.app.projected)
     implementation(libs.androidx.media)
     testImplementation(libs.junit)
+    // Android's local JVM stubs cannot serialize the session stats payload.
+    testImplementation(libs.json)
 }
 
 tasks.withType<KotlinJvmCompile>().configureEach {
