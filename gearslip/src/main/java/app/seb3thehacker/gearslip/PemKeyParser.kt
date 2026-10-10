@@ -4,13 +4,15 @@ import java.io.ByteArrayInputStream
 import java.math.BigInteger
 import java.security.KeyFactory
 import java.security.KeyStore
+import java.security.interfaces.RSAPrivateCrtKey
+import java.security.spec.PKCS8EncodedKeySpec
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.spec.RSAPrivateCrtKeySpec
 import java.security.spec.RSAPublicKeySpec
 
 /**
- * Converts a PEM-encoded X.509 certificate and PEM-encoded RSA PKCS#1 private key into a
+ * Converts a PEM-encoded X.509 certificate chain and RSA PKCS#1 or PKCS#8 private key into a
  * PKCS#12 [KeyStore], using only standard JCA APIs — no BouncyCastle.
  *
  * The DER parsing of the PKCS#1 key is done by hand (matching the same approach used in
@@ -31,18 +33,44 @@ object PemKeyParser {
      * returns a PKCS#12 [KeyStore] ready for [CertProvider] to consume.
      */
     fun build(certificatePem: String, privateKeyPem: String, alias: String = "phone"): Result {
-        val cert = parseCertificate(certificatePem)
-        val keySpec = parsePrivateKey(privateKeyPem)
+        return build(certificatePem, privateKeyPem.toByteArray(Charsets.UTF_8), alias)
+    }
 
-        val kf = KeyFactory.getInstance("RSA")
-        val pubSpec = RSAPublicKeySpec(keySpec.spec.modulus, keySpec.spec.publicExponent)
-        require(kf.generatePublic(pubSpec) == cert.publicKey) {
-            "the certificate's public key does not match the private key"
+    /** Phone identities may have a PEM chain and a separate binary PKCS#8 (.pk8) key. */
+    fun build(certificatePem: String, privateKeyBytes: ByteArray, alias: String = "phone"): Result {
+        val chain = CertificateFactory.getInstance("X.509")
+            .generateCertificates(ByteArrayInputStream(certificatePem.toByteArray(Charsets.UTF_8)))
+            .map { it as X509Certificate }
+        require(chain.isNotEmpty()) { "the file contains no certificates" }
+        val cert = chain.first()
+        val keyText = privateKeyBytes.toString(Charsets.UTF_8)
+        val key = if (keyText.contains(KEY_HEADER)) {
+            parsePrivateKey(keyText).getPrivate()
+        } else {
+            require(!keyText.contains("-----BEGIN ENCRYPTED PRIVATE KEY-----")) {
+                "use an unencrypted private key, or import a password-protected .p12 file"
+            }
+            val der = if (keyText.contains("-----BEGIN PRIVATE KEY-----")) {
+                pemToDer(keyText, "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----")
+            } else privateKeyBytes
+            KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(der))
         }
-
+        val rsa = key as? RSAPrivateCrtKey
+            ?: throw IllegalArgumentException("the private key must be an RSA key")
+        val publicKey = KeyFactory.getInstance("RSA")
+            .generatePublic(RSAPublicKeySpec(rsa.modulus, rsa.publicExponent))
+        require(publicKey == cert.publicKey) {
+            "the certificate's public key does not match the private key; put the phone certificate first"
+        }
+        chain.zipWithNext().forEach { (child, issuer) ->
+            require(child.issuerX500Principal == issuer.subjectX500Principal) {
+                "put the certificate chain in order: phone certificate, then its issuers"
+            }
+            child.verify(issuer.publicKey)
+        }
         val keyStore = KeyStore.getInstance("PKCS12").apply {
             load(null, null)
-            setKeyEntry(alias, keySpec.getPrivate(), CharArray(0), arrayOf(cert))
+            setKeyEntry(alias, key, CharArray(0), chain.toTypedArray())
         }
         return Result(keyStore, cert)
     }

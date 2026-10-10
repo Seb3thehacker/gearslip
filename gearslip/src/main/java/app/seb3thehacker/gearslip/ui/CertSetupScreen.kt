@@ -61,6 +61,7 @@ fun CertSetupScreen(onDone: () -> Unit) {
 
     var downloadState by remember { mutableStateOf<DownloadState>(DownloadState.Idle) }
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
+    var phoneImportOpen by remember { mutableStateOf(false) }
     var manualProgress by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -189,6 +190,18 @@ fun CertSetupScreen(onDone: () -> Unit) {
                 modifier = Modifier.padding(top = 8.dp),
             )
             Spacer(Modifier.height(16.dp))
+            OutlinedButton(
+                onClick = { phoneImportOpen = true },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) { Text("Import phone certificate and key") }
+            Text(
+                "A PEM certificate chain and its matching private key.",
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Spacer(Modifier.height(16.dp))
 
             OutlinedButton(
                 onClick = {
@@ -202,6 +215,13 @@ fun CertSetupScreen(onDone: () -> Unit) {
 
             Spacer(Modifier.height(40.dp))
         }
+    }
+
+    if (phoneImportOpen) {
+        PhoneCertificateDialog(
+            onDismiss = { phoneImportOpen = false },
+            onImported = { phoneImportOpen = false; manualProgress = true },
+        )
     }
 
     pendingUri?.let { uri ->
