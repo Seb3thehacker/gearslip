@@ -27,23 +27,21 @@ import androidx.compose.ui.semantics.Role
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import app.seb3thehacker.gearslip.AppSettings
-import app.seb3thehacker.gearslip.BuildConfig
-import app.seb3thehacker.gearslip.CertificateMode
 import app.seb3thehacker.gearslip.CertProvider
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Release builds retain one informational row; only debug builds can force an identity. */
+/** Keep the choice explicit: expiry and connection failures never change it. */
 @Composable
 internal fun CertificateSettings() {
     val context = LocalContext.current
-    var mode by remember { mutableStateOf(AppSettings.certificateMode(context)) }
+    var source by remember { mutableStateOf(AppSettings.certificateSource(context)) }
     var choosing by rememberSaveable { mutableStateOf(false) }
-    val expiry by produceState<Date?>(null, context, mode) {
+    val expiry by produceState<Date?>(null, context, source) {
         value = withContext(Dispatchers.IO) {
-            runCatching { CertProvider.load(context, mode.source ?: CertProvider.Source.ANDROID_AUTO).certificate.notAfter }.getOrNull()
+            runCatching { CertProvider.load(context, source).certificate.notAfter }.getOrNull()
         }
     }
     SettingsRow(
@@ -54,35 +52,34 @@ internal fun CertificateSettings() {
         } ?: "Unavailable",
         icon = Icons.Filled.Lock,
     )
-    if (!BuildConfig.DEBUG) return
     SettingsDivider()
     SettingsRow(
-        "Certificate for debugging",
+        "Certificate",
         Modifier.clickable { choosing = true },
-        subtitle = "${mode.label} · Applies on the next connection",
+        subtitle = "${source.label} · Applies on the next connection",
         icon = Icons.Filled.Lock,
     )
     if (choosing) {
         AlertDialog(
             onDismissRequest = { choosing = false },
-            title = { Text("Certificate for debugging") },
+            title = { Text("Certificate") },
             text = {
                 Column {
-                    Text("Automatic tries Android Auto first. Forcing a certificate disables fallback, even after a failure.")
-                    CertificateMode.entries.forEach { option ->
+                    Text("Android Auto is the default, even after expiry. If it fails, select Head unit (DHU) and reconnect. Gearslip keeps your choice until you change it.")
+                    CertProvider.Source.entries.forEach { option ->
                         Row(
                             Modifier.fillMaxWidth().selectable(
-                                selected = mode == option,
+                                selected = source == option,
                                 role = Role.RadioButton,
                                 onClick = {
-                                    AppSettings.setCertificateMode(context, option)
-                                    mode = option
+                                    AppSettings.setCertificateSource(context, option)
+                                    source = option
                                     choosing = false
                                 },
                             ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            RadioButton(selected = mode == option, onClick = null)
+                            RadioButton(selected = source == option, onClick = null)
                             Text(option.label)
                         }
                     }
@@ -95,7 +92,7 @@ internal fun CertificateSettings() {
 
 /** Recheck on resume, and remember acknowledgement per certificate rather than per app install. */
 @Composable
-internal fun CompatWarning() {
+internal fun CompatWarning(onOpenSettings: () -> Unit) {
     val context = LocalContext.current
     var resume by remember { mutableIntStateOf(0) }
     var expiry by remember { mutableStateOf<Date?>(null) }
@@ -103,14 +100,18 @@ internal fun CompatWarning() {
     var acknowledged by remember { mutableStateOf("") }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resume++ }
     LaunchedEffect(resume) {
+        if (AppSettings.certificateSource(context) != CertProvider.Source.ANDROID_AUTO) {
+            expiry = null
+            return@LaunchedEffect
+        }
         val cert = withContext(Dispatchers.IO) { runCatching { CertProvider.load(context).certificate }.getOrNull() }
         expiry = cert?.notAfter?.takeIf { Date().after(it) }
-        warningKey = cert?.let { "${it.serialNumber.toString(16)}:${it.notAfter.time}" }.orEmpty()
+        // The old warning promised automatic fallback, so acknowledge this wording separately.
+        warningKey = cert?.let { "manual:${it.serialNumber.toString(16)}:${it.notAfter.time}" }.orEmpty()
         acknowledged = AppSettings.getString(context, "expired_certificate_warning", "")
     }
     val expiredOn = expiry ?: return
     if (warningKey == acknowledged) return
-    val mode = AppSettings.certificateMode(context)
     fun dismiss() {
         AppSettings.putString(context, "expired_certificate_warning", warningKey)
         acknowledged = warningKey
@@ -121,12 +122,14 @@ internal fun CompatWarning() {
         text = {
             Text(
                 "The Android Auto certificate expired on ${DateFormat.getDateInstance(DateFormat.LONG).format(expiredOn)}. " +
-                    "Your car may still accept it, so Gearslip tries it first. If the secure connection fails, " +
-                    "Gearslip will try the head-unit certificate on the next connection. You may need to reconnect. " +
-                    "The fallback may not work with every car." +
-                    if (mode != CertificateMode.AUTOMATIC) "\n\nYour debug override forces ${mode.label} and disables fallback." else "",
+                    "Your car may still accept it, so Gearslip will keep using it. If the connection fails, " +
+                    "open Settings, select Certificate → Head unit (DHU), and reconnect. " +
+                    "The head-unit certificate may not work with every car.",
             )
         },
         confirmButton = { TextButton(onClick = ::dismiss) { Text("Got it") } },
+        dismissButton = {
+            TextButton(onClick = { dismiss(); onOpenSettings() }) { Text("Settings") }
+        },
     )
 }

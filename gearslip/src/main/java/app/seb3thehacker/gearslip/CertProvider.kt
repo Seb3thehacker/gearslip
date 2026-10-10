@@ -15,13 +15,13 @@ import java.security.spec.PKCS8EncodedKeySpec
  * The shared CarService TLS identity is unrelated to either app's APK signing key. Its
  * chain includes the Google Automotive Link root, leaf-first as the official app sends it.
  * Try CarService even after its 2027-01-20 expiry: some head units may still accept it.
- * The DHU 2.0 identity (expires 2048-08-01) is reserved for a failed attempt or debugging.
+ * The DHU 2.0 identity (expires 2048-08-01) is available as a manual alternative in Settings.
  * The DHU sends only its leaf; its root is used separately to verify its peer.
  */
 object CertProvider {
-    enum class Source(val statsKey: String, val description: String) {
-        ANDROID_AUTO("android_auto", "bundled Android Auto 17.9.664004 projection identity"),
-        HEAD_UNIT("dhu", "bundled DHU 2.0 fallback identity"),
+    enum class Source(val statsKey: String, val label: String, val description: String) {
+        ANDROID_AUTO("android_auto", "Android Auto", "bundled Android Auto 17.9.664004 projection identity"),
+        HEAD_UNIT("dhu", "Head unit (DHU)", "bundled DHU 2.0 fallback identity"),
     }
 
     class Identity(

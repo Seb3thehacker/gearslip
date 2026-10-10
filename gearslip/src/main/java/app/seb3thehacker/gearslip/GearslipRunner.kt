@@ -34,8 +34,6 @@ class GearslipRunner(
     private val output: OutputStream,
     private val identityProvider: () -> CertProvider.Identity,
     private val projection: Projection? = null,
-    private val certificateForced: Boolean = false,
-    private val onCertificateFailure: () -> Boolean = { false },
     private val vehicleProfileFor: (ServiceDiscovery.HeadUnitInfo) -> VehicleProfile? = { null },
 ) {
     private val log = GearslipLog.tagged("PROTO")
@@ -287,11 +285,11 @@ class GearslipRunner(
             if (stopped) return
             if (!certificateAttempted) {
                 val cert = identity.certificate
-                log.i("phone certificate source: ${identity.source}; forced=$certificateForced")
+                log.i("phone certificate source: ${identity.source}")
                 log.i("  subject = ${cert.subjectX500Principal}")
                 log.i("  issuer  = ${cert.issuerX500Principal}")
                 log.i("  serial  = ${cert.serialNumber}  valid ${cert.notBefore}..${cert.notAfter}")
-                SessionReport.certificate(identity, certificateForced)
+                SessionReport.certificate(identity)
                 certificateAttempted = true
             }
             tls.pumpHandshake(body)
@@ -316,7 +314,6 @@ class GearslipRunner(
             }
             state = State.DONE
             authenticationFailed = true
-            offerCertificateFallback()
             SessionReport.print()
             return
         }
@@ -357,7 +354,6 @@ class GearslipRunner(
                 )
                 state = State.DONE
                 authenticationFailed = true
-                offerCertificateFallback()
             }
             -3 -> {
                 SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status -3 (authentication failure)", state.name, "auth -3")
@@ -372,7 +368,6 @@ class GearslipRunner(
                 )
                 state = State.DONE
                 authenticationFailed = true
-                offerCertificateFallback()
             }
             else -> {
                 SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status $status (unexpected)", state.name, "auth $status")
@@ -1132,17 +1127,6 @@ class GearslipRunner(
         }
     }
 
-    /** The head unit must start a fresh connection before we can present another certificate. */
-    private fun offerCertificateFallback() {
-        if (stopped || !certificateAttempted || !onCertificateFailure()) return
-        log.i("phone identity failed; the next connection to this accessory will try the DHU identity")
-        SessionStatus.failed(
-            "Reconnect to try the fallback certificate",
-            "The Android Auto certificate attempt failed. Reconnect to the same head unit within " +
-                "five minutes to try the head-unit certificate. The car may reconnect automatically.",
-        )
-    }
-
     private fun reportDisconnect() {
         when (state) {
             State.WAIT_VERSION -> SessionReport.fail(SessionReport.Category.NO_HANDSHAKE, "no VersionRequest arrived", state.name, "closed")
@@ -1189,7 +1173,6 @@ class GearslipRunner(
             )
             State.DONE -> log.i("connection closed after the run completed")
         }
-        if (state == State.TLS_HANDSHAKE || state == State.WAIT_AUTH) offerCertificateFallback()
         SessionReport.print()
     }
 

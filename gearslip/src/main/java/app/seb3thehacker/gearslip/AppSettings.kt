@@ -22,17 +22,14 @@ object AppSettings {
         prefs(context).edit().putString(key, value).apply()
     }
 
-    /** A release build ignores any debug override left in preferences. */
-    fun certificateMode(context: Context): CertificateMode {
-        if (!BuildConfig.DEBUG) return CertificateMode.AUTOMATIC
-        val saved = getString(context, "certificate_mode", CertificateMode.AUTOMATIC.name)
-        return CertificateMode.entries.firstOrNull { it.name == saved } ?: CertificateMode.AUTOMATIC
+    /** Old Automatic preferences and unknown values resolve to the default phone identity. */
+    fun certificateSource(context: Context): CertProvider.Source {
+        val saved = getString(context, "certificate_mode", CertProvider.Source.ANDROID_AUTO.name)
+        return CertProvider.Source.entries.firstOrNull { it.name == saved } ?: CertProvider.Source.ANDROID_AUTO
     }
 
-    fun setCertificateMode(context: Context, mode: CertificateMode) {
-        if (!BuildConfig.DEBUG) return
-        putString(context, "certificate_mode", mode.name)
-        CertificateRetry.shared.clear()
+    fun setCertificateSource(context: Context, source: CertProvider.Source) {
+        putString(context, "certificate_mode", source.name)
     }
 
     /** Blank means "use the built-in test page". */

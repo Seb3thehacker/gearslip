@@ -58,7 +58,6 @@ object SessionReport {
     @Volatile private var certIssuer = ""
     @Volatile private var certKey = ""
     @Volatile private var certExpired = false
-    @Volatile private var certForced = false
     @Volatile private var tlsProtocol = ""
     @Volatile private var tlsCipher = ""
     @Volatile private var authStatus: Int? = null
@@ -83,7 +82,7 @@ object SessionReport {
         startedAt = System.currentTimeMillis()
         category = Category.NONE
         failure = ""; protocolVersion = ""; certSource = ""; certIssuer = ""
-        certKey = ""; certExpired = false; certForced = false
+        certKey = ""; certExpired = false
         stage = Stage.USB; failCode = ""; failedAfter = 0
         tlsProtocol = ""; tlsCipher = ""; authStatus = null
         headUnitInfo = null
@@ -97,12 +96,11 @@ object SessionReport {
 
     fun protocolVersion(major: Int, minor: Int) { protocolVersion = "$major.$minor"; reached(Stage.VERSIONS) }
     /** Record the identity when its handshake starts, not when background preloading finishes. */
-    fun certificate(identity: CertProvider.Identity, forced: Boolean, now: java.util.Date = java.util.Date()) {
+    fun certificate(identity: CertProvider.Identity, now: java.util.Date = java.util.Date()) {
         certSource = identity.source
         certIssuer = identity.certificate.issuerX500Principal.toString()
         certKey = identity.statsKey
         certExpired = now.after(identity.certificate.notAfter)
-        certForced = forced
     }
     fun tls(protocol: String, cipher: String) { tlsProtocol = protocol; tlsCipher = cipher; reached(Stage.TLS) }
     fun auth(status: Int) { authStatus = status; if (status == 0) reached(Stage.ACCEPTED) }
@@ -166,7 +164,6 @@ object SessionReport {
             .put("seconds", rounded(seconds))
             .put("cert", certKey)
             .put("cert_expired", certExpired)
-            .put("cert_forced", certForced)
     }
 
     /** Seconds rounded so a drive's length can't be matched to anything: 5 s, then minutes, then 5 minutes. */
@@ -200,7 +197,6 @@ object SessionReport {
             append(row("cert issuer", certIssuer))
             if (certKey.isNotEmpty()) {
                 append(row("cert expired", certExpired.toString()))
-                append(row("cert forced", certForced.toString()))
             }
             append(row("TLS", listOf(tlsProtocol, tlsCipher).filter { it.isNotEmpty() }.joinToString(" / ")))
             append(row("auth status", authStatus?.let { "$it (${authName(it)})" } ?: ""))

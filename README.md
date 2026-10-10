@@ -123,29 +123,22 @@ can render: templated apps, media apps, and the Gearslip app protocol.
 
 The bundled TLS certificate, chain, and matching key come from Android Auto 17.9.664004's
 built-in CarService identity. The leaf certificate expires on **20 January 2027 at
-22:48:17 UTC**. Gearslip tries it first even after expiry, because some head units may
-still accept it. When it expires, the phone shows a compatibility warning explaining the
-fallback; acknowledgement is remembered for that certificate.
+22:48:17 UTC**. It remains the default even after expiry, because some head units may
+still accept it. When it expires, the phone shows a compatibility warning explaining how
+to switch certificates if the connection fails; acknowledgement is remembered for that
+certificate.
 
-If TLS or authentication fails, Gearslip reserves one retry with the identity from Google's
-[Desktop Head Unit 2.0](https://dl.google.com/android/repository/desktop-head-unit-linux-x64_r02.0.zip).
-A rejected TLS session cannot switch certificates in place: the head unit must start a new
-USB connection. Reconnect to the same accessory within five minutes if the car does not
-reconnect automatically. The retry is consumed once, is cleared on app restart or connection
-to another accessory, and does not change the default for later drives. Failures before TLS
-starts, local identity loading errors, and failures after successful authentication do not
-select the fallback. An unexpected disconnect during authentication can also trigger it;
-the log distinguishes this from an explicit certificate rejection.
+**Settings → Connection → Certificate** lets you select Android Auto or the identity from
+Google's [Desktop Head Unit 2.0](https://dl.google.com/android/repository/desktop-head-unit-linux-x64_r02.0.zip).
+If Android Auto fails, select **Head unit (DHU)** and reconnect. The choice applies on the
+next connection and stays selected until you change it. Neither expiry nor connection
+failure changes certificates automatically. Both debug and release builds offer the same
+selector, and the expiry row describes the selected identity.
 
-Settings shows the primary certificate's expiry. Debug builds additionally offer
-**Certificate for debugging**: Automatic, Android Auto, or Head unit (DHU). A forced choice
-applies on the next connection, disables fallback, and also bypasses expiry checks. Release
-builds always use Automatic. While forced, the expiry row describes the selected identity.
-
-The opt-in session stats identify the certificate attempted (`cert`: `android_auto` or `dhu`),
-whether it was expired (`cert_expired`), and whether it was forced (`cert_forced`). No identity
-is reported when the connection fails before its TLS attempt. The stats backend must accept
-these certificate values and fields; its implementation is not included in this repository.
+The opt-in session stats identify the certificate attempted (`cert`: `android_auto` or `dhu`)
+and whether it was expired (`cert_expired`). No identity is reported when the connection
+fails before its TLS attempt. The stats backend must accept these certificate values and
+fields; its implementation is not included in this repository.
 
 Leaf SHA-256: `39b7417be3f2bcd60b30e3acd4a2995d82661d6d66110e45c10a15d2a3c2ee6e`.
 The fallback includes the DHU's matching key and leaf certificate, whose subject is

@@ -266,7 +266,6 @@ object UsageStats {
             .put("seconds", 1500)
             .put("cert", "android_auto")
             .put("cert_expired", false)
-            .put("cert_forced", false)
             .put("name", "Head unit name")
             .put("car", "Car model")
             .put("year", "2021")
