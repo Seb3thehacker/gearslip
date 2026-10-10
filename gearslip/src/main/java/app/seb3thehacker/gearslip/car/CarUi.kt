@@ -126,6 +126,8 @@ fun CarUi() {
     // a video in the web browser or a map's voice needs it too. Asks once, after the car offers
     // somewhere to play it.
     LaunchedEffect(Unit) { if (CarSettings.pipeAudio.value) app.seb3thehacker.gearslip.audio.CarAudio.request() }
+    // A new version gets one card in the top right, a few seconds in and only while parked.
+    LaunchedEffect(Unit) { app.seb3thehacker.gearslip.update.UpdateChecker.onCarConnected(appContext) }
     // The map follows the light outside, whatever the app's own theme is set to.
     LaunchedEffect(darkOutside) { CarServices.nav.pushConfiguration() }
 
@@ -224,6 +226,8 @@ fun CarUi() {
                                 }
                             }
                         }
+                        CarToastOverlay(Modifier.align(Alignment.BottomCenter))
+                        CallPromptOverlay()
                         PopupTimer()
                         // The dashboard is already listing them, so it needs no popup.
                         NotificationPopup(
