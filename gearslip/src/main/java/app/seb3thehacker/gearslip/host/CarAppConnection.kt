@@ -91,7 +91,7 @@ class CarAppConnection(private val context: Context) {
 
     private var carApp: ICarApp? = null
     private var appManager: IAppManager? = null
-    private var locationManager: IAppManager? = null
+    private var appLocationRequested = false
     private var isNavigation = false
     /** Only present for an app that asked for it - most apps aren't navigation apps. */
     private var navigationManager: INavigationManager? = null
@@ -578,9 +578,9 @@ class CarAppConnection(private val context: Context) {
     /** Location is optional: denied permissions or an old app must not break its map. */
     @SuppressLint("RestrictedApi") // Gearslip implements the host side of this library-only Binder API.
     private fun startAppLocation() {
-        if (!isNavigation || locationManager != null) return
+        if (!isNavigation || appLocationRequested) return
         val manager = appManager ?: return
-        locationManager = manager
+        appLocationRequested = true
         AppLocations.begin(hostOwner)
         runCatching { manager.startLocationUpdates(noop("startLocationUpdates")) }
             .onFailure {
@@ -592,8 +592,8 @@ class CarAppConnection(private val context: Context) {
     @SuppressLint("RestrictedApi") // Paired with the host's startLocationUpdates request above.
     private fun stopAppLocation() {
         AppLocations.clear(hostOwner)
-        val manager = locationManager
-        locationManager = null
+        val manager = appManager.takeIf { appLocationRequested }
+        appLocationRequested = false
         // Stop before onAppStop/unbind, while the remote AppManager is still alive.
         runCatching { manager?.stopLocationUpdates(noop("stopLocationUpdates")) }
     }
