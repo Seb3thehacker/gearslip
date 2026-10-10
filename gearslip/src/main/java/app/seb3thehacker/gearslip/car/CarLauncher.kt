@@ -268,6 +268,7 @@ fun CarLauncher() {
 
     val appOrder by CarSettings.appOrder.collectAsState()
     val tiles = launcherOrder(all, showVehicleData, appOrder).map(::tileOf)
+    val suggestions by CarSuggestions.shortcuts.collectAsState()
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 108.dp),
@@ -276,6 +277,9 @@ fun CarLauncher() {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (suggestions.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) { CarSuggestionRow(suggestions) }
+        }
         items(tiles) { AppTile(it) }
         if (tiles.any { it.verified || it.broken || it.partial }) {
             // Folded away behind one button: it's reference, read once, not something every
