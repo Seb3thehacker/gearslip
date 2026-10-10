@@ -15,7 +15,7 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Generates a self-signed RSA-2048 certificate - the thing under test.
+ * Generates a test-only RSA-2048 identity so TLS tests can also exercise fresh keys.
  *
  * Written by hand rather than with BouncyCastle so the spike has no dependencies and no
  * second security provider sitting next to Conscrypt. A self-signed X.509 is a fixed
@@ -24,7 +24,7 @@ import java.util.TimeZone
  * verifying the signature before returning. A bad certificate therefore fails loudly on the
  * bench instead of looking like a head-unit rejection in the car.
  *
- * RSA-2048 matches aasdk's own key (cert/headunit.key) - see cert/README.md.
+ * RSA-2048 matches the bundled projection identity; this generator is not shipped in the APK.
  */
 object SelfSignedCert {
 

@@ -42,8 +42,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Settings that make sense while sitting in the car. The web page URL is edited here, with the
- * car's own on-screen keyboard ([CarKeyboard]); certificate management still needs a real
- * keyboard and file picker, so it stays on the phone's Settings screen.
+ * car's own on-screen keyboard ([CarKeyboard]). Certificate details are read-only here and
+ * on the phone because the projection identity is bundled with the app.
  */
 @Composable
 fun CarSettingsScreen() {

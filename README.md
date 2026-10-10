@@ -8,8 +8,9 @@ An Android Auto alternative built for everyone.
 
 ## Which cars work
 
-Most cars work. Starting around 2020, some cars added newer security standards that reject
-Gearslip's certificate, and Gearslip can't run in those cars.
+Earlier builds used a head-unit certificate that some newer cars rejected. This build
+bundles Android Auto's phone-side projection identity. Real head-unit testing is still
+needed to establish compatibility with this identity.
 
 ## What Gearslip is
 
@@ -57,8 +58,8 @@ mode.
 
 - **The connection is wired only, for now.** Plug the phone into the head unit's USB port;
   Gearslip does not yet offer a wireless option.
-- **Setup walks you through it.** First launch asks for the Android Auto certificate,
-  then one permission at a time, each with a plain reason and an Allow or Skip. A help
+- **Setup walks you through it.** The projection certificate is included. First launch
+  asks for one permission at a time, each with a plain reason and an Allow or Skip. A help
   screen inside the car answers anything setup didn't cover.
 - **Templated apps work.** Gearslip renders all 16 template types that the Car App
   Library defines, and it draws its own keyboard for search, sign-in, and text fields.
@@ -117,6 +118,16 @@ keystore. Without them, the debug build still works.
 
 [docs/BUILDING_APPS.md](docs/BUILDING_APPS.md) specifies how to write apps that Gearslip
 can render: templated apps, media apps, and the Gearslip app protocol.
+
+## Projection identity
+
+The bundled TLS certificate, chain, and matching key come from Android Auto 17.9.664004's
+built-in CarService identity. The leaf certificate expires on **20 January 2027 at
+22:48:17 UTC**. An app update is needed to replace it; Settings shows its details and expiry.
+
+Leaf SHA-256: `39b7417be3f2bcd60b30e3acd4a2995d82661d6d66110e45c10a15d2a3c2ee6e`.
+The identity is separate from Gearslip's APK signing key. It does not replace the remaining
+protocol implementation or third-party apps' host authorization checks.
 
 ## Trademarks
 

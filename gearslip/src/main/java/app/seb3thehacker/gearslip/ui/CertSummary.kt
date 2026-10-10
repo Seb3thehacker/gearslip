@@ -7,11 +7,11 @@ import java.util.Date
 
 /** What the UI says about the certificate a connection would present. */
 data class CertSummary(
-    val kind: CertProvider.Kind,
     val headline: String,
     val subject: String?,
     val issuer: String?,
     val validUntil: String?,
+    val expired: Boolean,
 ) {
     companion object {
         /**
@@ -21,30 +21,18 @@ data class CertSummary(
         @Volatile var cached: CertSummary? = null
             private set
 
-        /** Blocking (parses a key store): call from a background dispatcher. */
+        /** Blocking (loads the bundled identity): call from a background dispatcher. */
         fun read(context: Context): CertSummary = readNow(context).also { cached = it }
 
         private fun readNow(context: Context): CertSummary {
-            val identity = CertProvider.loadSupplied(context)
-                ?: return CertSummary(
-                    CertProvider.Kind.SELF_SIGNED,
-                    "None loaded (self-signed; cars reject it)",
-                    null, null, null,
-                )
-            val cert = identity.certificate
+            val cert = CertProvider.load(context).certificate
             val name = friendlyName(cert.subjectX500Principal.name)
-            val prefix = when (identity.kind) {
-                    CertProvider.Kind.IMPORTED -> "Imported"
-                    CertProvider.Kind.DOWNLOADED -> "Downloaded"
-                    CertProvider.Kind.ADB_STAGED -> "Staged over adb"
-                    CertProvider.Kind.SELF_SIGNED -> "Self-signed"
-                }
             return CertSummary(
-                identity.kind,
-                "$prefix: $name",
+                "Bundled: $name",
                 cert.subjectX500Principal.name,
                 cert.issuerX500Principal.name,
-                DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(cert.notAfter.time)),
+                DateFormat.getDateInstance(DateFormat.MEDIUM).format(cert.notAfter),
+                cert.notAfter.before(Date()),
             )
         }
 

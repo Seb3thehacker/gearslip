@@ -264,7 +264,7 @@ object UsageStats {
             .put("code", "bye 1")
             .put("failed_at", 1500)
             .put("seconds", 1500)
-            .put("cert", "downloaded")
+            .put("cert", "other")
             .put("name", "Head unit name")
             .put("car", "Car model")
             .put("year", "2021")

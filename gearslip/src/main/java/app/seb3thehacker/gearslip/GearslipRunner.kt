@@ -16,8 +16,8 @@ import java.io.OutputStream
 import java.util.concurrent.FutureTask
 
 /**
- * Drives the phone side of the control-channel handshake far enough to answer one question:
- * does this head unit accept a self-signed certificate from the phone?
+ * Drives the phone side of the control-channel handshake and projection session.
+ * The bundled phone identity is presented during TLS authentication.
  *
  * The head unit initiates (aasdk's ControlServiceChannel::sendVersionRequest), so until
  * step 5 this is purely reactive:
@@ -252,7 +252,8 @@ class GearslipRunner(
         log.i("<- VersionRequest: head unit speaks $major.$minor")
         SessionReport.protocolVersion(major, minor)
 
-        // PROTOCOL-DOWNGRADE EXPERIMENT. The 2018 Uconnect speaks 1.3 and ACCEPTS the JVC cert;
+        // Historical PROTOCOL-DOWNGRADE EXPERIMENT with the former JVC identity (not the
+        // bundled CarService identity): the 2018 Uconnect speaks 1.3 and ACCEPTS the JVC cert;
         // the 2025 unit speaks 4.3 and rejects it at AuthComplete (-3). If the 4.3 identity check
         // is tied to the *negotiated* protocol version rather than baked into the firmware,
         // claiming an older version makes the newer unit skip the check entirely. CLAIM_VERSION
@@ -318,10 +319,9 @@ class GearslipRunner(
             -2 -> {
                 SessionReport.fail(SessionReport.Category.CERTIFICATE, "AuthComplete status -2 (certificate error)", state.name, "auth -2")
                 log.verdict(
-                    "NOT VIABLE (STATUS_CERTIFICATE_ERROR)",
-                    "The head unit explicitly rejected the phone's self-signed certificate. " +
-                        "This is a definitive no - it validates the phone against a trust chain " +
-                        "we cannot issue from.",
+                    "Certificate rejected (STATUS_CERTIFICATE_ERROR)",
+                    "The head unit rejected the bundled phone projection identity. " +
+                        "See the TLS and authentication entries above for this connection.",
                 )
                 SessionStatus.failed(
                     "Head unit rejected the certificate",

@@ -147,20 +147,14 @@ object SessionReport {
      */
     fun sessionNote(): org.json.JSONObject {
         val seconds = if (startedAt == 0L) 0 else (System.currentTimeMillis() - startedAt) / 1000
-        val source = certSource.lowercase()
         return org.json.JSONObject()
             .put("stage", stage.key)
             .put("ended", category.name.lowercase())
             .put("code", failCode)
             .put("failed_at", if (category == Category.NONE) 0 else rounded(failedAfter))
             .put("seconds", rounded(seconds))
-            .put("cert", when {
-                "imported" in source -> "imported"
-                "downloaded" in source -> "downloaded"
-                "self" in source -> "self-signed"
-                source.isEmpty() -> ""
-                else -> "other"
-            })
+            // Keep the server's existing category vocabulary for the bundled identity.
+            .put("cert", if (certSource.isEmpty()) "" else "other")
     }
 
     /** Seconds rounded so a drive's length can't be matched to anything: 5 s, then minutes, then 5 minutes. */

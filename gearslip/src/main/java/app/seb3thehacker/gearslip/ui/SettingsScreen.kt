@@ -1,8 +1,5 @@
 package app.seb3thehacker.gearslip.ui
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,13 +10,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
@@ -27,36 +21,27 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.BuildConfig
-import app.seb3thehacker.gearslip.CertProvider
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
@@ -175,46 +160,31 @@ private fun AppsSection(onOpenRecommendedApps: () -> Unit) {
     }
 }
 
+/** The projection identity is part of this build; only its public details are shown. */
 @Composable
 private fun CertificateSection() {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    var refresh by remember { mutableIntStateOf(0) }
-    // The cached summary shows at once; the read still runs, in case the cert changed since.
-    val summary by produceState(CertSummary.cached, refresh) {
+    val summary by produceState(CertSummary.cached, context) {
         value = withContext(Dispatchers.Default) { CertSummary.read(context) }
     }
-
-    var pendingUri by remember { mutableStateOf<Uri?>(null) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var downloading by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) pendingUri = uri
-    }
-
-    SettingsSection("Certificate", footer = notice ?: "Changes take effect on the next connection.") {
-        val s = summary
-        val loaded = s != null && s.kind != CertProvider.Kind.SELF_SIGNED
-        val hasDetails = s?.subject != null || s?.issuer != null
+    val s = summary
+    SettingsSection("Certificate", footer = "Included with Gearslip. Certificate updates come with app updates.") {
         SettingsRow(
             s?.headline ?: "Checking…",
-            if (hasDetails) Modifier.clickable { detailsOpen = !detailsOpen } else Modifier,
-            subtitle = s?.validUntil?.let { "Valid until $it" },
-            icon = if (s == null || loaded) Icons.Filled.Lock else Icons.Filled.Warning,
-            tint = if (s == null || loaded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-            trailing = if (hasDetails) {
-                {
-                    Icon(
-                        if (detailsOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                        contentDescription = if (detailsOpen) "Hide details" else "Show details",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else null,
+            Modifier.clickable(enabled = s != null) { detailsOpen = !detailsOpen },
+            subtitle = s?.validUntil?.let { if (s.expired) "Expired on $it" else "Valid until $it" },
+            icon = if (s?.expired == true) Icons.Filled.Warning else Icons.Filled.Lock,
+            tint = if (s?.expired == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            trailing = {
+                Icon(
+                    if (detailsOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (detailsOpen) "Hide details" else "Show details",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
         )
-        AnimatedVisibility(detailsOpen && hasDetails) {
+        AnimatedVisibility(detailsOpen && s != null) {
             Column(
                 Modifier.padding(start = 56.dp, end = 16.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -223,71 +193,6 @@ private fun CertificateSection() {
                 s?.issuer?.let { Detail("Issuer", it) }
             }
         }
-        SettingsDivider()
-        SettingsRow(
-            if (downloading) "Downloading…" else "Download from aasdk",
-            Modifier.clickable(enabled = !downloading) {
-                downloading = true
-                scope.launch {
-                    val result = withContext(Dispatchers.IO) { runCatching { CertProvider.downloadAndImport(context) } }
-                    downloading = false
-                    result.onSuccess {
-                        notice = "Certificate downloaded."
-                        refresh++
-                    }.onFailure {
-                        notice = "Download failed: ${it.message}"
-                    }
-                }
-            },
-            subtitle = "The certificate the open-source aasdk project publishes on GitHub. Gearslip doesn't include one",
-            icon = Icons.Filled.Refresh,
-        )
-        SettingsDivider()
-        SettingsRow(
-            "Import my own file",
-            Modifier.clickable { picker.launch(arrayOf("*/*")) },
-            subtitle = "A .p12 file with its private key, from wherever you choose",
-            icon = Icons.Filled.Add,
-        )
-        val removable = when (s?.kind) {
-            CertProvider.Kind.IMPORTED -> "Remove imported certificate"
-            CertProvider.Kind.DOWNLOADED -> "Remove downloaded certificate"
-            else -> null
-        }
-        if (removable != null) {
-            SettingsDivider()
-            SettingsRow(
-                removable,
-                Modifier.clickable {
-                    if (s?.kind == CertProvider.Kind.IMPORTED) CertProvider.removeImported(context) else CertProvider.removeDownloaded(context)
-                    notice = if (s?.kind == CertProvider.Kind.IMPORTED) "Removed the imported certificate." else "Removed the downloaded certificate."
-                    refresh++
-                },
-                icon = Icons.Filled.Delete,
-                tint = MaterialTheme.colorScheme.error,
-                titleColor = MaterialTheme.colorScheme.error,
-            )
-        }
-    }
-
-    pendingUri?.let { uri ->
-        PasswordDialog(
-            onDismiss = { pendingUri = null },
-            onConfirm = { password, reportError ->
-                scope.launch {
-                    val result = withContext(Dispatchers.IO) {
-                        runCatching { CertProvider.importFrom(context, uri, password) }
-                    }
-                    result.onSuccess {
-                        pendingUri = null
-                        notice = "Certificate imported."
-                        refresh++
-                    }.onFailure {
-                        reportError("Could not import: wrong password, or not a PKCS#12 file with a private key.")
-                    }
-                }
-            },
-        )
     }
 }
 
@@ -297,29 +202,4 @@ private fun Detail(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodyMedium)
     }
-}
-
-@Composable
-private fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, (String) -> Unit) -> Unit) {
-    var password by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Certificate password") },
-        text = {
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it; error = null },
-                singleLine = true,
-                label = { Text("Password") },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                isError = error != null,
-                supportingText = { Text(error ?: "Leave empty if the file has none.") },
-            )
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(password) { error = it } }) { Text("Import") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }

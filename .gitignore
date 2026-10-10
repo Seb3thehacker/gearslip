@@ -32,9 +32,13 @@ archive/
 .wrangler/
 stats-worker/
 
-# Certificates and keys never go in the repo; the app downloads or imports them on the phone.
+# Keep local certificates and keys out of commits. Only the shared projection assets are bundled.
 *.p12
 *.pfx
 *.pem
 *.crt
 *.key
+
+*.pk8
+!/gearslip/src/main/res/raw/projection_chain.pem
+!/gearslip/src/main/res/raw/projection_key.pk8

@@ -16,11 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,23 +34,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.BuildConfig
-import app.seb3thehacker.gearslip.CertProvider
 import app.seb3thehacker.gearslip.stats.UsageStats
 
-private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, CERT_SETUP, SETUP_GUIDE, USAGE_NOTES, HELP, WHATS_NEW, RECOMMENDED_APPS }
+private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, SETUP_GUIDE, USAGE_NOTES, HELP, WHATS_NEW, RECOMMENDED_APPS }
 
 /** Three screens and a back stack of depth one: no navigation library needed. */
 @Composable
 fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
     val context = LocalContext.current
-    val needsCertSetup = remember {
-        !AppSettings.hasSkippedCertSetup(context) && !CertProvider.hasAnyCert(context)
-    }
     val needsSetupGuide = remember { !AppSettings.hasSeenPermissionsSetup(context) }
     var screen by rememberSaveable {
         mutableStateOf(
             when {
-                needsCertSetup -> Screen.CERT_SETUP
                 needsSetupGuide -> Screen.SETUP_GUIDE
                 // Set up before usage notes existed: ask once, on the setup guide's own page.
                 !UsageStats.asked(context) -> Screen.USAGE_NOTES
@@ -122,11 +115,6 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
                     onBack = { screen = Screen.HOME },
                     onRequestCallScreening = onRequestCallScreening,
                 )
-                Screen.CERT_SETUP -> CertSetupScreen(
-                    onDone = {
-                        screen = if (AppSettings.hasSeenPermissionsSetup(context)) Screen.HOME else Screen.SETUP_GUIDE
-                    },
-                )
                 Screen.SETUP_GUIDE -> SetupGuideScreen(
                     onRequestCallScreening = onRequestCallScreening,
                     onDone = { screen = Screen.HOME },
@@ -141,8 +129,6 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
         // A car keyboard is open: offer the phone's own, for a passenger.
         if (screen != Screen.CAR_PREVIEW) PhoneTypingBar()
     }
-
-    CompatWarning()
 }
 
 /**
@@ -165,31 +151,5 @@ private fun DevBuildBanner() {
                 fontWeight = FontWeight.Bold,
             )
         }
-    }
-}
-
-/** Shown once, on first run: the certificate is known to fail on head units newer than ~2020. */
-@Composable
-private fun CompatWarning() {
-    val context = LocalContext.current
-    var visible by rememberSaveable { mutableStateOf(!AppSettings.hasSeenCompatWarning(context)) }
-
-    if (visible) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Before you plug in") },
-            text = {
-                Text(
-                    "Gearslip works with cars built before 2020. " +
-                        "Newer firmware often blocks the connection.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    AppSettings.setSeenCompatWarning(context)
-                    visible = false
-                }) { Text("Got it") }
-            },
-        )
     }
 }
