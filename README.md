@@ -9,8 +9,7 @@ An Android Auto alternative built for everyone.
 ## Which cars work
 
 Earlier builds used a head-unit certificate that some newer cars rejected. This build
-bundles Android Auto's phone-side projection identity. Real head-unit testing is still
-needed to establish compatibility with this identity.
+bundles Android Auto's phone-side projection identity.
 
 ## What Gearslip is
 
