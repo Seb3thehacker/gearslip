@@ -118,17 +118,6 @@ keystore. Without them, the debug build still works.
 [docs/BUILDING_APPS.md](docs/BUILDING_APPS.md) specifies how to write apps that Gearslip
 can render: templated apps, media apps, and the Gearslip app protocol.
 
-## How Gearslip talks to cars
-
-Gearslip is an independent program, written to work with car head units. What it knows of
-the protocol comes from public open-source projects such as
-[aasdk](https://github.com/opencardev/aasdk) and open-android-auto, and it contains none
-of Google's Android Auto code.
-
-Gearslip ships without a certificate. On first launch you choose where yours comes from:
-download the one the aasdk project publishes, or import a file of your own. The
-certificate stays on your phone. Gearslip never uploads, backs up, or logs it.
-
 ## Trademarks
 
 Android, Android Auto, Google Messages, and Waze are trademarks of Google LLC. Spotify is
