@@ -123,10 +123,20 @@ can render: templated apps, media apps, and the Gearslip app protocol.
 
 The bundled TLS certificate, chain, and matching key come from Android Auto 17.9.664004's
 built-in CarService identity. The leaf certificate expires on **20 January 2027 at
-22:48:17 UTC**. An app update is needed to replace it; Settings shows its expiry.
+22:48:17 UTC**. After that date, new sessions automatically use the identity bundled in
+Google's [Desktop Head Unit 2.0](https://dl.google.com/android/repository/desktop-head-unit-linux-x64_r02.0.zip).
+Settings shows the selected certificate's expiry. There is no fallback on certificate
+rejection or loading errors, and an existing session keeps the identity it started with.
 
 Leaf SHA-256: `39b7417be3f2bcd60b30e3acd4a2995d82661d6d66110e45c10a15d2a3c2ee6e`.
-The identity is separate from Gearslip's APK signing key. It does not replace the remaining
+The fallback includes the DHU's matching key and leaf certificate, whose subject is
+`Android-Auto-Internal` and whose expiry is **1 August 2048 at 17:21:23 UTC**. It differs
+from aasdk's JVC Kenwood certificate (expires 29 April 2045). Its SHA-256 fingerprint is
+`4eb581dcee2b84369ca87066ab6eaa73a4783aef5c7b6edc6841e066cffa7e7c`.
+The fallback is a head-unit identity; its acceptance in the phone role depends on the car
+and still needs real-head-unit validation. An expired fallback is not used.
+
+These identities are separate from Gearslip's APK signing key. They do not replace the remaining
 protocol implementation or third-party apps' host authorization checks.
 
 ## Trademarks

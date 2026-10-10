@@ -42,3 +42,5 @@ stats-worker/
 *.pk8
 !/gearslip/src/main/res/raw/projection_chain.pem
 !/gearslip/src/main/res/raw/projection_key.pk8
+!/gearslip/src/main/res/raw/projection_fallback.pem
+!/gearslip/src/main/res/raw/projection_fallback_key.pk8

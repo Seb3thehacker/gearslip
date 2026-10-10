@@ -17,7 +17,7 @@ import java.util.concurrent.FutureTask
 
 /**
  * Drives the phone side of the control-channel handshake and projection session.
- * The bundled phone identity is presented during TLS authentication.
+ * The selected bundled identity is presented during TLS authentication.
  *
  * The head unit initiates (aasdk's ControlServiceChannel::sendVersionRequest), so until
  * step 5 this is purely reactive:
@@ -320,7 +320,7 @@ class GearslipRunner(
                 SessionReport.fail(SessionReport.Category.CERTIFICATE, "AuthComplete status -2 (certificate error)", state.name, "auth -2")
                 log.verdict(
                     "Certificate rejected (STATUS_CERTIFICATE_ERROR)",
-                    "The head unit rejected the bundled phone projection identity. " +
+                    "The head unit rejected the selected bundled projection identity. " +
                         "See the TLS and authentication entries above for this connection.",
                 )
                 SessionStatus.failed(
