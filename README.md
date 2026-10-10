@@ -132,7 +132,7 @@ Google's [Desktop Head Unit 2.0](https://dl.google.com/android/repository/deskto
 If Android Auto fails, select **Head unit (DHU)** and reconnect. The choice applies on the
 next connection and stays selected until you change it. Neither expiry nor connection
 failure changes certificates automatically. Both debug and release builds offer the same
-selector, and the expiry row describes the selected identity.
+selector, and the Certificate entry shows the selected identity and its expiry.
 
 The opt-in session stats identify the certificate attempted (`cert`: `android_auto` or `dhu`)
 and whether it was expired (`cert_expired`). No identity is reported when the connection

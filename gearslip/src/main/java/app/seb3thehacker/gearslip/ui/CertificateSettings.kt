@@ -1,13 +1,24 @@
 package app.seb3thehacker.gearslip.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import app.seb3thehacker.gearslip.AppSettings
@@ -39,54 +51,111 @@ internal fun CertificateSettings() {
     val context = LocalContext.current
     var source by remember { mutableStateOf(AppSettings.certificateSource(context)) }
     var choosing by rememberSaveable { mutableStateOf(false) }
-    val expiry by produceState<Date?>(null, context, source) {
+    val expiry by produceState("Checking expiry…", context, source) {
+        value = "Checking expiry…"
         value = withContext(Dispatchers.IO) {
-            runCatching { CertProvider.load(context, source).certificate.notAfter }.getOrNull()
+            runCatching {
+                val date = CertProvider.load(context, source).certificate.notAfter
+                val formatted = DateFormat.getDateInstance(DateFormat.LONG).format(date)
+                if (Date().after(date)) "Expired on $formatted" else "Expires on $formatted"
+            }.getOrDefault("Expiry unavailable")
         }
     }
     SettingsRow(
-        "Certificate expiry",
-        subtitle = expiry?.let {
-            val date = DateFormat.getDateInstance(DateFormat.LONG).format(it)
-            if (Date().after(it)) "Expired on $date" else date
-        } ?: "Unavailable",
-        icon = Icons.Filled.Lock,
-    )
-    SettingsDivider()
-    SettingsRow(
         "Certificate",
-        Modifier.clickable { choosing = true },
-        subtitle = "${source.label} · Applies on the next connection",
+        Modifier.clickable(role = Role.Button) { choosing = true },
+        subtitle = "${source.label}\n$expiry",
         icon = Icons.Filled.Lock,
+        trailing = {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
     )
     if (choosing) {
-        AlertDialog(
-            onDismissRequest = { choosing = false },
-            title = { Text("Certificate") },
-            text = {
-                Column {
-                    Text("Android Auto is the default, even after expiry. If it fails, select Head unit (DHU) and reconnect. Gearslip keeps your choice until you change it.")
+        CertificatePicker(
+            selected = source,
+            onSelect = {
+                AppSettings.setCertificateSource(context, it)
+                source = it
+                choosing = false
+            },
+            onDismiss = { choosing = false },
+        )
+    }
+}
+
+@Composable
+private fun CertificatePicker(
+    selected: CertProvider.Source,
+    onSelect: (CertProvider.Source) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose certificate") },
+        text = {
+            // Scrolling keeps both choices reachable on small screens and at larger font sizes.
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text("Changes apply on your next connection.", style = MaterialTheme.typography.bodyMedium)
+                Column(
+                    Modifier.selectableGroup(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     CertProvider.Source.entries.forEach { option ->
-                        Row(
-                            Modifier.fillMaxWidth().selectable(
-                                selected = source == option,
-                                role = Role.RadioButton,
-                                onClick = {
-                                    AppSettings.setCertificateSource(context, option)
-                                    source = option
-                                    choosing = false
-                                },
-                            ),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(selected = source == option, onClick = null)
-                            Text(option.label)
-                        }
+                        CertificateOption(option, selected == option, onClick = { onSelect(option) })
                     }
                 }
-            },
-            confirmButton = { TextButton(onClick = { choosing = false }) { Text("Cancel") } },
-        )
+                Text(
+                    "Your choice is saved until you change it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** The whole padded row owns selection, giving the radio and its description one touch target. */
+@Composable
+private fun CertificateOption(source: CertProvider.Source, selected: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) colors.secondaryContainer else colors.surfaceContainerHigh,
+        border = BorderStroke(1.dp, if (selected) colors.primary else colors.outlineVariant),
+    ) {
+        Row(
+            Modifier.fillMaxWidth()
+                .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+                .heightIn(min = 80.dp)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            RadioButton(selected = selected, onClick = null)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    source.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (selected) colors.onSecondaryContainer else colors.onSurface,
+                )
+                Text(
+                    when (source) {
+                        CertProvider.Source.ANDROID_AUTO -> "Default. Tried even after expiry."
+                        CertProvider.Source.HEAD_UNIT -> "Try this if Android Auto fails."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (selected) colors.onSecondaryContainer else colors.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
