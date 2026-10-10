@@ -34,18 +34,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.BuildConfig
+import app.seb3thehacker.gearslip.CertProvider
 import app.seb3thehacker.gearslip.stats.UsageStats
 
-private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, SETUP_GUIDE, USAGE_NOTES, HELP, WHATS_NEW, RECOMMENDED_APPS }
+private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, CERT_SETUP, SETUP_GUIDE, USAGE_NOTES, HELP, WHATS_NEW, RECOMMENDED_APPS }
 
 /** Three screens and a back stack of depth one: no navigation library needed. */
 @Composable
 fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
     val context = LocalContext.current
+    val needsCertSetup = remember {
+        !AppSettings.hasSkippedCertSetup(context) && !CertProvider.hasAnyCert(context)
+    }
     val needsSetupGuide = remember { !AppSettings.hasSeenPermissionsSetup(context) }
     var screen by rememberSaveable {
         mutableStateOf(
             when {
+                needsCertSetup -> Screen.CERT_SETUP
                 needsSetupGuide -> Screen.SETUP_GUIDE
                 // Set up before usage notes existed: ask once, on the setup guide's own page.
                 !UsageStats.asked(context) -> Screen.USAGE_NOTES
@@ -59,8 +64,6 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
         screen = if (screen == Screen.RECOMMENDED_APPS) Screen.SETTINGS else Screen.HOME
     }
 
-    if (screen == Screen.HOME) CompatWarning(onOpenSettings = { settingsAtUsageNotes = false; screen = Screen.SETTINGS })
-
     // Home stays upright; every other screen turns with the phone.
     LaunchedEffect(screen) {
         (context as? Activity)?.requestedOrientation = if (screen == Screen.HOME) {
@@ -72,6 +75,10 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
 
     // The guide asks for this now, but anyone who finished it before that never saw the page.
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    // Reads the certificate once in the background, so Settings has it ready when opened.
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { CertSummary.read(context) } }
+    }
     LaunchedEffect(Unit) {
         if (!needsSetupGuide &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -113,6 +120,11 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
                     onBack = { screen = Screen.HOME },
                     onRequestCallScreening = onRequestCallScreening,
                 )
+                Screen.CERT_SETUP -> CertSetupScreen(
+                    onDone = {
+                        screen = if (AppSettings.hasSeenPermissionsSetup(context)) Screen.HOME else Screen.SETUP_GUIDE
+                    },
+                )
                 Screen.SETUP_GUIDE -> SetupGuideScreen(
                     onRequestCallScreening = onRequestCallScreening,
                     onDone = { screen = Screen.HOME },
@@ -127,6 +139,8 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
         // A car keyboard is open: offer the phone's own, for a passenger.
         if (screen != Screen.CAR_PREVIEW) PhoneTypingBar()
     }
+
+    if (screen == Screen.HOME) CompatWarning(onOpenSettings = { settingsAtUsageNotes = false; screen = Screen.SETTINGS })
 }
 
 /**

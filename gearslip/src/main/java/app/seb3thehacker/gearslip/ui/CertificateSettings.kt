@@ -47,7 +47,7 @@ import kotlinx.coroutines.withContext
 
 /** Keep the choice explicit: expiry and connection failures never change it. */
 @Composable
-internal fun CertificateSettings() {
+internal fun CertificateSettings(onChange: () -> Unit) {
     val context = LocalContext.current
     var source by remember { mutableStateOf(AppSettings.certificateSource(context)) }
     var choosing by rememberSaveable { mutableStateOf(false) }
@@ -55,14 +55,14 @@ internal fun CertificateSettings() {
         value = "Checking expiry…"
         value = withContext(Dispatchers.IO) {
             runCatching {
-                val date = CertProvider.load(context, source).certificate.notAfter
+                val date = CertProvider.loadBundled(context, source).certificate.notAfter
                 val formatted = DateFormat.getDateInstance(DateFormat.LONG).format(date)
                 if (Date().after(date)) "Expired on $formatted" else "Expires on $formatted"
             }.getOrDefault("Expiry unavailable")
         }
     }
     SettingsRow(
-        "Certificate",
+        "Bundled fallback",
         Modifier.clickable(role = Role.Button) { choosing = true },
         subtitle = "${source.label}\n$expiry",
         icon = Icons.Filled.Lock,
@@ -81,6 +81,7 @@ internal fun CertificateSettings() {
                 AppSettings.setCertificateSource(context, it)
                 source = it
                 choosing = false
+                onChange()
             },
             onDismiss = { choosing = false },
         )
@@ -95,14 +96,14 @@ private fun CertificatePicker(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Choose certificate") },
+        title = { Text("Choose bundled fallback") },
         text = {
             // Scrolling keeps both choices reachable on small screens and at larger font sizes.
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text("Changes apply on your next connection.", style = MaterialTheme.typography.bodyMedium)
+                Text("Used when no imported, downloaded, or staged certificate is loaded. Changes apply on your next connection.", style = MaterialTheme.typography.bodyMedium)
                 Column(
                     Modifier.selectableGroup(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -173,7 +174,9 @@ internal fun CompatWarning(onOpenSettings: () -> Unit) {
             expiry = null
             return@LaunchedEffect
         }
-        val cert = withContext(Dispatchers.IO) { runCatching { CertProvider.load(context).certificate }.getOrNull() }
+        val cert = withContext(Dispatchers.IO) {
+            runCatching { CertProvider.load(context).takeIf { it.kind == CertProvider.Kind.BUNDLED }?.certificate }.getOrNull()
+        }
         expiry = cert?.notAfter?.takeIf { Date().after(it) }
         // The old warning promised automatic fallback, so acknowledge this wording separately.
         warningKey = cert?.let { "manual:${it.serialNumber.toString(16)}:${it.notAfter.time}" }.orEmpty()
@@ -192,7 +195,7 @@ internal fun CompatWarning(onOpenSettings: () -> Unit) {
             Text(
                 "The Android Auto certificate expired on ${DateFormat.getDateInstance(DateFormat.LONG).format(expiredOn)}. " +
                     "Your car may still accept it, so Gearslip will keep using it. If the connection fails, " +
-                    "open Settings, select Certificate → Head unit (DHU), and reconnect. " +
+                    "open Settings, select Bundled fallback → Head unit (DHU), and reconnect. " +
                     "The head-unit certificate may not work with every car.",
             )
         },

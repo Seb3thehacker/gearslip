@@ -43,14 +43,6 @@ class CryptoTest {
     }
 
     @Test
-    fun `an expired server certificate can still complete TLS when the client accepts it`() {
-        val ss = SelfSignedCert.generate(now = java.time.Instant.parse("2000-01-01T00:00:00Z").toEpochMilli())
-        assertTrue(ss.certificate.notAfter.before(java.util.Date()))
-        val identity = CertProvider.Identity(ss.keyStore, ss.certificate, SelfSignedCert.PASSWORD, "expired test")
-        assertTrue(TlsSelfTest.run(identity))
-    }
-
-    @Test
     fun `frames round-trip through the parser`() {
         val payload = ByteArray(300) { it.toByte() }
         val parser = Frames.Parser()

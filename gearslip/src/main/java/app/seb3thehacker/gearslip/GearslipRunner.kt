@@ -16,8 +16,8 @@ import java.io.OutputStream
 import java.util.concurrent.FutureTask
 
 /**
- * Drives the phone side of the control-channel handshake and projection session.
- * The selected bundled identity is presented during TLS authentication.
+ * Drives the phone side of the control-channel handshake far enough to answer one question:
+ * does this head unit accept a self-signed certificate from the phone?
  *
  * The head unit initiates (aasdk's ControlServiceChannel::sendVersionRequest), so until
  * step 5 this is purely reactive:
@@ -42,16 +42,13 @@ class GearslipRunner(
 
     private val parser = Frames.Parser()
     private val assembler = Frames.Assembler()
-    private lateinit var identityTask: FutureTask<Pair<CertProvider.Identity, PhoneTls>>
+    private lateinit var identityTask: FutureTask<PhoneTls>
 
     /** Sends every message, in order, so no other thread ever blocks on the USB link. See [send]. */
     private val writer = java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "gearslip-writer") }
 
     /** Waits for the certificate only when TLS is first needed; see [run]. */
-    private val tls: PhoneTls by lazy { identityTask.get().second }
-    private var certificateAttempted = false
-    private var authenticationFailed = false
-    @Volatile private var stopped = false
+    private val tls: PhoneTls by lazy { identityTask.get() }
 
     @Volatile private var state = State.WAIT_VERSION
     @Volatile private var lastProgress = System.currentTimeMillis()
@@ -99,7 +96,13 @@ class GearslipRunner(
         // certificate alongside; the TLS handshake waits for it.
         identityTask = FutureTask {
             val identity = identityProvider()
-            identity to PhoneTls(identity.keyStore, identity.password)
+            val cert = identity.certificate
+            log.i("phone certificate source: ${identity.source}")
+            SessionReport.certificate(identity.source.toString(), cert.issuerX500Principal.toString())
+            log.i("  subject = ${cert.subjectX500Principal}")
+            log.i("  issuer  = ${cert.issuerX500Principal}")
+            log.i("  serial  = ${cert.serialNumber}  valid ${cert.notBefore}..${cert.notAfter}")
+            PhoneTls(identity.keyStore, identity.password)
         }.also { Thread(it, "gearslip-identity").start() }
 
         startWatchdog()
@@ -108,7 +111,6 @@ class GearslipRunner(
         try {
             while (running) {
                 val read = input.read(chunk)
-                if (stopped) return
                 if (read < 0) {
                     log.w("head unit closed the connection (EOF) while in state $state")
                     reportDisconnect()
@@ -122,19 +124,16 @@ class GearslipRunner(
                 }
             }
         } catch (t: Throwable) {
-            if (stopped) return
             log.e("transport failed in state $state", t)
             SessionReport.fail(SessionReport.Category.USB, "transport failed", t, state.name)
             reportDisconnect()
         } finally {
             running = false
-            writer.shutdownNow()
             log.flush()
         }
     }
 
     fun stop() {
-        stopped = true
         running = false
         writer.shutdownNow()
         CarFocus.request = null
@@ -157,8 +156,6 @@ class GearslipRunner(
     }
 
     private fun handleFrame(frame: Frames.Frame) {
-        // A rejected handshake cannot consume later messages as if authentication had succeeded.
-        if (authenticationFailed || stopped) return
         val payload = if (frame.encrypted) {
             if (!tls.handshakeComplete) {
                 log.w("encrypted frame arrived before the handshake finished - ignoring")
@@ -255,8 +252,7 @@ class GearslipRunner(
         log.i("<- VersionRequest: head unit speaks $major.$minor")
         SessionReport.protocolVersion(major, minor)
 
-        // Historical PROTOCOL-DOWNGRADE EXPERIMENT with the former JVC identity (not the
-        // bundled CarService identity): the 2018 Uconnect speaks 1.3 and ACCEPTS the JVC cert;
+        // PROTOCOL-DOWNGRADE EXPERIMENT. The 2018 Uconnect speaks 1.3 and ACCEPTS the JVC cert;
         // the 2025 unit speaks 4.3 and rejects it at AuthComplete (-3). If the 4.3 identity check
         // is tied to the *negotiated* protocol version rather than baked into the firmware,
         // claiming an older version makes the newer unit skip the check entirely. CLAIM_VERSION
@@ -278,46 +274,25 @@ class GearslipRunner(
     }
 
     private fun onHandshake(body: ByteArray) {
-        if (state != State.TLS_HANDSHAKE && state != State.WAIT_AUTH) return
         log.i("<- EncapsulatedSSL (${body.size} bytes)")
         val replies = try {
-            val identity = identityTask.get().first
-            if (stopped) return
-            if (!certificateAttempted) {
-                val cert = identity.certificate
-                log.i("phone certificate source: ${identity.source}")
-                log.i("  subject = ${cert.subjectX500Principal}")
-                log.i("  issuer  = ${cert.issuerX500Principal}")
-                log.i("  serial  = ${cert.serialNumber}  valid ${cert.notBefore}..${cert.notAfter}")
-                SessionReport.certificate(identity)
-                certificateAttempted = true
-            }
             tls.pumpHandshake(body)
         } catch (t: Throwable) {
-            if (stopped) return
-            if (!certificateAttempted) {
-                log.e("could not prepare the projection identity", t)
-                SessionReport.fail(SessionReport.Category.TLS, "could not prepare identity", t, state.name)
-                SessionStatus.failed("Certificate unavailable", "Gearslip could not load the selected identity. Check the logs for details.")
-            } else {
-                log.e("TLS handshake threw", t)
-                SessionReport.fail(SessionReport.Category.TLS, "handshake threw", t, state.name)
-                log.verdict(
-                    "NOT VIABLE (TLS rejected)",
-                    "The head unit aborted the TLS handshake. A bad_certificate / unknown_ca / " +
-                        "handshake_failure alert here means it validates the phone's certificate.",
-                )
-                SessionStatus.failed(
-                    "Head unit rejected the certificate",
-                    "The head unit aborted the secure handshake. It validates the phone's certificate.",
-                )
-            }
+            log.e("TLS handshake threw", t)
+            SessionReport.fail(SessionReport.Category.TLS, "handshake threw", t, state.name)
+            log.verdict(
+                "NOT VIABLE (TLS rejected)",
+                "The head unit aborted the TLS handshake. A bad_certificate / unknown_ca / " +
+                    "handshake_failure alert here means it validates the phone's certificate.",
+            )
+            SessionStatus.failed(
+                "Head unit rejected the certificate",
+                "The head unit aborted the secure handshake. It validates the phone's certificate.",
+            )
             state = State.DONE
-            authenticationFailed = true
             SessionReport.print()
             return
         }
-        if (stopped) return
         replies.forEach {
             send(MSG_ENCAPSULATED_SSL, it, encrypted = false)
             log.i("-> EncapsulatedSSL (${it.size} bytes)")
@@ -330,7 +305,6 @@ class GearslipRunner(
 
     private fun onAuthComplete(body: ByteArray) {
         val status = Protobuf.readInt32Field(body, 1)
-        if (state != State.WAIT_AUTH && !(state == State.TLS_HANDSHAKE && status in listOf(-2, -3))) return
         log.i("<- AuthComplete: status=$status")
         status?.let { SessionReport.auth(it) }
 
@@ -344,16 +318,16 @@ class GearslipRunner(
             -2 -> {
                 SessionReport.fail(SessionReport.Category.CERTIFICATE, "AuthComplete status -2 (certificate error)", state.name, "auth -2")
                 log.verdict(
-                    "Certificate rejected (STATUS_CERTIFICATE_ERROR)",
-                    "The head unit rejected the selected bundled projection identity. " +
-                        "See the TLS and authentication entries above for this connection.",
+                    "NOT VIABLE (STATUS_CERTIFICATE_ERROR)",
+                    "The head unit explicitly rejected the phone's self-signed certificate. " +
+                        "This is a definitive no - it validates the phone against a trust chain " +
+                        "we cannot issue from.",
                 )
                 SessionStatus.failed(
                     "Head unit rejected the certificate",
                     "The head unit refused the phone's certificate (certificate error).",
                 )
                 state = State.DONE
-                authenticationFailed = true
             }
             -3 -> {
                 SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status -3 (authentication failure)", state.name, "auth -3")
@@ -367,7 +341,6 @@ class GearslipRunner(
                     "Authentication failed. The head unit does not trust the certificate in use.",
                 )
                 state = State.DONE
-                authenticationFailed = true
             }
             else -> {
                 SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status $status (unexpected)", state.name, "auth $status")
@@ -378,7 +351,6 @@ class GearslipRunner(
                 )
                 SessionStatus.failed("Unexpected response", "The head unit answered authentication with status $status.")
                 state = State.DONE
-                authenticationFailed = true
             }
         }
     }

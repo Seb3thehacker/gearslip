@@ -19,7 +19,7 @@ class BundledIdentityTest {
 
     private fun fallback() = CertProvider.readIdentity(
         resource("projection_fallback.pem"), resource("projection_fallback_key.pk8"),
-        "bundled DHU 2.0 fallback identity", CertProvider.Source.HEAD_UNIT.statsKey,
+        "bundled DHU 2.0 fallback identity",
     )
 
     @Test fun `bundled chain is the official phone identity and has its matching key`() {

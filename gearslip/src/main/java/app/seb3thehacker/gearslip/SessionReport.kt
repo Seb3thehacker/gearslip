@@ -56,8 +56,6 @@ object SessionReport {
     @Volatile private var protocolVersion = ""
     @Volatile private var certSource = ""
     @Volatile private var certIssuer = ""
-    @Volatile private var certKey = ""
-    @Volatile private var certExpired = false
     @Volatile private var tlsProtocol = ""
     @Volatile private var tlsCipher = ""
     @Volatile private var authStatus: Int? = null
@@ -82,7 +80,6 @@ object SessionReport {
         startedAt = System.currentTimeMillis()
         category = Category.NONE
         failure = ""; protocolVersion = ""; certSource = ""; certIssuer = ""
-        certKey = ""; certExpired = false
         stage = Stage.USB; failCode = ""; failedAfter = 0
         tlsProtocol = ""; tlsCipher = ""; authStatus = null
         headUnitInfo = null
@@ -95,13 +92,7 @@ object SessionReport {
     private fun reached(next: Stage) { if (next > stage) stage = next }
 
     fun protocolVersion(major: Int, minor: Int) { protocolVersion = "$major.$minor"; reached(Stage.VERSIONS) }
-    /** Record the identity when its handshake starts, not when background preloading finishes. */
-    fun certificate(identity: CertProvider.Identity, now: java.util.Date = java.util.Date()) {
-        certSource = identity.source
-        certIssuer = identity.certificate.issuerX500Principal.toString()
-        certKey = identity.statsKey
-        certExpired = now.after(identity.certificate.notAfter)
-    }
+    fun certificate(source: String, issuer: String) { certSource = source; certIssuer = issuer }
     fun tls(protocol: String, cipher: String) { tlsProtocol = protocol; tlsCipher = cipher; reached(Stage.TLS) }
     fun auth(status: Int) { authStatus = status; if (status == 0) reached(Stage.ACCEPTED) }
     fun headUnit(info: String) { headUnit = info }
@@ -156,14 +147,20 @@ object SessionReport {
      */
     fun sessionNote(): org.json.JSONObject {
         val seconds = if (startedAt == 0L) 0 else (System.currentTimeMillis() - startedAt) / 1000
+        val source = certSource.lowercase()
         return org.json.JSONObject()
             .put("stage", stage.key)
             .put("ended", category.name.lowercase())
             .put("code", failCode)
             .put("failed_at", if (category == Category.NONE) 0 else rounded(failedAfter))
             .put("seconds", rounded(seconds))
-            .put("cert", certKey)
-            .put("cert_expired", certExpired)
+            .put("cert", when {
+                "imported" in source -> "imported"
+                "downloaded" in source -> "downloaded"
+                "self" in source -> "self-signed"
+                source.isEmpty() -> ""
+                else -> "other"
+            })
     }
 
     /** Seconds rounded so a drive's length can't be matched to anything: 5 s, then minutes, then 5 minutes. */
@@ -195,9 +192,6 @@ object SessionReport {
             append("\n")
             append(row("phone cert", certSource))
             append(row("cert issuer", certIssuer))
-            if (certKey.isNotEmpty()) {
-                append(row("cert expired", certExpired.toString()))
-            }
             append(row("TLS", listOf(tlsProtocol, tlsCipher).filter { it.isNotEmpty() }.joinToString(" / ")))
             append(row("auth status", authStatus?.let { "$it (${authName(it)})" } ?: ""))
             append("\n")

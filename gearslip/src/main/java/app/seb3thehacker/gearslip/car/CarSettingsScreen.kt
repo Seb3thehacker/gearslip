@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -35,10 +36,14 @@ import app.seb3thehacker.gearslip.car.theme.GsColors
 import app.seb3thehacker.gearslip.car.theme.GsIconBox
 import app.seb3thehacker.gearslip.car.theme.GsThemes
 import app.seb3thehacker.gearslip.AppSettings
+import app.seb3thehacker.gearslip.ui.CertSummary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Settings that make sense while sitting in the car. The web page URL is edited here, with the
- * car's own on-screen keyboard ([CarKeyboard]).
+ * car's own on-screen keyboard ([CarKeyboard]); certificate management still needs a real
+ * keyboard and file picker, so it stays on the phone's Settings screen.
  */
 @Composable
 fun CarSettingsScreen() {
@@ -58,6 +63,10 @@ fun CarSettingsScreen() {
     val mediaSearch by CarSettings.mediaSearchEnabled.collectAsState()
     val display by CarEnvironment.display.collectAsState()
     val vehicle by CarEnvironment.vehicle.collectAsState()
+    val context = LocalContext.current
+    val cert by produceState<CertSummary?>(null) {
+        value = withContext(Dispatchers.Default) { CertSummary.read(context) }
+    }
 
     Column(
         Modifier
@@ -147,6 +156,7 @@ fun CarSettingsScreen() {
             Info("Phone", "${Build.MANUFACTURER} ${Build.MODEL}")
             Info("Vehicle", vehicle.ifEmpty { "-" })
             Info("Video", display.ifEmpty { "-" })
+            Info("Certificate", cert?.headline ?: "Checking…")
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

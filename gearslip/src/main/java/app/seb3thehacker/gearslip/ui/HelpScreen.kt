@@ -49,6 +49,7 @@ private fun setupSteps(onRequestCallScreening: () -> Unit) = listOf(
         "Open Settings, then Apps, then Gearslip, and turn on Exploit protection compatibility mode.",
     ),
     Step("Disable or uninstall the Android Auto app."),
+    Step("Load a certificate.", "Open Settings, then download or import a certificate."),
     Step(
         "Allow the microphone, so music can reach the car.",
         "Android asks for the microphone before it will let any app pass music along. " +

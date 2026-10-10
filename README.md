@@ -57,8 +57,8 @@ mode.
 
 - **The connection is wired only, for now.** Plug the phone into the head unit's USB port;
   Gearslip does not yet offer a wireless option.
-- **Setup walks you through it.** The projection certificate is included. First launch
-  asks for one permission at a time, each with a plain reason and an Allow or Skip. A help
+- **Setup walks you through it.** First launch offers certificate download, import, or
+  the bundled identity, then asks for one permission at a time, with an Allow or Skip. A help
   screen inside the car answers anything setup didn't cover.
 - **Templated apps work.** Gearslip renders all 16 template types that the Car App
   Library defines, and it draws its own keyboard for search, sign-in, and text fields.
@@ -127,17 +127,16 @@ still accept it. When it expires, the phone shows a compatibility warning explai
 to switch certificates if the connection fails; acknowledgement is remembered for that
 certificate.
 
-**Settings → Connection → Certificate** lets you select Android Auto or the identity from
+The existing aasdk download and PKCS#12 import remain available in setup and
+**Settings → Certificate**. Imported, downloaded, and adb-staged certificates keep their
+existing priority. When none is supplied, Gearslip uses the selected bundled identity.
+
+**Settings → Certificate → Bundled fallback** lets you select Android Auto or the identity from
 Google's [Desktop Head Unit 2.0](https://dl.google.com/android/repository/desktop-head-unit-linux-x64_r02.0.zip).
 If Android Auto fails, select **Head unit (DHU)** and reconnect. The choice applies on the
 next connection and stays selected until you change it. Neither expiry nor connection
 failure changes certificates automatically. Both debug and release builds offer the same
-selector, and the Certificate entry shows the selected identity and its expiry.
-
-The opt-in session stats identify the certificate attempted (`cert`: `android_auto` or `dhu`)
-and whether it was expired (`cert_expired`). No identity is reported when the connection
-fails before its TLS attempt. The stats backend must accept these certificate values and
-fields; its implementation is not included in this repository.
+selector, and Settings shows the active certificate and its expiry.
 
 Leaf SHA-256: `39b7417be3f2bcd60b30e3acd4a2995d82661d6d66110e45c10a15d2a3c2ee6e`.
 The fallback includes the DHU's matching key and leaf certificate, whose subject is

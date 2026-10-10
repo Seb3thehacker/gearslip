@@ -286,12 +286,10 @@ class GearslipActivity : ComponentActivity(), Projection {
         }
         descriptor = pfd
 
-        // Snapshot the choice for this connection; changing Settings applies on the next connect.
-        val source = AppSettings.certificateSource(this)
         val runner = GearslipRunner(
             input = FileInputStream(pfd.fileDescriptor),
             output = FileOutputStream(pfd.fileDescriptor),
-            identityProvider = { CertProvider.load(this, source) },
+            identityProvider = { CertProvider.load(this) },
             projection = this,
             vehicleProfileFor = { info -> VehicleProfiles.find(VehicleProfiles.load(this), info) },
         )

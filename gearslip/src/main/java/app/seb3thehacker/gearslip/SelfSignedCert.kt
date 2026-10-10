@@ -15,7 +15,7 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Generates a test-only RSA-2048 identity so TLS tests can also exercise fresh keys.
+ * Generates a self-signed RSA-2048 certificate - the thing under test.
  *
  * Written by hand rather than with BouncyCastle so the spike has no dependencies and no
  * second security provider sitting next to Conscrypt. A self-signed X.509 is a fixed
@@ -24,7 +24,7 @@ import java.util.TimeZone
  * verifying the signature before returning. A bad certificate therefore fails loudly on the
  * bench instead of looking like a head-unit rejection in the car.
  *
- * RSA-2048 matches the bundled projection identity; this generator is not shipped in the APK.
+ * RSA-2048 matches aasdk's own key (cert/headunit.key) - see cert/README.md.
  */
 object SelfSignedCert {
 
@@ -40,13 +40,10 @@ object SelfSignedCert {
 
     class Result(val keyStore: KeyStore, val certificate: X509Certificate)
 
-    fun generate(
-        commonName: String = "Gearslip",
-        organisation: String = "Gearslip",
-        now: Long = System.currentTimeMillis(),
-    ): Result {
+    fun generate(commonName: String = "Gearslip", organisation: String = "Gearslip"): Result {
         val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
 
+        val now = System.currentTimeMillis()
         val notBefore = Date(now - 86_400_000L)            // a day of slack for head-unit clock skew
         val notAfter = Date(now + 20L * 365 * 86_400_000L) // ~2046, still inside UTCTime's pre-2050 range
 
@@ -56,7 +53,7 @@ object SelfSignedCert {
         val certificate = CertificateFactory.getInstance("X.509")
             .generateCertificate(ByteArrayInputStream(der)) as X509Certificate
         certificate.verify(keyPair.public)
-        certificate.checkValidity(Date(now))
+        certificate.checkValidity()
 
         val keyStore = KeyStore.getInstance("PKCS12").apply {
             load(null, null)
