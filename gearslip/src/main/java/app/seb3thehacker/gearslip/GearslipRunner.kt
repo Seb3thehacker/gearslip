@@ -49,6 +49,8 @@ class GearslipRunner(
 
     /** Waits for the certificate only when TLS is first needed; see [run]. */
     private val tls: PhoneTls by lazy { identityTask.get() }
+    private var authenticationFailed = false
+    @Volatile private var stopped = false
 
     @Volatile private var state = State.WAIT_VERSION
     @Volatile private var lastProgress = System.currentTimeMillis()
@@ -111,6 +113,7 @@ class GearslipRunner(
         try {
             while (running) {
                 val read = input.read(chunk)
+                if (stopped) return
                 if (read < 0) {
                     log.w("head unit closed the connection (EOF) while in state $state")
                     reportDisconnect()
@@ -124,16 +127,19 @@ class GearslipRunner(
                 }
             }
         } catch (t: Throwable) {
+            if (stopped) return
             log.e("transport failed in state $state", t)
             SessionReport.fail(SessionReport.Category.USB, "transport failed", t, state.name)
             reportDisconnect()
         } finally {
             running = false
+            writer.shutdownNow()
             log.flush()
         }
     }
 
     fun stop() {
+        stopped = true
         running = false
         writer.shutdownNow()
         CarFocus.request = null
@@ -156,6 +162,8 @@ class GearslipRunner(
     }
 
     private fun handleFrame(frame: Frames.Frame) {
+        // A rejected handshake cannot consume later messages as if authentication succeeded.
+        if (authenticationFailed || stopped) return
         val payload = if (frame.encrypted) {
             if (!tls.handshakeComplete) {
                 log.w("encrypted frame arrived before the handshake finished - ignoring")
@@ -274,10 +282,14 @@ class GearslipRunner(
     }
 
     private fun onHandshake(body: ByteArray) {
+        if (state != State.TLS_HANDSHAKE && state != State.WAIT_AUTH) return
         log.i("<- EncapsulatedSSL (${body.size} bytes)")
         val replies = try {
-            tls.pumpHandshake(body)
+            val preparedTls = tls
+            if (stopped) return
+            preparedTls.pumpHandshake(body)
         } catch (t: Throwable) {
+            if (stopped) return
             log.e("TLS handshake threw", t)
             SessionReport.fail(SessionReport.Category.TLS, "handshake threw", t, state.name)
             log.verdict(
@@ -290,9 +302,11 @@ class GearslipRunner(
                 "The head unit aborted the secure handshake. It validates the phone's certificate.",
             )
             state = State.DONE
+            authenticationFailed = true
             SessionReport.print()
             return
         }
+        if (stopped) return
         replies.forEach {
             send(MSG_ENCAPSULATED_SSL, it, encrypted = false)
             log.i("-> EncapsulatedSSL (${it.size} bytes)")
@@ -305,6 +319,7 @@ class GearslipRunner(
 
     private fun onAuthComplete(body: ByteArray) {
         val status = Protobuf.readInt32Field(body, 1)
+        if (state != State.WAIT_AUTH && !(state == State.TLS_HANDSHAKE && status in listOf(-2, -3))) return
         log.i("<- AuthComplete: status=$status")
         status?.let { SessionReport.auth(it) }
 
@@ -328,6 +343,7 @@ class GearslipRunner(
                     "The head unit refused the phone's certificate (certificate error).",
                 )
                 state = State.DONE
+                authenticationFailed = true
             }
             -3 -> {
                 SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status -3 (authentication failure)", state.name, "auth -3")
@@ -341,6 +357,7 @@ class GearslipRunner(
                     "Authentication failed. The head unit does not trust the certificate in use.",
                 )
                 state = State.DONE
+                authenticationFailed = true
             }
             else -> {
                 SessionReport.fail(SessionReport.Category.AUTH, "AuthComplete status $status (unexpected)", state.name, "auth $status")
@@ -351,6 +368,7 @@ class GearslipRunner(
                 )
                 SessionStatus.failed("Unexpected response", "The head unit answered authentication with status $status.")
                 state = State.DONE
+                authenticationFailed = true
             }
         }
     }
