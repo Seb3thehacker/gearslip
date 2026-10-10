@@ -4,6 +4,7 @@ import app.seb3thehacker.gearslip.car.AppLocation
 import app.seb3thehacker.gearslip.car.AppLocations
 import app.seb3thehacker.gearslip.car.CarEnvironment
 import app.seb3thehacker.gearslip.car.CarToasts
+import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -575,6 +576,7 @@ class CarAppConnection(private val context: Context) {
     }
 
     /** Location is optional: denied permissions or an old app must not break its map. */
+    @SuppressLint("RestrictedApi") // Gearslip implements the host side of this library-only Binder API.
     private fun startAppLocation() {
         if (!isNavigation || locationManager != null) return
         val manager = appManager ?: return
@@ -587,6 +589,7 @@ class CarAppConnection(private val context: Context) {
             }
     }
 
+    @SuppressLint("RestrictedApi") // Paired with the host's startLocationUpdates request above.
     private fun stopAppLocation() {
         AppLocations.clear(hostOwner)
         val manager = locationManager
