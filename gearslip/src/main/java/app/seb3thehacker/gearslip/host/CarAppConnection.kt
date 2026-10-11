@@ -1,7 +1,10 @@
 package app.seb3thehacker.gearslip.host
 
+import app.seb3thehacker.gearslip.car.AppLocation
+import app.seb3thehacker.gearslip.car.AppLocations
 import app.seb3thehacker.gearslip.car.CarEnvironment
 import app.seb3thehacker.gearslip.car.CarToasts
+import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -14,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Surface
 import androidx.car.app.CarAppService
 import androidx.car.app.CarContext
@@ -82,11 +86,13 @@ class CarAppConnection(private val context: Context) {
     val template: StateFlow<Template?> = _template.asStateFlow()
 
     private val main = Handler(Looper.getMainLooper())
-    /** Captured by each host Binder so callbacks queued by a replaced app cannot show a toast. */
-    private var toastOwner = Any()
+    /** Captured by each host Binder so callbacks queued by a replaced app cannot show toasts or publish locations. */
+    private var hostOwner = Any()
 
     private var carApp: ICarApp? = null
     private var appManager: IAppManager? = null
+    private var appLocationRequested = false
+    private var isNavigation = false
     /** Only present for an app that asked for it - most apps aren't navigation apps. */
     private var navigationManager: INavigationManager? = null
     /** Main thread only, both of these - the handoff is a race between them either way round. */
@@ -119,6 +125,7 @@ class CarAppConnection(private val context: Context) {
         frameHeight = height
         frameDensity = densityDpi
         component = app.component
+        isNavigation = app.isNavigation
         pendingDestination = destination
         update { Status(phase = Phase.BINDING, app = app.label) }
 
@@ -223,7 +230,7 @@ class CarAppConnection(private val context: Context) {
     fun disconnect() = disconnect(keepLocation = false)
 
     private fun disconnect(keepLocation: Boolean) {
-        clearToasts()
+        clearHostState()
         lent?.let { sendSurfaceDestroyed(it) }
         lent = null
         val carApp = this.carApp
@@ -294,7 +301,7 @@ class CarAppConnection(private val context: Context) {
             ?: Intent(Intent.ACTION_MAIN).setComponent(component)
         pendingDestination = null
         call("onAppCreate", onValue = { onCreated() }) {
-            app.onAppCreate(createCarHost(toastOwner), intent, carConfiguration(), it)
+            app.onAppCreate(createCarHost(hostOwner), intent, carConfiguration(), it)
         }
     }
 
@@ -334,13 +341,16 @@ class CarAppConnection(private val context: Context) {
             "Handshake completed at car API level ${_status.value.apiLevel}.",
         )
 
+        val owner = hostOwner
         call("getManager(app)", onValue = { value ->
+            if (hostOwner !== owner || _status.value.phase != Phase.RUNNING) return@call
             appManager = when (value) {
                 is IAppManager -> value
                 is IBinder -> IAppManager.Stub.asInterface(value)
                 else -> null
             }
             if (appManager == null) GearslipLog.e("host: app manager was ${value?.javaClass?.name}")
+            startAppLocation()
             requestTemplate()
         }) { app.getManager(CarContext.APP_SERVICE, it) }
 
@@ -565,6 +575,29 @@ class CarAppConnection(private val context: Context) {
         runCatching { send(callback) }.onFailure { GearslipLog.w("host: $name failed: ${it.message}") }
     }
 
+    /** Location is optional: denied permissions or an old app must not break its map. */
+    @SuppressLint("RestrictedApi") // Gearslip implements the host side of this library-only Binder API.
+    private fun startAppLocation() {
+        if (!isNavigation || appLocationRequested) return
+        val manager = appManager ?: return
+        appLocationRequested = true
+        AppLocations.begin(hostOwner)
+        runCatching { manager.startLocationUpdates(noop("startLocationUpdates")) }
+            .onFailure {
+                GearslipLog.w("host: app location updates unavailable (${it.javaClass.simpleName})")
+                stopAppLocation()
+            }
+    }
+
+    @SuppressLint("RestrictedApi") // Paired with the host's startLocationUpdates request above.
+    private fun stopAppLocation() {
+        AppLocations.clear(hostOwner)
+        val manager = appManager.takeIf { appLocationRequested }
+        appLocationRequested = false
+        // Stop before onAppStop/unbind, while the remote AppManager is still alive.
+        runCatching { manager?.stopLocationUpdates(noop("stopLocationUpdates")) }
+    }
+
     // --- host interfaces the app calls back into -----------------------------------------
 
     private fun createAppHost(owner: Any) = object : IAppHost.Stub() {
@@ -576,7 +609,7 @@ class CarAppConnection(private val context: Context) {
         override fun showToast(text: CharSequence?, duration: Int) {
             val message = text?.toString() ?: return
             main.post {
-                if (toastOwner !== owner) return@post
+                if (hostOwner !== owner) return@post
                 GearslipLog.i("host: toast \"$message\"")
                 CarToasts.show(owner, message, duration)
             }
@@ -595,7 +628,11 @@ class CarAppConnection(private val context: Context) {
             }
         }
 
-        override fun sendLocation(location: Location?) = Unit
+        override fun sendLocation(location: Location?) {
+            if (location == null || !location.hasAccuracy()) return
+            val fix = AppLocation(location.latitude, location.longitude, location.accuracy, location.elapsedRealtimeNanos)
+            main.post { AppLocations.update(owner, fix, SystemClock.elapsedRealtimeNanos()) }
+        }
         override fun showAlert(alert: Bundleable?) = Unit
         override fun dismissAlert(alertId: Int) = Unit
         override fun openMicrophone(request: Bundleable?): Bundleable? = null
@@ -770,14 +807,15 @@ class CarAppConnection(private val context: Context) {
     }
 
     private fun fail(phase: Phase, detail: String) {
-        clearToasts()
+        clearHostState()
         GearslipLog.e("host: $detail")
         update { it.copy(phase = phase, detail = detail) }
     }
 
-    private fun clearToasts() {
-        CarToasts.clear(toastOwner)
-        toastOwner = Any()
+    private fun clearHostState() {
+        stopAppLocation()
+        CarToasts.clear(hostOwner)
+        hostOwner = Any()
     }
 
     private fun update(block: (Status) -> Status) {

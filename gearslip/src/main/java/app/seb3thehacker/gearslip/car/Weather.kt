@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
+import android.os.SystemClock
 import app.seb3thehacker.gearslip.GearslipLog
 import java.net.HttpURLConnection
 import java.net.URL
@@ -103,6 +104,15 @@ object Weather {
 
     private fun locate(context: Context): Location? {
         if (!hasLocationPermission(context)) return null
+        // Reuse the active map's fix without a second GPS request; permission is still required.
+        AppLocations.latest(SystemClock.elapsedRealtimeNanos())?.let { fix ->
+            return Location("car-app").apply {
+                latitude = fix.latitude
+                longitude = fix.longitude
+                accuracy = fix.accuracyMeters
+                elapsedRealtimeNanos = fix.elapsedRealtimeNanos
+            }
+        }
         val manager = context.getSystemService(LocationManager::class.java) ?: return null
         val known = manager.allProviders
             .mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
