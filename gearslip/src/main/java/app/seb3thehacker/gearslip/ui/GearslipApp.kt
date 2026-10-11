@@ -34,7 +34,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.BuildConfig
-import app.seb3thehacker.gearslip.CertProvider
 import app.seb3thehacker.gearslip.stats.UsageStats
 
 private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, CERT_SETUP, SETUP_GUIDE, USAGE_NOTES, HELP, WHATS_NEW, RECOMMENDED_APPS }
@@ -44,7 +43,7 @@ private enum class Screen { HOME, LOGS, SETTINGS, CAR_PREVIEW, CERT_SETUP, SETUP
 fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
     val context = LocalContext.current
     val needsCertSetup = remember {
-        !AppSettings.hasSkippedCertSetup(context) && !CertProvider.hasAnyCert(context)
+        !AppSettings.hasCompletedCertificateSetup(context)
     }
     val needsSetupGuide = remember { !AppSettings.hasSeenPermissionsSetup(context) }
     var screen by rememberSaveable {
@@ -108,6 +107,7 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
                 Screen.WHATS_NEW -> WhatsNewScreen(onBack = { screen = Screen.SETTINGS })
                 Screen.LOGS -> LogsScreen(onBack = { screen = Screen.HOME })
                 Screen.SETTINGS -> SettingsScreen(
+                    onCertificateSetup = { screen = Screen.CERT_SETUP },
                     onBack = { screen = Screen.HOME },
                     onOpenRecommendedApps = { settingsAtUsageNotes = false; screen = Screen.RECOMMENDED_APPS },
                     onOpenWhatsNew = { settingsAtUsageNotes = false; screen = Screen.WHATS_NEW },
@@ -122,6 +122,7 @@ fun GearslipApp(onDisconnect: () -> Unit, onRequestCallScreening: () -> Unit) {
                 )
                 Screen.CERT_SETUP -> CertSetupScreen(
                     onDone = {
+                        AppSettings.setCompletedCertificateSetup(context)
                         screen = if (AppSettings.hasSeenPermissionsSetup(context)) Screen.HOME else Screen.SETUP_GUIDE
                     },
                 )

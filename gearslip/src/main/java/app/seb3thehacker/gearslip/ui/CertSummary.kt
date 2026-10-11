@@ -34,7 +34,8 @@ data class CertSummary(
             val cert = identity.certificate
             val name = friendlyName(cert.subjectX500Principal.name)
             val prefix = when (identity.kind) {
-                    CertProvider.Kind.BUNDLED -> "Bundled"
+                    CertProvider.Kind.ANDROID_AUTO -> "Android Auto"
+                    CertProvider.Kind.DHU -> "Head unit (DHU)"
                     CertProvider.Kind.IMPORTED -> "Imported"
                     CertProvider.Kind.DOWNLOADED -> "Downloaded"
                     CertProvider.Kind.ADB_STAGED -> "Staged over adb"

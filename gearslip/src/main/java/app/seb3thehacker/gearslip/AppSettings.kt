@@ -3,6 +3,7 @@ package app.seb3thehacker.gearslip
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.core.content.edit
 
 /** User-facing preferences. Read fresh on every session, so changes apply on the next connect. */
 object AppSettings {
@@ -48,6 +49,13 @@ object AppSettings {
 
     fun setSeenCompatWarning(context: Context) {
         prefs(context).edit().putBoolean(KEY_SEEN_COMPAT_WARNING, true).apply()
+    }
+
+    fun hasCompletedCertificateSetup(context: Context): Boolean =
+        prefs(context).getBoolean("extracted_certificate_setup_complete", false)
+
+    fun setCompletedCertificateSetup(context: Context) {
+        prefs(context).edit { putBoolean("extracted_certificate_setup_complete", true) }
     }
 
     /** Whether the certificate setup screen has been deliberately skipped. */

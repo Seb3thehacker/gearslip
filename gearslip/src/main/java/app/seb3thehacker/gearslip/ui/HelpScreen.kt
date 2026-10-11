@@ -48,7 +48,7 @@ private fun setupSteps(onRequestCallScreening: () -> Unit) = listOf(
         "On GrapheneOS, exempt Gearslip from exploit protections.",
         "Open Settings, then Apps, then Gearslip, and turn on Exploit protection compatibility mode.",
     ),
-    Step("Disable or uninstall the Android Auto app."),
+    Step("Disable Android Auto.", "Keep it installed so Gearslip can extract its certificate after updates."),
     Step("Load a certificate.", "Open Settings, then download or import a certificate."),
     Step(
         "Allow the microphone, so music can reach the car.",

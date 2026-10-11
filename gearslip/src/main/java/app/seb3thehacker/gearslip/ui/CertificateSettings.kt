@@ -23,6 +23,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -40,6 +41,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import app.seb3thehacker.gearslip.AppSettings
 import app.seb3thehacker.gearslip.CertProvider
+import app.seb3thehacker.gearslip.ProjectionCertificates
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.Dispatchers
@@ -47,22 +49,22 @@ import kotlinx.coroutines.withContext
 
 /** Keep the choice explicit: expiry and connection failures never change it. */
 @Composable
-internal fun CertificateSettings(onChange: () -> Unit) {
+internal fun CertificateSettings(onChange: () -> Unit, onSetup: () -> Unit) {
     val context = LocalContext.current
     var source by remember { mutableStateOf(AppSettings.certificateSource(context)) }
     var choosing by rememberSaveable { mutableStateOf(false) }
-    val expiry by produceState("Checking expiry…", context, source) {
-        value = "Checking expiry…"
+    val revision by ProjectionCertificates.revision.collectAsState()
+    val identities by produceState<Map<CertProvider.Source, CertProvider.Identity?>>(emptyMap(), revision) {
         value = withContext(Dispatchers.IO) {
-            runCatching {
-                val date = CertProvider.loadBundled(context, source).certificate.notAfter
-                val formatted = DateFormat.getDateInstance(DateFormat.LONG).format(date)
-                if (Date().after(date)) "Expired on $formatted" else "Expires on $formatted"
-            }.getOrDefault("Expiry unavailable")
+            CertProvider.Source.entries.associateWith { ProjectionCertificates.load(context, it) }
         }
     }
+    val expiry = identities[source]?.certificate?.notAfter?.let {
+        val formatted = DateFormat.getDateInstance(DateFormat.LONG).format(it)
+        if (Date().after(it)) "Expired on $formatted" else "Expires on $formatted"
+    } ?: "Not available — open certificate setup"
     SettingsRow(
-        "Bundled fallback",
+        "Projection certificate",
         Modifier.clickable(role = Role.Button) { choosing = true },
         subtitle = "${source.label}\n$expiry",
         icon = Icons.Filled.Lock,
@@ -77,6 +79,8 @@ internal fun CertificateSettings(onChange: () -> Unit) {
     if (choosing) {
         CertificatePicker(
             selected = source,
+            available = identities.filterValues { it != null }.keys,
+            onSetup = { choosing = false; onSetup() },
             onSelect = {
                 AppSettings.setCertificateSource(context, it)
                 source = it
@@ -91,12 +95,14 @@ internal fun CertificateSettings(onChange: () -> Unit) {
 @Composable
 private fun CertificatePicker(
     selected: CertProvider.Source,
+    available: Set<CertProvider.Source>,
+    onSetup: () -> Unit,
     onSelect: (CertProvider.Source) -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Choose bundled fallback") },
+        title = { Text("Choose projection certificate") },
         text = {
             // Scrolling keeps both choices reachable on small screens and at larger font sizes.
             Column(
@@ -109,9 +115,11 @@ private fun CertificatePicker(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     CertProvider.Source.entries.forEach { option ->
-                        CertificateOption(option, selected == option, onClick = { onSelect(option) })
+                        CertificateOption(option, selected == option, option in available, onClick = { onSelect(option) })
                     }
                 }
+                TextButton(onClick = onSetup) { Text("Certificate setup") }
+                ProjectionCertificates.androidAutoError?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 Text(
                     "Your choice is saved until you change it.",
                     style = MaterialTheme.typography.bodySmall,
@@ -125,7 +133,7 @@ private fun CertificatePicker(
 
 /** The whole padded row owns selection, giving the radio and its description one touch target. */
 @Composable
-private fun CertificateOption(source: CertProvider.Source, selected: Boolean, onClick: () -> Unit) {
+private fun CertificateOption(source: CertProvider.Source, selected: Boolean, available: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Surface(
         shape = MaterialTheme.shapes.medium,
@@ -134,13 +142,13 @@ private fun CertificateOption(source: CertProvider.Source, selected: Boolean, on
     ) {
         Row(
             Modifier.fillMaxWidth()
-                .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+                .selectable(selected = selected, enabled = available, role = Role.RadioButton, onClick = onClick)
                 .heightIn(min = 80.dp)
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            RadioButton(selected = selected, onClick = null)
+            RadioButton(selected = selected, enabled = available, onClick = null)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     source.label,
@@ -148,9 +156,9 @@ private fun CertificateOption(source: CertProvider.Source, selected: Boolean, on
                     color = if (selected) colors.onSecondaryContainer else colors.onSurface,
                 )
                 Text(
-                    when (source) {
-                        CertProvider.Source.ANDROID_AUTO -> "Default. Tried even after expiry."
-                        CertProvider.Source.HEAD_UNIT -> "Try this if Android Auto fails."
+                    if (!available) "Not available. Complete certificate setup." else when (source) {
+                        CertProvider.Source.ANDROID_AUTO -> "Extracted from the installed app. Refreshed after updates."
+                        CertProvider.Source.HEAD_UNIT -> "Extracted from the DHU download and saved during setup."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (selected) colors.onSecondaryContainer else colors.onSurfaceVariant,
@@ -168,14 +176,15 @@ internal fun CompatWarning(onOpenSettings: () -> Unit) {
     var expiry by remember { mutableStateOf<Date?>(null) }
     var warningKey by remember { mutableStateOf("") }
     var acknowledged by remember { mutableStateOf("") }
+    val revision by ProjectionCertificates.revision.collectAsState()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resume++ }
-    LaunchedEffect(resume) {
+    LaunchedEffect(resume, revision) {
         if (AppSettings.certificateSource(context) != CertProvider.Source.ANDROID_AUTO) {
             expiry = null
             return@LaunchedEffect
         }
         val cert = withContext(Dispatchers.IO) {
-            runCatching { CertProvider.load(context).takeIf { it.kind == CertProvider.Kind.BUNDLED }?.certificate }.getOrNull()
+            runCatching { CertProvider.load(context).takeIf { it.kind == CertProvider.Kind.ANDROID_AUTO }?.certificate }.getOrNull()
         }
         expiry = cert?.notAfter?.takeIf { Date().after(it) }
         // The old warning promised automatic fallback, so acknowledge this wording separately.
@@ -195,7 +204,7 @@ internal fun CompatWarning(onOpenSettings: () -> Unit) {
             Text(
                 "The Android Auto certificate expired on ${DateFormat.getDateInstance(DateFormat.LONG).format(expiredOn)}. " +
                     "Your car may still accept it, so Gearslip will keep using it. If the connection fails, " +
-                    "open Settings, select Bundled fallback → Head unit (DHU), and reconnect. " +
+                    "open Settings, select Projection certificate → Head unit (DHU), and reconnect. " +
                     "The head-unit certificate may not work with every car.",
             )
         },

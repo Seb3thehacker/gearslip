@@ -5,17 +5,12 @@ import android.net.Uri
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.KeyStore
-import java.security.KeyFactory
-import java.security.cert.CertificateFactory
-import java.security.interfaces.RSAPrivateCrtKey
-import java.security.interfaces.RSAPublicKey
-import java.security.spec.PKCS8EncodedKeySpec
 import java.security.cert.X509Certificate
 
 /**
  * Supplies the certificate the phone presents to the head unit.
  *
- * User-supplied certificates retain priority over the bundled default. Sources, in order:
+ * User-supplied certificates retain priority over extracted projection identities. Sources, in order:
  *
  *  1. **Imported** in the app (Settings > Certificate): a PKCS#12 file plus its password,
  *     copied into the app's private storage.
@@ -30,7 +25,8 @@ import java.security.cert.X509Certificate
  *
  *     Default password is "aaspike" (kept as-is so an already-staged phone.p12 doesn't need
  *     regenerating); a `phone.pass` file next to it overrides it.
- *  4. The selected bundled projection identity (Android Auto by default, or DHU).
+ *  4. The selected extracted identity (installed Android Auto, or the downloaded DHU).
+ *  5. A generated self-signed identity for testing when setup has been skipped.
  */
 object CertProvider {
     private val log = GearslipLog.tagged("CERT")
@@ -40,11 +36,11 @@ object CertProvider {
     private const val DEFAULT_PASSWORD = "aaspike"
     private const val IMPORT_DIR = "identity"
 
-    enum class Kind { IMPORTED, DOWNLOADED, ADB_STAGED, SELF_SIGNED, BUNDLED }
+    enum class Kind { IMPORTED, DOWNLOADED, ADB_STAGED, SELF_SIGNED, ANDROID_AUTO, DHU }
 
-    enum class Source(val label: String, val description: String) {
-        ANDROID_AUTO("Android Auto", "bundled Android Auto 17.9.664004 projection identity"),
-        HEAD_UNIT("Head unit (DHU)", "bundled DHU 2.0 fallback identity"),
+    enum class Source(val label: String, val description: String, val kind: Kind) {
+        ANDROID_AUTO("Android Auto", "extracted Android Auto phone identity", Kind.ANDROID_AUTO),
+        HEAD_UNIT("Head unit (DHU)", "extracted Desktop Head Unit identity", Kind.DHU),
     }
 
     class Identity(
@@ -60,10 +56,15 @@ object CertProvider {
      * next connect: see [loadFromFiles] for how the cache notices.
      */
     fun load(context: Context, source: Source = AppSettings.certificateSource(context)): Identity =
-        loadFromFiles(context) ?: loadBundled(context, source)
+        loadFromFiles(context) ?: ProjectionCertificates.load(context, source) ?: run {
+            val generated = SelfSignedCert.generate()
+            Identity(generated.keyStore, generated.certificate, SelfSignedCert.PASSWORD,
+                "self-signed (no certificate available; complete certificate setup)", Kind.SELF_SIGNED)
+        }
 
-    /** The active identity, including the bundled default, for the certificate summary. */
-    fun loadSupplied(context: Context): Identity? = load(context)
+    /** The active identity without generating a self-signed key, for the certificate summary. */
+    fun loadSupplied(context: Context): Identity? =
+        loadFromFiles(context) ?: ProjectionCertificates.load(context, AppSettings.certificateSource(context))
 
     /**
      * Unlocking a PKCS#12 file takes about a second on a Pixel 6, which a head unit waiting for
@@ -157,7 +158,7 @@ object CertProvider {
     /** Whether a downloaded certificate is stored (may or may not also be imported). */
     fun hasDownloaded(context: Context): Boolean = downloadedFile(context, P12_NAME).isFile
 
-    /** Drops the imported identity; the next source in line (downloaded, adb-staged, then self-signed) takes over. */
+    /** Drops the imported identity; the next source in line takes over. */
     fun removeImported(context: Context) {
         importedFile(context, P12_NAME).delete()
         importedFile(context, PASS_NAME).delete()
@@ -245,53 +246,5 @@ object CertProvider {
         val certificate = keyStore.getCertificate(alias) as X509Certificate
 
         return Identity(keyStore, certificate, chars, "$label (alias=$alias)", kind)
-    }
-
-    private val bundledCache = mutableMapOf<Int, Identity>()
-
-    /** Expiry is informational; the head unit decides whether to accept the certificate. */
-    internal fun loadBundled(context: Context, source: Source): Identity = when (source) {
-        Source.ANDROID_AUTO -> loadBundled(context, R.raw.projection_chain, R.raw.projection_key, source)
-        Source.HEAD_UNIT -> loadBundled(context, R.raw.projection_fallback, R.raw.projection_fallback_key, source)
-    }
-
-    /** Both identities are immutable resources; parse each at most once per process. */
-    @Synchronized
-    private fun loadBundled(context: Context, certificate: Int, key: Int, source: Source): Identity =
-        bundledCache.getOrPut(certificate) {
-            readIdentity(
-                context.resources.openRawResource(certificate).use { it.readBytes() },
-                context.resources.openRawResource(key).use { it.readBytes() },
-                source.description,
-            )
-        }
-
-    internal fun readIdentity(
-        chainBytes: ByteArray,
-        keyBytes: ByteArray,
-        source: String = Source.ANDROID_AUTO.description,
-    ): Identity {
-        val chain = CertificateFactory.getInstance("X.509")
-            .generateCertificates(chainBytes.inputStream()).map { it as X509Certificate }
-        require(chain.isNotEmpty()) { "the bundled certificate chain is empty" }
-        val key = KeyFactory.getInstance("RSA")
-            .generatePrivate(PKCS8EncodedKeySpec(keyBytes)) as RSAPrivateCrtKey
-        val publicKey = chain.first().publicKey as RSAPublicKey
-        require(key.modulus == publicKey.modulus && key.publicExponent == publicKey.publicExponent) {
-            "the bundled certificate and private key do not match"
-        }
-        chain.zipWithNext().forEach { (certificate, issuer) ->
-            require(certificate.issuerX500Principal == issuer.subjectX500Principal) {
-                "the bundled certificate chain is out of order"
-            }
-            certificate.verify(issuer.publicKey)
-        }
-        // An APK resource is public; a password here would not protect this shared identity.
-        val password = CharArray(0)
-        val keyStore = KeyStore.getInstance("PKCS12").apply {
-            load(null, null)
-            setKeyEntry("projection", key, password, chain.toTypedArray())
-        }
-        return Identity(keyStore, chain.first(), password, source, Kind.BUNDLED)
     }
 }
