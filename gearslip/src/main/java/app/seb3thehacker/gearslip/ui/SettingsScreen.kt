@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +66,7 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    onCertificateSetup: () -> Unit,
     onBack: () -> Unit,
     onOpenRecommendedApps: () -> Unit,
     onOpenWhatsNew: () -> Unit,
@@ -104,7 +106,7 @@ fun SettingsScreen(
             AboutSection(onOpenWhatsNew, onReplayTutorial)
             ConnectionSection()
             if (SHOW_RECOMMENDED_APPS) AppsSection(onOpenRecommendedApps)
-            CertificateSection()
+            CertificateSection(onCertificateSetup)
             SettingsSection("Usage notes", header = USAGE_STATS_INTRO) { UsageStatsRows() }
             Spacer(Modifier.height(16.dp))
         }
@@ -176,13 +178,14 @@ private fun AppsSection(onOpenRecommendedApps: () -> Unit) {
 }
 
 @Composable
-private fun CertificateSection() {
+private fun CertificateSection(onSetup: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var refresh by remember { mutableIntStateOf(0) }
     // The cached summary shows at once; the read still runs, in case the cert changed since.
-    val summary by produceState(CertSummary.cached, refresh) {
+    val extractionRevision by app.seb3thehacker.gearslip.ProjectionCertificates.revision.collectAsState()
+    val summary by produceState(CertSummary.cached, refresh, extractionRevision) {
         value = withContext(Dispatchers.Default) { CertSummary.read(context) }
     }
 
@@ -239,7 +242,7 @@ private fun CertificateSection() {
                     }
                 }
             },
-            subtitle = "The certificate the open-source aasdk project publishes on GitHub. Gearslip doesn't include one",
+            subtitle = "The head-unit certificate the open-source aasdk project publishes on GitHub",
             icon = Icons.Filled.Refresh,
         )
         SettingsDivider()
@@ -249,6 +252,8 @@ private fun CertificateSection() {
             subtitle = "A .p12 file with its private key, from wherever you choose",
             icon = Icons.Filled.Add,
         )
+        SettingsDivider()
+        CertificateSettings(onChange = { refresh++ }, onSetup = onSetup)
         val removable = when (s?.kind) {
             CertProvider.Kind.IMPORTED -> "Remove imported certificate"
             CertProvider.Kind.DOWNLOADED -> "Remove downloaded certificate"

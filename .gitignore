@@ -32,9 +32,11 @@ archive/
 .wrangler/
 stats-worker/
 
-# Certificates and keys never go in the repo; the app downloads or imports them on the phone.
+# Certificates and keys are extracted on the phone and never committed.
 *.p12
 *.pfx
 *.pem
 *.crt
 *.key
+
+*.pk8

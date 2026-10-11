@@ -102,6 +102,11 @@ android {
     testOptions {
         // GearslipLog calls android.util.Log, which is a stub on the local JVM.
         unitTests.isReturnDefaultValues = true
+        unitTests.all {
+            // Optional, external integration fixtures. No Google certificates or keys are committed.
+            it.systemProperty("gearslip.referenceApkm", providers.gradleProperty("gearslipReferenceApkm").getOrElse(""))
+            it.systemProperty("gearslip.referenceDhu", providers.gradleProperty("gearslipReferenceDhu").getOrElse(""))
+        }
     }
 
 }

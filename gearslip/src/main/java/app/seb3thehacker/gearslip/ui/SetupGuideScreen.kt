@@ -228,10 +228,10 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
     if (androidAutoPackage != null) {
         add(
             GuidePage(
-                title = "Remove Android Auto",
+                title = "Disable Android Auto",
                 explanation = "Android Auto is still installed. It claims the same USB " +
-                    "connection Gearslip needs, so the two fight over it. Disable or uninstall " +
-                    "it from the app info screen this opens.",
+                    "connection Gearslip needs, so the two fight over it. Disable " +
+                    "it from the app info screen this opens. Keep it installed so Gearslip can refresh its certificate after updates.",
                 actionLabel = "Open Android Auto's app info",
                 onAction = {
                     context.startActivity(
@@ -307,7 +307,7 @@ private fun pages(context: Context, onRequestCallScreening: () -> Unit): List<Gu
 
 /**
  * The first-run guide, one page at a time: permissions, then GrapheneOS's exploit-protection
- * toggle, then removing Android Auto if it is still installed, then the optional extras. Nothing
+ * toggle, then disabling Android Auto if it is still active, then the optional extras. Nothing
  * here can be verified as done except a permission grant, so every other page is a "Next" a
  * driver takes on trust, with "Skip" sitting right next to it.
  */

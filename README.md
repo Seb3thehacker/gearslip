@@ -8,8 +8,8 @@ An Android Auto alternative built for everyone.
 
 ## Which cars work
 
-Most cars work. Starting around 2020, some cars added newer security standards that reject
-Gearslip's certificate, and Gearslip can't run in those cars.
+Earlier builds used a head-unit certificate that some newer cars rejected. This build
+extracts Android Auto's phone-side projection identity from the installed app.
 
 ## What Gearslip is
 
@@ -57,8 +57,9 @@ mode.
 
 - **The connection is wired only, for now.** Plug the phone into the head unit's USB port;
   Gearslip does not yet offer a wireless option.
-- **Setup walks you through it.** First launch asks for the Android Auto certificate,
-  then one permission at a time, each with a plain reason and an Allow or Skip. A help
+- **Setup walks you through it.** First launch extracts the Android Auto certificate and
+  downloads the DHU certificate once, with manual download and import also available.
+  It then asks for one permission at a time, with an Allow or Skip. A help
   screen inside the car answers anything setup didn't cover.
 - **Templated apps work.** Gearslip renders all 16 template types that the Car App
   Library defines, and it draws its own keyboard for search, sign-in, and text fields.
@@ -117,6 +118,60 @@ keystore. Without them, the debug build still works.
 
 [docs/BUILDING_APPS.md](docs/BUILDING_APPS.md) specifies how to write apps that Gearslip
 can render: templated apps, media apps, and the Gearslip app protocol.
+
+## Projection identity
+
+Gearslip ships no projection certificates or private keys. On each process start, it
+reads the installed Android Auto APK (including splits), extracts its CarService
+certificate chain, and decrypts the matching private key. A process-lifetime package
+broadcast receiver refreshes it when Android Auto is installed or updated. Startup
+also catches updates made while Gearslip was stopped. **Keep Android Auto installed
+but disabled** so it cannot claim the car's USB connection.
+
+During certificate setup, Gearslip downloads Google's official
+[Desktop Head Unit 2.0 archive](https://dl.google.com/android/repository/desktop-head-unit-linux-x64_r02.0.zip),
+checks its SHA-256, and extracts its head-unit certificate and private key on the phone.
+It reads the desktop executable as data; it never executes it. The archive is discarded,
+and the extracted identity is saved in private app storage. Successful setup is reused
+across restarts and Android Auto updates, with no further DHU download. If setup fails,
+it can be retried from **Settings → Certificate → Projection certificate → Certificate setup**.
+
+The existing aasdk download and PKCS#12 import remain available in setup and
+**Settings → Certificate**. Imported, downloaded, and adb-staged certificates keep their
+existing priority. When none is supplied, Gearslip uses the selected extracted identity.
+**Projection certificate** lets you choose Android Auto or **Head unit (DHU)**. The
+choice applies to the next connection and remains selected until you change it. Setup
+initially selects DHU if no Android Auto identity is available. Expiry or connection
+failure does not switch identities automatically.
+
+Extraction checks certificate signatures and verifies that the private key matches.
+A failed Android Auto refresh preserves the last valid identity and reports the error
+in the certificate picker. If a future APK changes its key format, use the DHU option
+or import your own certificate until the extractor is updated. If no extracted or
+manually supplied identity is available, the existing self-signed fallback remains;
+most cars will reject it.
+
+The extractor was verified against Android Auto **17.9.664004**, whose phone certificate
+expires on **20 January 2027 at 22:48:17 UTC**. Its SHA-256 fingerprint is
+`39b7417be3f2bcd60b30e3acd4a2995d82661d6d66110e45c10a15d2a3c2ee6e`.
+DHU 2.0's `Android-Auto-Internal` certificate expires on **1 August 2048 at 17:21:23 UTC**;
+its fingerprint is `4eb581dcee2b84369ca87066ab6eaa73a4783aef5c7b6edc6841e066cffa7e7c`.
+Settings shows the actual active certificate and expiry. An expired Android Auto
+certificate produces a dismissible warning; some head units may still accept it.
+The DHU identity's acceptance in the phone role depends on the car and needs real-car
+validation. It is distinct from aasdk's JVC Kenwood identity.
+
+Unit tests generate their own certificate material. Optional integration tests read
+external reference downloads without copying their keys into the repository:
+
+```sh
+./gradlew :gearslip:testDebugUnitTest \
+  -PgearslipReferenceApkm=/path/to/android-auto-17.9.664004.apkm \
+  -PgearslipReferenceDhu=/path/to/desktop-head-unit-linux-x64_r02.0.zip
+```
+
+These identities are separate from Gearslip's APK signing key. They do not replace the
+remaining protocol implementation or third-party apps' host authorization checks.
 
 ## Trademarks
 

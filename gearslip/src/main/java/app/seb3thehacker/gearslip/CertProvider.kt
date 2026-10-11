@@ -10,13 +10,12 @@ import java.security.cert.X509Certificate
 /**
  * Supplies the certificate the phone presents to the head unit.
  *
- * FOSS posture: this code ships with NO certificate. Whoever wants to test the trusted-cert
- * path supplies their own. Sources, in priority order:
+ * User-supplied certificates retain priority over extracted projection identities. Sources, in order:
  *
  *  1. **Imported** in the app (Settings > Certificate): a PKCS#12 file plus its password,
  *     copied into the app's private storage.
  *  2. **Downloaded** from the public opencardev/aasdk repository. Fetched only when the
- *     user asks; the app never ships or hosts the certificate.
+ *     user asks; the aasdk identity is not bundled.
  *  3. **Staged over adb** into the app's external files directory, the way the spike has
  *     always done it. Still honoured, so existing setups keep working untouched:
  *
@@ -26,8 +25,8 @@ import java.security.cert.X509Certificate
  *
  *     Default password is "aaspike" (kept as-is so an already-staged phone.p12 doesn't need
  *     regenerating); a `phone.pass` file next to it overrides it.
- *  4. A freshly generated self-signed cert, which a real head unit rejects (see
- *     SPIKE_FINDINGS.md).
+ *  4. The selected extracted identity (installed Android Auto, or the downloaded DHU).
+ *  5. A generated self-signed identity for testing when setup has been skipped.
  */
 object CertProvider {
     private val log = GearslipLog.tagged("CERT")
@@ -37,7 +36,12 @@ object CertProvider {
     private const val DEFAULT_PASSWORD = "aaspike"
     private const val IMPORT_DIR = "identity"
 
-    enum class Kind { IMPORTED, DOWNLOADED, ADB_STAGED, SELF_SIGNED }
+    enum class Kind { IMPORTED, DOWNLOADED, ADB_STAGED, SELF_SIGNED, ANDROID_AUTO, DHU }
+
+    enum class Source(val label: String, val description: String, val kind: Kind) {
+        ANDROID_AUTO("Android Auto", "extracted Android Auto phone identity", Kind.ANDROID_AUTO),
+        HEAD_UNIT("Head unit (DHU)", "extracted Desktop Head Unit identity", Kind.DHU),
+    }
 
     class Identity(
         val keyStore: KeyStore,
@@ -51,22 +55,16 @@ object CertProvider {
      * The identity for the next connection. A newly imported or pushed cert takes effect on the
      * next connect: see [loadFromFiles] for how the cache notices.
      */
-    fun load(context: Context): Identity = loadFromFiles(context) ?: run {
-        val generated = SelfSignedCert.generate()
-        Identity(
-            generated.keyStore,
-            generated.certificate,
-            SelfSignedCert.PASSWORD,
-            "self-signed (generated) - a real head unit rejects this",
-            Kind.SELF_SIGNED,
-        )
-    }
+    fun load(context: Context, source: Source = AppSettings.certificateSource(context)): Identity =
+        loadFromFiles(context) ?: ProjectionCertificates.load(context, source) ?: run {
+            val generated = SelfSignedCert.generate()
+            Identity(generated.keyStore, generated.certificate, SelfSignedCert.PASSWORD,
+                "self-signed (no certificate available; complete certificate setup)", Kind.SELF_SIGNED)
+        }
 
-    /**
-     * The active identity without the cost of generating a self-signed key: null means "nothing
-     * supplied, a self-signed one would be generated". For the UI, which only wants to describe it.
-     */
-    fun loadSupplied(context: Context): Identity? = loadFromFiles(context)
+    /** The active identity without generating a self-signed key, for the certificate summary. */
+    fun loadSupplied(context: Context): Identity? =
+        loadFromFiles(context) ?: ProjectionCertificates.load(context, AppSettings.certificateSource(context))
 
     /**
      * Unlocking a PKCS#12 file takes about a second on a Pixel 6, which a head unit waiting for
@@ -88,7 +86,7 @@ object CertProvider {
 
     /** Unlocks the certificate ahead of time, so the first connection doesn't wait on it. */
     fun warm(context: Context) {
-        runCatching { loadFromFiles(context) }
+        runCatching { load(context) }
     }
 
     private fun loadFromFiles(context: Context): Identity? {
@@ -160,7 +158,7 @@ object CertProvider {
     /** Whether a downloaded certificate is stored (may or may not also be imported). */
     fun hasDownloaded(context: Context): Boolean = downloadedFile(context, P12_NAME).isFile
 
-    /** Drops the imported identity; the next source in line (downloaded, adb-staged, then self-signed) takes over. */
+    /** Drops the imported identity; the next source in line takes over. */
     fun removeImported(context: Context) {
         importedFile(context, P12_NAME).delete()
         importedFile(context, PASS_NAME).delete()
